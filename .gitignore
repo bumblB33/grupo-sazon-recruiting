@@ -1,5 +1,11 @@
 .venv/
 .env
-.vscode/
 .claude/
-src/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+data/*.db
+logs/
+*.egg-info/
+.vscode/

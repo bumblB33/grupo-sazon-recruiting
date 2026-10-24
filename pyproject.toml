@@ -1,0 +1,47 @@
+[project]
+name = "screening-agent"
+version = "0.1.0"
+description = "AI candidate-screening agent for Grupo Sazón delivery-driver hiring"
+requires-python = ">=3.12"
+dependencies = [
+    "langgraph>=1.2",
+    "langchain-core>=1.7",
+    "langchain>=1.4",
+    "langchain-anthropic>=1.7",
+    "pydantic>=2.14",
+    "pydantic-settings>=2.0",
+    "fastapi>=0.162",
+    "python-multipart>=0.0.20",
+    "uvicorn>=0.30",
+    "sqlmodel>=0.0.48",
+    "rapidfuzz>=3.14",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=9.0", "ruff>=0.8"]
+
+[project.scripts]
+screening-cli = "screening_agent.channels.chat_cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["screening_agent*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "N"]
+# The formatter owns code line length; E501 only fires on template strings and prompts.
+ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+"screening_agent/api/*" = ["B008"]

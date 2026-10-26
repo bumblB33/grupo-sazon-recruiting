@@ -1,4 +1,5 @@
 from fastapi.testclient import TestClient
+from pydantic import SecretStr
 
 from screening_agent.api import app as api
 from screening_agent.api.deps import RECRUITER_COOKIE
@@ -48,7 +49,7 @@ def test_terminal_turn_summarises_in_background(client):
 
 
 def test_recruiter_routes_require_key_when_configured(client, monkeypatch):
-    monkeypatch.setattr(settings, "recruiter_api_key", "secret")
+    monkeypatch.setattr(settings, "recruiter_api_key", SecretStr("secret"))
     assert client.get("/candidates").status_code == 401
     assert client.get("/candidates", headers={"x-api-key": "secret"}).status_code == 200
     client.cookies.set(RECRUITER_COOKIE, "secret")
@@ -61,7 +62,7 @@ def test_recruiter_routes_fail_closed_without_key_outside_dev_mode(client, monke
 
 
 def test_webhook_requires_valid_twilio_signature_when_token_configured(client, monkeypatch):
-    monkeypatch.setattr(settings, "twilio_auth_token", "auth-token")
+    monkeypatch.setattr(settings, "twilio_auth_token", SecretStr("auth-token"))
     form = twilio_form("SM1", "+34600", "sí")
     assert client.post(WEBHOOK, data=form).status_code == 401
     bad = signed_headers(client, form, "wrong-token")
@@ -71,7 +72,7 @@ def test_webhook_requires_valid_twilio_signature_when_token_configured(client, m
 
 
 def test_webhook_signature_uses_configured_public_url(client, monkeypatch):
-    monkeypatch.setattr(settings, "twilio_auth_token", "auth-token")
+    monkeypatch.setattr(settings, "twilio_auth_token", SecretStr("auth-token"))
     monkeypatch.setattr(settings, "twilio_webhook_url", "https://demo.example.com/webhook/whatsapp")
     form = twilio_form("SM1", "+34600", "sí")
     signature = _twilio_signature("https://demo.example.com/webhook/whatsapp", form, "auth-token")

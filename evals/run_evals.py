@@ -1,37 +1,115 @@
+import argparse
 import sys
 import uuid
+from dataclasses import replace
+from pathlib import Path
+from urllib.parse import urlsplit
 
-from evals.graders import grade
+from evals.guardrail_cases import score_guardrail
+from evals.judge import JUDGE_MODEL, Judge
 from evals.personas.text_personas import PERSONAS
+from evals.report import ModelResult, render
+from evals.runner import ModelSet, PersonaRun, build_engine, run_persona
 from screening_agent.config import settings
-from screening_agent.flow.engine import Outcome, ScreeningEngine
+from screening_agent.flow.engine import ScreeningEngine
 from screening_agent.storage.repository import Repository
 
 
 def main() -> int:
-    failures = 0
+    args = _parse()
+    judge = Judge(args.judge_model) if args.judge else None
+    results: list[ModelResult] = []
+    for live_model in args.models:
+        models = ModelSet(live_model, args.summary_model, args.guardrail_model)
+        repository = Repository(eval_database_url(args.db, uuid.uuid4().hex[:8]))
+        try:
+            runs = _run_personas(live_model, build_engine(repository, models), repository, judge)
+        finally:
+            if args.keep_db:
+                print(f"kept database {repository.db.name}", file=sys.stderr)
+            else:
+                repository.client.drop_database(repository.db.name)
+            repository.client.close()
+        results.append(ModelResult(live_model, tuple(runs)))
+    guardrails = [score_guardrail(model_id) for model_id in args.guardrail_models]
+    for score in guardrails:
+        print(f"guardrail {score.model} {score.correct}/{score.total}", file=sys.stderr)
+    report = render(results, guardrails)
+    if args.report:
+        Path(args.report).write_text(report)
+        print(f"report written to {args.report}", file=sys.stderr)
+    else:
+        print(report)
+    return 0 if all(run.grade.passed for result in results for run in result.runs) else 1
+
+
+def _run_personas(
+    live_model: str, engine: ScreeningEngine, repository: Repository, judge: Judge | None
+) -> list[PersonaRun]:
+    runs = []
     for persona in PERSONAS:
-        repository = Repository(f"{settings.database_url}_eval_{uuid.uuid4().hex[:8]}")
-        engine = ScreeningEngine(repository)
-        agent_turns = 0
-        for index, text in enumerate(persona.turns):
-            result = engine.handle(
-                persona.name, text, channel="eval", external_id=f"{persona.name}-{index}"
-            )
-            if result.outcome != Outcome.REPLIED:
-                break
-            agent_turns += 1
-            if result.terminal:
-                engine.summarize_outcome(persona.name)
-        candidate = repository.get_candidate(persona.name)
-        if candidate is None:
-            print(f"FAIL {persona.name} ['no candidate saved']")
-            failures += 1
-            continue
-        result = grade(candidate, agent_turns, persona.expected)
-        print(f"{'PASS' if result.passed else 'FAIL'} {persona.name} {list(result.failures)}")
-        failures += not result.passed
-    return 1 if failures else 0
+        run = run_persona(engine, repository, persona)
+        if judge and run.turns:
+            scores = {"tone": judge.transcript(list(run.turns))}
+            if run.candidate and run.candidate.summary:
+                scores["summary"] = judge.summary(
+                    run.candidate.summary, list(run.turns), run.candidate.profile
+                )
+            run = replace(run, judge={k: v for k, v in scores.items() if v is not None})
+        print(
+            f"{live_model} {'PASS' if run.grade.passed else 'FAIL'} {persona.name} {list(run.grade.failures)}",
+            file=sys.stderr,
+        )
+        runs.append(run)
+    return runs
+
+
+def eval_database_url(database_url: str, suffix: str) -> str:
+    """Each model gets its own database; the suffix goes before any connection options."""
+    base, separator, query = database_url.partition("?")
+    return f"{base}_eval_{suffix}{separator}{query}"
+
+
+def _parse() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Persona evals and model bake-off against live providers. Examples in README."
+    )
+    parser.add_argument(
+        "--models", type=_csv, default=[settings.live_model], help="turn models, comma separated"
+    )
+    parser.add_argument("--summary-model", default=settings.summary_model)
+    parser.add_argument(
+        "--guardrail-model",
+        default=settings.guardrail_model,
+        help="classifier used during persona runs",
+    )
+    parser.add_argument(
+        "--guardrail-models",
+        type=_csv,
+        default=[],
+        help="classifier models to score on the labelled set",
+    )
+    parser.add_argument(
+        "--judge", action="store_true", help="score tone and summary with an LLM judge"
+    )
+    parser.add_argument("--judge-model", default=JUDGE_MODEL)
+    parser.add_argument(
+        "--report", default=None, help="write the markdown report here instead of stdout"
+    )
+    parser.add_argument("--db", default=settings.database_url)
+    parser.add_argument(
+        "--keep-db", action="store_true", help="keep each eval database to inspect transcripts"
+    )
+    args = parser.parse_args()
+    if not args.models:
+        parser.error("--models needs at least one model id")
+    if not urlsplit(args.db).path.strip("/"):
+        parser.error("--db must name a database, e.g. mongodb://host:27017/screening")
+    return args
+
+
+def _csv(value: str) -> list[str]:
+    return [item.strip() for item in value.split(",") if item.strip()]
 
 
 if __name__ == "__main__":

@@ -1,3 +1,5 @@
+from pydantic import SecretStr
+
 from screening_agent.api.deps import RECRUITER_COOKIE
 from screening_agent.config import settings
 from screening_agent.recruiter.router import LOGIN_PATH, RECRUITER_PREFIX
@@ -7,7 +9,7 @@ LIST = f"{RECRUITER_PREFIX}/"
 
 
 def test_pages_redirect_to_login_without_cookie(client, monkeypatch):
-    monkeypatch.setattr(settings, "recruiter_api_key", "secret")
+    monkeypatch.setattr(settings, "recruiter_api_key", SecretStr("secret"))
     response = client.get(LIST, follow_redirects=False)
     assert response.status_code == 303
     assert response.headers["location"] == LOGIN_PATH
@@ -15,7 +17,7 @@ def test_pages_redirect_to_login_without_cookie(client, monkeypatch):
 
 
 def test_login_sets_cookie_then_pages_render(client, monkeypatch):
-    monkeypatch.setattr(settings, "recruiter_api_key", "secret")
+    monkeypatch.setattr(settings, "recruiter_api_key", SecretStr("secret"))
     wrong = client.post(LOGIN_PATH, data={"key": "nope"}, follow_redirects=False)
     assert wrong.status_code == 401
     assert "Wrong key" in wrong.text
@@ -81,3 +83,15 @@ def test_override_form_changes_status_and_records_event(client):
     assert cleared["recruiter_notes"] == ""
     assert client.post(override, data={"status": "bogus"}).status_code == 422
     assert client.post(f"{RECRUITER_PREFIX}/candidates/nope/override", data={}).status_code == 404
+
+
+def test_detail_route_marks_nothing_done_for_an_unknown_stage(client):
+    from screening_agent.api import app as api
+
+    screen_no_licence(client, "+34600")
+    route = f"{RECRUITER_PREFIX}/candidates/+34600"
+    assert 'class="done"' in client.get(route).text
+    repository = api.app.dependency_overrides[api.get_repository]()
+    repository.candidates.update_one({"_id": "+34600"}, {"$set": {"stage": "retired_stage"}})
+    page = client.get(route).text
+    assert 'class="done"' not in page and 'class="here"' not in page

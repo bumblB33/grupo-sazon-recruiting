@@ -116,13 +116,32 @@ API_SCRIPT = [
 ]
 
 
+SECRET_SETTINGS = (
+    "anthropic_api_key",
+    "openai_api_key",
+    "mistral_api_key",
+    "recruiter_api_key",
+    "twilio_auth_token",
+    "twilio_webhook_url",
+    "twilio_account_sid",
+    "twilio_api_key_sid",
+    "twilio_api_key_secret",
+    "twilio_whatsapp_from",
+    "twilio_opener_content_sid",
+)
+
+
+@pytest.fixture(autouse=True)
+def no_secrets_from_env(monkeypatch) -> None:
+    """Settings also read .env; a developer's live keys must never reach a test or a real provider."""
+    for name in SECRET_SETTINGS:
+        monkeypatch.setattr(settings, name, None)
+
+
 @pytest.fixture
 def client(make_engine, monkeypatch) -> Iterable[TestClient]:
     """API client in dev mode with no secrets; tests set a secret via monkeypatch to exercise auth."""
     monkeypatch.setattr(settings, "dev_mode", True)
-    monkeypatch.setattr(settings, "recruiter_api_key", None)
-    monkeypatch.setattr(settings, "twilio_auth_token", None)
-    monkeypatch.setattr(settings, "twilio_webhook_url", None)
     engine, repository, _ = make_engine(API_SCRIPT)
     api.app.dependency_overrides[api.get_repository] = lambda: repository
     api.app.dependency_overrides[api.get_engine] = lambda: engine

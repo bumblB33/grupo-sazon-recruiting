@@ -1,7 +1,10 @@
-from langchain.chat_models import init_chat_model
+from collections.abc import Callable
+
 from langchain_core.messages import AnyMessage, HumanMessage, SystemMessage
 
-from screening_agent.config import settings
+from screening_agent.llm.models import chat_model
+
+Summarizer = Callable[[dict, str, list[AnyMessage]], str]
 
 SUMMARY_SYSTEM = (
     "You write a four-line recruiter summary of a delivery-driver screening. Line 1: outcome and reason. "
@@ -10,11 +13,13 @@ SUMMARY_SYSTEM = (
 )
 
 
-def summarize(profile: dict, status: str, transcript: list[AnyMessage]) -> str:
-    model = init_chat_model(
-        settings.summary_model, temperature=0, timeout=settings.llm_timeout_seconds
-    )
-    lines = [f"{m.type}: {m.content}" for m in transcript if m.type in ("human", "ai")]
-    body = f"Status: {status}\nProfile: {profile}\nTranscript:\n" + "\n".join(lines)
-    response = model.invoke([SystemMessage(content=SUMMARY_SYSTEM), HumanMessage(content=body)])
-    return str(response.content)
+def make_summarizer(model_id: str) -> Summarizer:
+    model = chat_model(model_id)
+
+    def summarize(profile: dict, status: str, transcript: list[AnyMessage]) -> str:
+        lines = [f"{m.type}: {m.text}" for m in transcript if m.type in ("human", "ai")]
+        body = f"Status: {status}\nProfile: {profile}\nTranscript:\n" + "\n".join(lines)
+        response = model.invoke([SystemMessage(content=SUMMARY_SYSTEM), HumanMessage(content=body)])
+        return str(response.content)
+
+    return summarize

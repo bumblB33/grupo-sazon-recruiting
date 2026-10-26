@@ -4,11 +4,12 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
-from typing import Any, Protocol
+from typing import Protocol
 
-from langchain_core.messages import AIMessage, AnyMessage, HumanMessage
+from langchain_core.messages import AIMessage, HumanMessage
 from langgraph.graph.state import CompiledStateGraph
 
+from screening_agent.config import settings
 from screening_agent.domain.enums import Language, ReviewReason, Status
 from screening_agent.flow import replies
 from screening_agent.flow.graph import build_graph
@@ -20,8 +21,9 @@ from screening_agent.flow.silence import (
 )
 from screening_agent.flow.state import ScreeningState, initial_state, is_closed, stage_of
 from screening_agent.llm.guardrail import Guardrail, GuardrailVerdict
-from screening_agent.llm.summary import summarize
-from screening_agent.llm.turn import build_prompt, live_model
+from screening_agent.llm.models import chat_model
+from screening_agent.llm.summary import Summarizer, make_summarizer
+from screening_agent.llm.turn import build_prompt
 from screening_agent.storage.repository import (
     DuplicateMessageError,
     Repository,
@@ -29,7 +31,6 @@ from screening_agent.storage.repository import (
     str_or_none,
 )
 
-Summarizer = Callable[[dict[str, Any], str, list[AnyMessage]], str]
 GuardrailCheck = Callable[[str], GuardrailVerdict]
 
 OFF_TOPIC_STRIKE_LIMIT = 2
@@ -81,9 +82,9 @@ class ScreeningEngine:
         guardrail: GuardrailCheck | None = None,
     ) -> None:
         self.repository = repository
-        self.graph = graph or build_graph(live_model(), build_prompt)
-        self.summarizer = summarizer or summarize
-        self.guardrail = guardrail or Guardrail.from_settings().check
+        self.graph = graph or build_graph(chat_model(settings.live_model), build_prompt)
+        self.summarizer = summarizer or make_summarizer(settings.summary_model)
+        self.guardrail = guardrail or Guardrail.for_model(settings.guardrail_model).check
         self._locks: defaultdict[str, threading.Lock] = defaultdict(threading.Lock)
 
     def handle(

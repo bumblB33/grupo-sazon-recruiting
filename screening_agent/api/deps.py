@@ -43,7 +43,9 @@ def recruiter_key_is_valid(presented: str | None) -> bool:
         raise HTTPException(status_code=503, detail="recruiter api key not configured")
     if presented is None:
         return False
-    return hmac.compare_digest(presented.encode(), settings.recruiter_api_key.encode())
+    return hmac.compare_digest(
+        presented.encode(), settings.recruiter_api_key.get_secret_value().encode()
+    )
 
 
 def require_recruiter(

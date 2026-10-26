@@ -14,7 +14,9 @@ Scaffold stage. Decisions taken 23 Oct that override the outline where they diff
 - Layout is `screening_agent/` per the outline. The old `src/` tree is deleted.
 - The design outline is private prep material and lives outside the repo. The shippable Phase 1 deliverable is `docs/process-design.md`.
 
-Working: domain, flow, CLI, storage, API with key auth and webhook signature check, recruiter pages (`screening_agent/recruiter/`), summary, guardrail classifier, WhatsApp opener and outbound via Twilio REST, silence sweep (`screening-nudge`) that nudges and sets `abandoned`, tests for all of it with fakes. Not started: model bake-off (`evals/`), voice channel, Logfire. Service areas in `domain/service_areas.py` are fixture data keyed by bare city name, not the client's 45 locations.
+Working: domain, flow, CLI, storage, API with key auth and webhook signature check, recruiter pages (`screening_agent/recruiter/`), summary, guardrail classifier, WhatsApp opener and outbound via Twilio REST, silence sweep (`screening-nudge`) that nudges and sets `abandoned`, evals and bake-off runner (`evals/`), tests for all of it with fakes. Not started: voice channel, Logfire. Service areas in `domain/service_areas.py` are fixture data keyed by bare city name, not the client's 45 locations.
+
+Remaining work and open findings are tracked in the README "Status" section.
 
 ## Commands
 
@@ -26,14 +28,14 @@ pip install -e ".[dev]"
 pytest                              # all tests, no LLM calls
 pytest tests/test_flow.py::test_no_licence_is_hard_stop
 ruff check . && ruff format .
-screening-cli                       # chat loop against the graph, needs a provider API key
+screening-cli                       # chat loop against the graph, needs PROJECT_ANTHROPIC_API_KEY or the provider's key
 uvicorn screening_agent.api.app:app --reload    # needs a Mongo at SCREENING_DATABASE_URL
 screening-nudge                     # silence sweep, run from cron every few minutes
 docker compose up --build           # api + sweep + mongo
-python -m evals.run_evals           # persona evals against the live model
+python -m evals.run_evals           # persona evals; --models a,b --judge --guardrail-models c,d --report docs/bakeoff.md for the bake-off
 ```
 
-Tests drive the graph with a scripted fake model (`tests/conftest.py`) that records bound tool names and model inputs. One scripted AI message is consumed per candidate message. Build a fresh `ai(...)` per turn: `add_messages` assigns an id to a message on first use, so replaying the same object replaces the earlier message instead of appending. `make_engine` injects a no-op `summarizer` and a permit-all `guardrail`; pass `guardrail=` to script blocks. API tests set `settings.dev_mode` via `monkeypatch`. Tests need Docker: `tests/conftest.py` starts one `mongo:7` test container per session and gives each test its own database. `SCREENING_TEST_DATABASE_URL` points the session at an existing MongoDB instead. Without either, every repository-backed test skips with a reason. The `client` fixture in conftest is the API test client in dev mode with no secrets.
+Tests drive the graph with a scripted fake model (`tests/conftest.py`) that records bound tool names and model inputs. One scripted AI message is consumed per candidate message. Build a fresh `ai(...)` per turn: `add_messages` assigns an id to a message on first use, so replaying the same object replaces the earlier message instead of appending. `make_engine` injects a no-op `summarizer` and a permit-all `guardrail`; pass `guardrail=` to script blocks. API tests set `settings.dev_mode` via `monkeypatch`. Tests need Docker: `tests/conftest.py` starts one `mongo:7` test container per session and gives each test its own database. `SCREENING_TEST_DATABASE_URL` points the session at an existing MongoDB instead. Without either, every repository-backed test skips with a reason. An autouse fixture in conftest sets every secret and outbound Twilio setting to `None`, because settings also read `.env`. The `client` fixture is the API test client in dev mode.
 
 ## Architecture
 
@@ -49,7 +51,7 @@ Governing decision: code owns the node graph and the tools, the LLM owns the tur
 - Graph per message: `turn` (one LLM call with the stage's tools bound) then `apply_tools` (validate, transition, pick reply). No LangGraph checkpointer; `storage/repository.py` persists the full state inside the candidate document.
 - Never an automated no on a judgement call. Anything ambiguous goes to `needs_recruiter_review`.
 - Guardrail (`llm/guardrail.py`) is one structured-output call before the turn, injected into `ScreeningEngine` as a callable. Categories: on_topic, off_topic, abusive, prompt_injection. It fails open: a classifier error allows the message and records a `guardrail_failed` event. A blocked message redirects once, then closes to `needs_recruiter_review` (`OFF_TOPIC_STRIKE_LIMIT`).
-- Outbound without an inbound goes through `OutboundChannel` (`send_text`, `send_opener`). `channels/whatsapp.py: TwilioWhatsAppSender` posts to the Twilio Messages REST API; the opener uses `SCREENING_TWILIO_OPENER_CONTENT_SID` when set (templates are the only deliverable message outside the 24h window). `POST /candidates` opens a conversation and sends the opener; candidate id is the E.164 phone.
+- Outbound without an inbound goes through `OutboundChannel` (`send_text`, `send_opener`). `channels/whatsapp.py: TwilioWhatsAppSender` posts to the Twilio Messages REST API with API key basic auth (`SCREENING_TWILIO_API_KEY_SID`/`_SECRET`, Account SID only in the URL); the opener uses `SCREENING_TWILIO_OPENER_CONTENT_SID` when set (templates are the only deliverable message outside the 24h window). `POST /candidates` opens a conversation and sends the opener; candidate id is the E.164 phone.
 - Silence is a cron sweep, not a timer. `flow/silence.py: silence_action` is a pure decision over `Conversation.opened_at`, `last_inbound_at`, `nudge_count` and the `SCREENING_*_HOURS` settings. Before the first reply: opener retry at 24h, abandon at 48h. After a reply: nudges at 2h and 23h, abandon at 24h. `ScreeningEngine.sweep_silence(now, channels)` decides on a snapshot, re-checks under the candidate lock, and isolates a failed send per candidate (`nudge_failed` event). `version` on the candidate document is optimistic locking across processes: a write from an older version raises `StaleStateError`; `handle` re-runs the turn once, the sweep skips.
 - Storage is one MongoDB document per candidate in `candidates`: recruiter fields, engine `state`, `version`, silence timing and the embedded `transcript` (direction, channel, body, external id). A turn is one conditional `update_one` on that document, so no multi-document transaction and no replica set is needed. `events` is a separate append-only collection. Dedupe is a `$ne` on the transcript external id in that conditional update, so a lost race across processes raises `DuplicateMessageError` from the write itself. `SCREENING_DATABASE_URL` must name the database.
 - Deployment is `compose.yaml`: `api` (uvicorn), `sweep` (loops `screening-nudge` every `SWEEP_INTERVAL_SECONDS`), `mongo` with a named volume and healthcheck. Secrets come from `.env` (see `.env.example`). Nudge text is the stage's re-ask wrapped in `replies.NUDGE`. A channel with no outbound sender (CLI, evals) is only abandoned. Abandoned candidates get no summary call; the outcome event records the drop-off stage.
@@ -64,4 +66,5 @@ Layout: `screening_agent/{domain,flow,llm,channels,storage,api,recruiter}`, plus
 ## Conventions
 
 - Candidate-facing text: Spanish or English per message, informal tú, one question per message, 1-2 sentences, at most one emoji. Agent discloses it is an AI.
-- Graders in `evals/` score the final JSON and outcome, not the transcript.
+- Graders in `evals/` score the final JSON, outcome and deterministic reply style. Wording is scored by the LLM judge in `evals/judge.py`, never by string matching.
+- Model construction goes through `llm/models.py: chat_model(model_id)`. The `PROVIDERS` table sets the key and sampling parameters per provider: Anthropic none (current Claude models reject them), OpenAI and Mistral temperature 0, hosted providers (Bedrock, Vertex) neither. Provider keys come from settings (`PROVIDERS`: `PROJECT_ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `MISTRAL_API_KEY`), because pydantic-settings does not export `.env`; a missing key raises `ProviderKeyMissingError`. Settings ignore empty env assignments, so `KEY=` in `.env` counts as unset. Twilio auth token and API key secret and the recruiter key are `SecretStr`. Never read `ANTHROPIC_API_KEY`, Claude Code in the same terminal uses that name.

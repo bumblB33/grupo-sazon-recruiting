@@ -94,6 +94,7 @@ def candidate_page(
             "candidate": candidate,
             "profile_json": json.dumps(candidate.profile, indent=2, ensure_ascii=False),
             "statuses": STATUSES,
+            "stages": STAGES,
         },
     )
 

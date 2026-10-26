@@ -1,37 +1,66 @@
 {% extends "base.html" %}
 {% block title %}Candidates{% endblock %}
+{% block styles %}
+    .head { display: flex; flex-wrap: wrap; align-items: end; gap: 20px; margin-bottom: 24px; }
+    .head form { margin-left: auto; display: flex; gap: 8px; }
+    .funnel { list-style: none; padding: 0; margin: 0 0 32px; display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 14px; }
+    .tally { padding: 16px 18px 14px; border-top: 6px solid var(--tone, var(--ink)); }
+    .tally-label { font: 600 12px var(--mono); letter-spacing: 0.06em; }
+    .tally-bar { margin-top: 12px; height: 6px; background: var(--paper-deep); border-radius: 3px; overflow: hidden; }
+    .tally-bar span { display: block; height: 100%; width: calc(var(--share) * 100%); background: var(--tone, var(--ink)); transform-origin: left; animation: fill 900ms var(--ease) both; animation-delay: calc(var(--i, 0) * 70ms + 300ms); }
+    .board { padding: 4px 8px 8px; overflow-x: auto; }
+    .board tbody tr { animation: rise 500ms var(--ease) both; animation-delay: calc(min(var(--i), 15) * 35ms + 200ms); }
+    .board td:first-child a { font: 600 13px var(--mono); }
+    .name { font-weight: 700; }
+    .empty { text-align: center; padding: 40px; font-family: var(--display); font-size: 22px; color: var(--muted); }
+{% endblock %}
 {% block content %}
-<h1>Candidates</h1>
-<p class="funnel">
-  {% for name, count in funnel.by_status.items() %}<span class="badge {{ name }}">{{ name }}: {{ count }}</span>{% endfor %}
-</p>
-<form method="get" action="/recruiter/">
-  <select name="status">
-    <option value="">any status</option>
-    {% for option in statuses %}<option value="{{ option.value }}" {% if option.value == status %}selected{% endif %}>{{ option.value }}</option>{% endfor %}
-  </select>
-  <select name="stage">
-    <option value="">any stage</option>
-    {% for option in stages %}<option value="{{ option.value }}" {% if option.value == stage %}selected{% endif %}>{{ option.value }}</option>{% endfor %}
-  </select>
-  <button type="submit">Filter</button>
-</form>
-<table>
-  <thead><tr><th>Candidate</th><th>Name</th><th>Status</th><th>Stage</th><th>Reason</th><th>Zone</th><th>Updated</th></tr></thead>
-  <tbody>
-  {% for candidate in candidates %}
-    <tr>
-      <td><a href="/recruiter/candidates/{{ candidate.id | urlencode }}">{{ candidate.id }}</a></td>
-      <td>{{ candidate.profile.get("full_name", "") }}</td>
-      <td><span class="badge {{ candidate.status }}">{{ candidate.status }}</span></td>
-      <td>{{ candidate.stage }}</td>
-      <td>{{ candidate.disqualify_reason or candidate.review_reason or "" }}</td>
-      <td>{{ candidate.profile.get("zone", "") }}</td>
-      <td class="meta">{{ candidate.updated_at.strftime("%Y-%m-%d %H:%M") }}</td>
-    </tr>
-  {% else %}
-    <tr><td colspan="7">No candidates match.</td></tr>
+<div class="head">
+  <div>
+    <p class="kicker">Delivery drivers · España &amp; México</p>
+    <h1>Candidates</h1>
+  </div>
+  <form method="get" action="/recruiter/">
+    <select name="status" aria-label="Status">
+      <option value="">any status</option>
+      {% for option in statuses %}<option value="{{ option.value }}" {% if option.value == status %}selected{% endif %}>{{ option.value }}</option>{% endfor %}
+    </select>
+    <select name="stage" aria-label="Stage">
+      <option value="">any stage</option>
+      {% for option in stages %}<option value="{{ option.value }}" {% if option.value == stage %}selected{% endif %}>{{ option.value }}</option>{% endfor %}
+    </select>
+    <button type="submit">Filter</button>
+  </form>
+</div>
+
+{% set total = funnel.by_status.values() | sum %}
+<ul class="funnel">
+  {% for name, count in funnel.by_status.items() %}
+  <li class="tally card reveal {{ name }}" style="--i: {{ loop.index0 }}; --share: {{ count / total }}">
+    <span class="tally-label">{{ name }}: {{ count }}</span>
+    <div class="tally-bar" aria-hidden="true"><span></span></div>
+  </li>
   {% endfor %}
-  </tbody>
-</table>
+</ul>
+
+<div class="board card">
+  <table>
+    <thead><tr><th>Candidate</th><th>Name</th><th>Status</th><th>Stage</th><th>Reason</th><th>Zone</th><th>Updated</th></tr></thead>
+    <tbody>
+    {% for candidate in candidates %}
+      <tr style="--i: {{ loop.index0 }}">
+        <td><a href="/recruiter/candidates/{{ candidate.id | urlencode }}">{{ candidate.id }}</a></td>
+        <td class="name">{{ candidate.profile.get("full_name", "") }}</td>
+        <td><span class="badge {{ candidate.status }}">{{ candidate.status }}</span></td>
+        <td class="mono">{{ candidate.stage }}</td>
+        <td class="mono">{{ candidate.disqualify_reason or candidate.review_reason or "" }}</td>
+        <td>{{ candidate.profile.get("zone", "") }}</td>
+        <td class="meta">{{ candidate.updated_at.strftime("%Y-%m-%d %H:%M") }}</td>
+      </tr>
+    {% else %}
+      <tr style="--i: 0"><td colspan="7" class="empty">No candidates match.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
 {% endblock %}

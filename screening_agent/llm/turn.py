@@ -1,6 +1,3 @@
-from langchain.chat_models import init_chat_model
-from langchain_core.language_models import BaseChatModel
-
 from screening_agent.config import settings
 from screening_agent.domain.clock import candidate_today
 from screening_agent.domain.enums import Stage
@@ -50,15 +47,6 @@ def build_prompt(state: ScreeningState, stage: Stage) -> str:
         "message as your reply. If they answer several questions at once, call several tools. If the answer is "
         "ambiguous, still call the tool with your best reading; the system validates it and asks again if needed. "
         "If they ask something you cannot answer, say a recruiter will follow up and return to the current question."
-    )
-
-
-def live_model() -> BaseChatModel:
-    return init_chat_model(
-        settings.live_model,
-        temperature=0,
-        timeout=settings.llm_timeout_seconds,
-        max_retries=settings.llm_max_retries,
     )
 
 

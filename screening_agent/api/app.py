@@ -49,7 +49,9 @@ async def verified_webhook_message(
             raise HTTPException(status_code=503, detail="twilio auth token not configured")
     else:
         url = settings.twilio_webhook_url or str(request.url)
-        if not verify_twilio_signature(url, form, x_twilio_signature, settings.twilio_auth_token):
+        if not verify_twilio_signature(
+            url, form, x_twilio_signature, settings.twilio_auth_token.get_secret_value()
+        ):
             raise HTTPException(status_code=401, detail="invalid twilio signature")
     try:
         return InboundWhatsAppMessage.from_twilio_form(form)

@@ -2,39 +2,178 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}Screening{% endblock %} - Grupo Sazón</title>
   <style>
-    body { font: 15px/1.4 system-ui, sans-serif; margin: 0; color: #222; }
-    header { background: #b3261e; color: #fff; padding: 10px 20px; display: flex; gap: 20px; align-items: center; }
-    header a { color: #fff; }
+    :root {
+      --paper: #f4ecdc;
+      --paper-deep: #e9dcc2;
+      --card: #fffaf0;
+      --ink: #24140e;
+      --muted: #7a6656;
+      --rule: rgba(36, 20, 14, 0.16);
+      --chile: #c8261b;
+      --marigold: #f0a020;
+      --agave: #1d6b57;
+      --rosa: #d93d74;
+      --cielo: #2f5d8a;
+      --ash: #8c8178;
+      --display: "Cooper Black", Rockwell, Georgia, serif;
+      --body: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+      --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font: 16px/1.5 var(--body);
+      color: var(--ink);
+      background:
+        radial-gradient(circle at 1px 1px, rgba(36, 20, 14, 0.07) 1px, transparent 0) 0 0 / 14px 14px,
+        radial-gradient(ellipse at 85% -10%, rgba(240, 160, 32, 0.22), transparent 55%),
+        radial-gradient(ellipse at -10% 110%, rgba(29, 107, 87, 0.14), transparent 50%),
+        linear-gradient(180deg, var(--paper), var(--paper-deep));
+      background-attachment: fixed;
+    }
+    a { color: var(--chile); text-decoration-thickness: 2px; text-underline-offset: 3px; }
+    a:hover { color: var(--ink); }
+
+    header {
+      background: var(--ink);
+      color: var(--paper);
+      padding: 14px 32px 12px;
+      display: flex;
+      gap: 28px;
+      align-items: baseline;
+    }
+    .brand { font-family: var(--display); font-size: 30px; color: var(--marigold); line-height: 1; text-decoration: none; }
+    .brand small { display: block; font: 600 10px/1.6 var(--mono); letter-spacing: 0.2em; text-transform: uppercase; color: var(--paper-deep); }
+    header nav a { color: var(--paper); font: 600 12px var(--mono); letter-spacing: 0.12em; text-transform: uppercase; text-decoration: none; }
+    header nav a:hover { color: var(--marigold); }
     header form { margin-left: auto; }
-    main { padding: 20px; max-width: 1100px; }
+    header button { background: transparent; color: var(--paper); border-color: rgba(244, 236, 220, 0.4); box-shadow: none; }
+    header button:hover { background: var(--chile); border-color: var(--chile); }
+
+    /* Papel picado strip: coloured bands cut into a zigzag by the mask. */
+    .picado {
+      height: 18px;
+      background: repeating-linear-gradient(90deg,
+        var(--chile) 0 72px, var(--marigold) 72px 144px, var(--agave) 144px 216px,
+        var(--rosa) 216px 288px, var(--cielo) 288px 360px);
+      -webkit-mask: conic-gradient(from -45deg at bottom, #0000, #000 1deg 89deg, #0000 90deg) 50% / 18px 100%;
+      mask: conic-gradient(from -45deg at bottom, #0000, #000 1deg 89deg, #0000 90deg) 50% / 18px 100%;
+      transform-origin: top;
+      animation: unfurl 700ms var(--ease) both;
+    }
+
+    main { padding: 32px; max-width: 1200px; margin: 0 auto; }
+    h1 { font-family: var(--display); font-weight: 400; font-size: clamp(34px, 5vw, 52px); line-height: 1.05; margin: 0 0 6px; }
+    h2 { font: 600 11px var(--mono); letter-spacing: 0.22em; text-transform: uppercase; color: var(--muted); margin: 0 0 12px; display: flex; gap: 10px; align-items: center; }
+    h2::after { content: ""; flex: 1; border-top: 1px dashed var(--rule); }
+    .kicker { font: 600 11px var(--mono); letter-spacing: 0.18em; text-transform: uppercase; color: var(--chile); margin: 0 0 4px; }
+    .meta { color: var(--muted); font: 11px/1.5 var(--mono); }
+    .error { color: var(--chile); font-weight: 700; }
+    section { margin-bottom: 28px; }
+
+    .reveal { animation: rise 600ms var(--ease) both; animation-delay: calc(var(--i, 0) * 70ms); }
+
+    .card {
+      background: var(--card);
+      border: 1px solid var(--rule);
+      border-radius: 4px;
+      padding: 18px 20px;
+      box-shadow: 0 1px 0 var(--rule), 0 14px 30px -18px rgba(36, 20, 14, 0.45);
+    }
+    /* Torn comanda edge at the bottom of a ticket. */
+    .ticket {
+      border-bottom: none;
+      border-radius: 4px 4px 0 0;
+      padding-bottom: 28px;
+      -webkit-mask: radial-gradient(circle 7px at 50% 100%, #0000 98%, #000) 50% 100% / 18px 100% repeat-x;
+      mask: radial-gradient(circle 7px at 50% 100%, #0000 98%, #000) 50% 100% / 18px 100% repeat-x;
+    }
+
+    .badge {
+      display: inline-block;
+      padding: 3px 10px 2px;
+      border: 2px solid currentColor;
+      border-radius: 3px;
+      font: 600 10px/1.4 var(--mono);
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      white-space: nowrap;
+      color: var(--tone, var(--ink));
+      transform: rotate(-2deg);
+      background: rgba(255, 250, 240, 0.6);
+    }
+    .qualified { --tone: var(--agave); }
+    .disqualified { --tone: var(--chile); }
+    .needs_recruiter_review { --tone: var(--marigold); }
+    .abandoned { --tone: var(--ash); }
+    .in_progress { --tone: var(--cielo); }
+    .needs_recruiter_review.badge { color: #a8640a; }
+
     table { border-collapse: collapse; width: 100%; }
-    th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid #ddd; vertical-align: top; }
-    th { background: #f5f5f5; }
-    .badge { padding: 2px 8px; border-radius: 10px; background: #eee; font-size: 13px; white-space: nowrap; }
-    .qualified { background: #d9f2dd; } .disqualified { background: #f8d7da; }
-    .needs_recruiter_review { background: #fff3cd; } .abandoned { background: #e2e3e5; }
-    .funnel span { margin-right: 14px; }
-    pre { background: #f5f5f5; padding: 10px; overflow-x: auto; }
-    .transcript li { list-style: none; margin: 6px 0; padding: 6px 10px; border-radius: 8px; max-width: 70%; }
-    .transcript .in { background: #e8f0fe; } .transcript .out { background: #f1f1f1; margin-left: auto; }
-    .transcript { padding: 0; display: flex; flex-direction: column; }
-    .meta { color: #666; font-size: 12px; }
-    section { margin-bottom: 24px; }
-    form.inline { display: inline; }
-    label { display: block; margin: 8px 0 4px; }
-    textarea { width: 100%; max-width: 600px; }
-    button, select, input { font: inherit; }
-    .error { color: #b3261e; }
+    th, td { text-align: left; padding: 12px 14px; vertical-align: top; }
+    th { font: 600 10px var(--mono); letter-spacing: 0.18em; text-transform: uppercase; color: var(--muted); border-bottom: 2px solid var(--ink); }
+    td { border-bottom: 1px dotted var(--rule); }
+    tbody tr { transition: background 160ms; }
+    tbody tr:hover { background: rgba(240, 160, 32, 0.12); }
+    code, pre, .mono { font-family: var(--mono); font-size: 12px; }
+    pre { margin: 0; white-space: pre-wrap; word-break: break-word; }
+
+    label { display: block; margin: 12px 0 6px; font: 600 10px var(--mono); letter-spacing: 0.16em; text-transform: uppercase; color: var(--muted); }
+    button, select, input, textarea { font: inherit; color: inherit; }
+    select, input, textarea {
+      background: var(--card);
+      border: 1.5px solid var(--ink);
+      border-radius: 3px;
+      padding: 8px 10px;
+    }
+    textarea { width: 100%; resize: vertical; }
+    select:focus, input:focus, textarea:focus, button:focus-visible { outline: 3px solid var(--marigold); outline-offset: 2px; }
+    button {
+      cursor: pointer;
+      background: var(--chile);
+      color: var(--card);
+      border: 1.5px solid var(--ink);
+      border-radius: 3px;
+      padding: 8px 16px;
+      font: 600 11px var(--mono);
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      box-shadow: 3px 3px 0 var(--ink);
+      transition: transform 120ms var(--ease), box-shadow 120ms var(--ease);
+    }
+    button:hover { transform: translate(-1px, -1px); box-shadow: 4px 4px 0 var(--ink); }
+    button:active { transform: translate(3px, 3px); box-shadow: 0 0 0 var(--ink); }
+
+    @keyframes rise { from { opacity: 0; transform: translateY(14px); } }
+    @keyframes unfurl { from { transform: scaleY(0); } }
+    @keyframes stamp { 0% { opacity: 0; transform: scale(1.8) rotate(-12deg); } 70% { opacity: 1; transform: scale(0.94) rotate(-1deg); } }
+    @keyframes fill { from { transform: scaleX(0); } }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { animation: none !important; transition: none !important; }
+    }
+    @media (max-width: 720px) {
+      header { padding: 12px 16px; flex-wrap: wrap; }
+      main { padding: 20px 16px; }
+    }
+    {% block styles %}{% endblock %}
   </style>
 </head>
 <body>
   <header>
-    <strong>Grupo Sazón screening</strong>
-    <a href="/recruiter/">Candidates</a>
-    {% block header %}<form method="post" action="/recruiter/logout"><button type="submit">Log out</button></form>{% endblock %}
+    <a class="brand" href="/recruiter/">Sazón<small>reclutamiento · repartidores</small></a>
+    {% block header %}
+    <nav><a href="/recruiter/">Candidates</a></nav>
+    <form method="post" action="/recruiter/logout"><button type="submit">Log out</button></form>
+    {% endblock %}
   </header>
+  <div class="picado" aria-hidden="true"></div>
   <main>{% block content %}{% endblock %}</main>
 </body>
 </html>

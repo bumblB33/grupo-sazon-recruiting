@@ -1,12 +1,11 @@
 from dataclasses import dataclass
 from enum import StrEnum
 
-from langchain.chat_models import init_chat_model
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 from langchain_core.runnables import Runnable
 from pydantic import BaseModel
 
-from screening_agent.config import settings
+from screening_agent.llm.models import chat_model
 
 
 class GuardrailCategory(StrEnum):
@@ -49,14 +48,8 @@ class Guardrail:
         self.classifier = classifier
 
     @classmethod
-    def from_settings(cls) -> "Guardrail":
-        model = init_chat_model(
-            settings.guardrail_model,
-            temperature=0,
-            timeout=settings.llm_timeout_seconds,
-            max_retries=settings.llm_max_retries,
-        )
-        return cls(model.with_structured_output(Classification))
+    def for_model(cls, model_id: str) -> "Guardrail":
+        return cls(chat_model(model_id).with_structured_output(Classification))
 
     def check(self, message: str) -> GuardrailVerdict:
         try:
@@ -64,7 +57,7 @@ class Guardrail:
                 [SystemMessage(content=GUARDRAIL_SYSTEM), HumanMessage(content=message)]
             )
         except Exception as exc:  # fail open: a classifier outage must not stall screening
-            return GuardrailVerdict(allowed=True, error=str(exc))
+            return GuardrailVerdict(allowed=True, error=str(exc) or type(exc).__name__)
         if result is None:  # structured output returns None when the model emits no tool call
             return GuardrailVerdict(allowed=True, error="classifier returned no classification")
         if result.category == GuardrailCategory.ON_TOPIC:

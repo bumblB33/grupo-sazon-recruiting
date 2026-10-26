@@ -78,7 +78,8 @@ class TwilioWhatsAppSender:
     def __init__(
         self,
         account_sid: str,
-        auth_token: str,
+        api_key_sid: str,
+        api_key_secret: str,
         from_phone: str,
         opener_content_sid: str | None = None,
         client: httpx.Client | None = None,
@@ -87,7 +88,7 @@ class TwilioWhatsAppSender:
         self.from_phone = from_phone.removeprefix(WHATSAPP_PREFIX)
         self.opener_content_sid = opener_content_sid
         self.client = client or httpx.Client(timeout=10.0)
-        self._auth = (account_sid, auth_token)
+        self._auth = (api_key_sid, api_key_secret)
 
     @classmethod
     def from_settings(cls) -> "TwilioWhatsAppSender":
@@ -95,7 +96,8 @@ class TwilioWhatsAppSender:
             name
             for name, value in (
                 ("SCREENING_TWILIO_ACCOUNT_SID", settings.twilio_account_sid),
-                ("SCREENING_TWILIO_AUTH_TOKEN", settings.twilio_auth_token),
+                ("SCREENING_TWILIO_API_KEY_SID", settings.twilio_api_key_sid),
+                ("SCREENING_TWILIO_API_KEY_SECRET", settings.twilio_api_key_secret),
                 ("SCREENING_TWILIO_WHATSAPP_FROM", settings.twilio_whatsapp_from),
             )
             if not value
@@ -104,7 +106,8 @@ class TwilioWhatsAppSender:
             raise OutboundNotConfiguredError(f"missing {', '.join(missing)}")
         return cls(
             settings.twilio_account_sid,  # type: ignore[arg-type]
-            settings.twilio_auth_token,  # type: ignore[arg-type]
+            settings.twilio_api_key_sid,  # type: ignore[arg-type]
+            settings.twilio_api_key_secret.get_secret_value(),  # type: ignore[union-attr]
             settings.twilio_whatsapp_from,  # type: ignore[arg-type]
             settings.twilio_opener_content_sid,
         )

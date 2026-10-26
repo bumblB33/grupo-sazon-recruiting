@@ -1,3 +1,4 @@
+from screening_agent.config import settings
 from screening_agent.domain.enums import DisqualifyReason, Language, ReviewReason, Stage
 
 REASK: dict[Stage, dict[Language, str]] = {
@@ -79,3 +80,17 @@ QUALIFIED: dict[Language, str] = {
     Language.ES: "¡Listo, {first_name}! Cumples lo que buscamos. Un reclutador te escribirá para agendar una entrevista corta.",
     Language.EN: "All set, {first_name}! You meet what we're looking for. A recruiter will message you to book a short interview.",
 }
+
+OPENER: dict[Language, str] = {
+    Language.ES: "¡Hola! Soy {assistant}, el asistente de IA de Grupo Sazón. Recibimos tu solicitud para repartidor y esta conversación queda registrada. ¿Es buen momento para unas preguntas rápidas?",
+    Language.EN: "Hi! I'm {assistant}, the AI assistant for Grupo Sazón. We received your delivery-driver application and this conversation is recorded. Is now a good moment for a few quick questions?",
+}
+
+NUDGE: dict[Language, str] = {
+    Language.ES: "¿Sigues ahí? Cuando puedas: {question}",
+    Language.EN: "Still there? When you can: {question}",
+}
+
+
+def opener(language: Language) -> str:
+    return OPENER[language].format(assistant=settings.assistant_name)

@@ -1,0 +1,42 @@
+services:
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    env_file: .env
+    environment:
+      SCREENING_DATABASE_URL: mongodb://mongo:27017/screening
+    depends_on:
+      mongo:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/docs')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  sweep:
+    build: .
+    env_file: .env
+    environment:
+      SCREENING_DATABASE_URL: mongodb://mongo:27017/screening
+      SWEEP_INTERVAL_SECONDS: ${SWEEP_INTERVAL_SECONDS:-300}
+    command: ["sh", "-c", "while true; do screening-nudge; sleep \"$$SWEEP_INTERVAL_SECONDS\"; done"]
+    depends_on:
+      mongo:
+        condition: service_healthy
+
+  mongo:
+    image: mongo:7
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.runCommand({ ping: 1 }).ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+volumes:
+  mongo-data:

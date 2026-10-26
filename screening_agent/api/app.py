@@ -3,16 +3,18 @@ from contextlib import asynccontextmanager
 from functools import cache
 
 from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Request, Response
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from screening_agent.channels.whatsapp import (
     InboundWhatsAppMessage,
+    OutboundNotConfiguredError,
+    TwilioWhatsAppSender,
     twiml_reply,
     verify_twilio_signature,
 )
 from screening_agent.config import settings
-from screening_agent.domain.enums import Status
-from screening_agent.flow.engine import ScreeningEngine
+from screening_agent.domain.enums import Language, Status
+from screening_agent.flow.engine import OutboundChannel, ScreeningEngine
 from screening_agent.storage.models import Candidate
 from screening_agent.storage.repository import Repository
 
@@ -41,6 +43,20 @@ def get_repository() -> Repository:
 @cache
 def get_engine() -> ScreeningEngine:
     return ScreeningEngine(get_repository())
+
+
+@cache
+def whatsapp_sender() -> TwilioWhatsAppSender:
+    return TwilioWhatsAppSender.from_settings()
+
+
+def get_whatsapp_outbound() -> OutboundChannel:
+    try:
+        return whatsapp_sender()
+    except OutboundNotConfiguredError as exc:
+        raise HTTPException(
+            status_code=503, detail=f"whatsapp outbound not configured: {exc}"
+        ) from exc
 
 
 def require_recruiter(x_api_key: str | None = Header(default=None)) -> None:
@@ -75,6 +91,18 @@ class OverrideRequest(BaseModel):
     notes: str | None = None
 
 
+class StartRequest(BaseModel):
+    """An application arrived; open the WhatsApp screening with the opener template."""
+
+    phone: str = Field(pattern=r"^\+[1-9]\d{6,14}$", description="E.164, the candidate id")
+    language: Language = Language.ES
+
+
+class StartResponse(BaseModel):
+    candidate_id: str
+    status: Status = Status.IN_PROGRESS
+
+
 @app.post("/webhook/whatsapp")
 def whatsapp_webhook(
     background_tasks: BackgroundTasks,
@@ -91,6 +119,18 @@ def whatsapp_webhook(
         media_type="application/xml",
         headers={"X-Screening-Outcome": result.outcome},
     )
+
+
+@app.post("/candidates", status_code=201, dependencies=[Depends(require_recruiter)])
+def start_candidate(
+    body: StartRequest,
+    engine: ScreeningEngine = Depends(get_engine),
+    outbound: OutboundChannel = Depends(get_whatsapp_outbound),
+) -> StartResponse:
+    started = engine.start_conversation(body.phone, "whatsapp", body.language, outbound)
+    if not started:
+        raise HTTPException(status_code=409, detail="candidate already exists")
+    return StartResponse(candidate_id=body.phone)
 
 
 @app.get("/candidates", dependencies=[Depends(require_recruiter)])

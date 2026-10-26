@@ -18,15 +18,24 @@ STAGE_GOAL: dict[Stage, str] = {
     Stage.OUTCOME: "Thank them. The outcome message is sent by the system.",
 }
 
+# The WhatsApp opener already introduced the assistant, so the first live turn must not repeat it.
+CONSENT_AFTER_OPENER = (
+    "You already introduced yourself in the opening message. Read their reply as consent to continue "
+    "or not and call record_consent with it. Do not introduce yourself again."
+)
+
 
 def build_prompt(state: ScreeningState, stage: Stage) -> str:
     pending = state.get("pending_zone")
-    goal = (
-        f"The candidate's city was not an exact match; the closest service area is {pending}. "
-        f"Ask if they mean {pending} and call confirm_zone with their answer."
-        if pending
-        else STAGE_GOAL[stage]
-    )
+    if pending:
+        goal = (
+            f"The candidate's city was not an exact match; the closest service area is {pending}. "
+            f"Ask if they mean {pending} and call confirm_zone with their answer."
+        )
+    elif stage == Stage.CONSENT and _opened_by_agent(state):
+        goal = CONSENT_AFTER_OPENER
+    else:
+        goal = STAGE_GOAL[stage]
     today = candidate_today(state.get("profile", {}).get("zone"))
     return (
         f"You are {settings.assistant_name}, the hiring assistant for Grupo Sazón, a restaurant chain hiring "
@@ -51,3 +60,8 @@ def live_model() -> BaseChatModel:
         timeout=settings.llm_timeout_seconds,
         max_retries=settings.llm_max_retries,
     )
+
+
+def _opened_by_agent(state: ScreeningState) -> bool:
+    messages = state.get("messages", [])
+    return bool(messages) and messages[0].type == "ai"

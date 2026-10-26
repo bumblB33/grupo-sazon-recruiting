@@ -1,7 +1,9 @@
 import sys
+import uuid
 
 from evals.graders import grade
 from evals.personas.text_personas import PERSONAS
+from screening_agent.config import settings
 from screening_agent.flow.engine import Outcome, ScreeningEngine
 from screening_agent.storage.repository import Repository
 
@@ -9,7 +11,7 @@ from screening_agent.storage.repository import Repository
 def main() -> int:
     failures = 0
     for persona in PERSONAS:
-        repository = Repository("sqlite:///:memory:")
+        repository = Repository(f"{settings.database_url}_eval_{uuid.uuid4().hex[:8]}")
         engine = ScreeningEngine(repository)
         agent_turns = 0
         for index, text in enumerate(persona.turns):

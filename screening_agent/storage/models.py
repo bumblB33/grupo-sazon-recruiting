@@ -1,48 +1,40 @@
 from datetime import UTC, datetime
+from typing import Any
 
-from sqlmodel import JSON, Field, SQLModel
+from pydantic import BaseModel, Field
 
 
 def utcnow() -> datetime:
     return datetime.now(UTC)
 
 
-class Candidate(SQLModel, table=True):
-    id: str = Field(primary_key=True)
-    status: str = Field(default="in_progress", index=True)
-    stage: str = Field(default="consent", index=True)
+class Candidate(BaseModel):
+    """Recruiter-facing projection of the candidate document; the engine state is not exposed."""
+
+    id: str
+    status: str = "in_progress"
+    stage: str = "consent"
     disqualify_reason: str | None = None
     review_reason: str | None = None
-    profile: dict = Field(default_factory=dict, sa_type=JSON)
+    profile: dict[str, Any] = Field(default_factory=dict)
     summary: str | None = None
     recruiter_notes: str | None = None
-    created_at: datetime = Field(default_factory=utcnow)
-    updated_at: datetime = Field(default_factory=utcnow)
+    created_at: datetime
+    updated_at: datetime
 
 
-class Conversation(SQLModel, table=True):
-    id: int | None = Field(default=None, primary_key=True)
-    candidate_id: str = Field(unique=True, index=True)
-    channel: str
-    state: dict = Field(default_factory=dict, sa_type=JSON)
-    updated_at: datetime = Field(default_factory=utcnow)
-
-
-class Message(SQLModel, table=True):
-    id: int | None = Field(default=None, primary_key=True)
-    candidate_id: str = Field(index=True)
-    external_id: str | None = Field(default=None, unique=True)
+class TranscriptEntry(BaseModel):
     direction: str
     channel: str
     body: str
+    external_id: str | None = None
     created_at: datetime = Field(default_factory=utcnow)
 
 
-class Event(SQLModel, table=True):
+class Event(BaseModel):
     """Append-only audit log; disqualifications and overrides must be reconstructible from here alone."""
 
-    id: int | None = Field(default=None, primary_key=True)
-    candidate_id: str = Field(index=True)
-    kind: str = Field(index=True)
-    payload: dict = Field(default_factory=dict, sa_type=JSON)
+    candidate_id: str
+    kind: str
+    payload: dict[str, Any] = Field(default_factory=dict)
     created_at: datetime = Field(default_factory=utcnow)

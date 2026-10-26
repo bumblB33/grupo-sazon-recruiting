@@ -1,60 +1,81 @@
 from collections import Counter
-from pathlib import Path
+from datetime import UTC, datetime
 from typing import Any
 
 from langchain_core.messages import messages_from_dict, messages_to_dict
-from sqlalchemy.pool import StaticPool
-from sqlmodel import Session, SQLModel, create_engine, select
+from pymongo import ASCENDING, DESCENDING, MongoClient
+from pymongo.database import Database
+from pymongo.uri_parser import parse_uri
 
 from screening_agent.config import settings
+from screening_agent.domain.enums import Language, Status
+from screening_agent.flow.silence import SilenceCandidate
 from screening_agent.flow.state import ScreeningState, initial_state, stage_of
-from screening_agent.storage.models import Candidate, Conversation, Event, Message, utcnow
+from screening_agent.storage.models import Candidate, Event, TranscriptEntry, utcnow
+
+
+class StaleStateError(RuntimeError):
+    """Another writer saved this conversation after the caller loaded it."""
+
+
+class DuplicateMessageError(RuntimeError):
+    """The inbound external id is already in the transcript."""
 
 
 class Repository:
+    """One document per candidate: recruiter fields, engine state, silence timing and the transcript.
+    A turn is one conditional update on that document, which is the atomicity the flow needs."""
+
     def __init__(self, database_url: str | None = None) -> None:
         database_url = database_url or settings.database_url
-        _ensure_sqlite_directory(database_url)
-        self.engine = create_engine(database_url, **_sqlite_engine_options(database_url))
-        SQLModel.metadata.create_all(self.engine)
+        database_name = parse_uri(database_url)["database"]
+        if not database_name:
+            raise ValueError("database_url must name a database, e.g. mongodb://host/screening")
+        self.client: MongoClient = MongoClient(database_url, tz_aware=True)
+        self.db: Database = self.client[database_name]
+        self.candidates = self.db["candidates"]
+        self.events = self.db["events"]
+        self.candidates.create_index([("transcript.external_id", ASCENDING)])
+        self.candidates.create_index([("status", ASCENDING), ("updated_at", DESCENDING)])
+        self.candidates.create_index([("stage", ASCENDING)])
+        self.events.create_index([("candidate_id", ASCENDING), ("created_at", ASCENDING)])
 
     def load_state(self, candidate_id: str) -> ScreeningState:
-        with Session(self.engine) as session:
-            conversation = self._conversation(session, candidate_id)
-            if conversation is None:
-                return initial_state(candidate_id)
-            state = dict(conversation.state)
-            state["messages"] = messages_from_dict(state.get("messages", []))
-            return state  # type: ignore[return-value]
+        document = self.candidates.find_one({"_id": candidate_id}, {"state": 1, "version": 1})
+        if document is None:
+            return initial_state(candidate_id)
+        state = dict(document["state"])
+        state["messages"] = messages_from_dict(state.get("messages", []))
+        state["version"] = document["version"]
+        return state  # type: ignore[return-value]
+
+    def conversation_exists(self, candidate_id: str) -> bool:
+        return self.candidates.count_documents({"_id": candidate_id}, limit=1) == 1
 
     def has_message(self, external_id: str) -> bool:
-        with Session(self.engine) as session:
-            return (
-                session.exec(select(Message.id).where(Message.external_id == external_id)).first()
-                is not None
-            )
+        return (
+            self.candidates.count_documents({"transcript.external_id": external_id}, limit=1) == 1
+        )
 
     def save_turn(
         self, state: ScreeningState, channel: str, inbound: str, reply: str, external_id: str | None
     ) -> None:
-        """One transaction for inbound message, state and reply, so a failed turn leaves no dedupe row."""
-        candidate_id = state["candidate_id"]
-        with Session(self.engine) as session:
-            session.add(
-                Message(
-                    candidate_id=candidate_id,
-                    direction="in",
-                    channel=channel,
-                    body=inbound,
-                    external_id=external_id,
-                )
-            )
-            self._write_state(session, state, channel)
-            if reply:
-                session.add(
-                    Message(candidate_id=candidate_id, direction="out", channel=channel, body=reply)
-                )
-            session.commit()
+        """One update for inbound, state and reply, so a failed turn leaves no dedupe entry."""
+        if external_id and self.has_message(external_id):
+            raise DuplicateMessageError(external_id)
+        entries = [_entry(channel, "in", inbound, external_id)]
+        if reply:
+            entries.append(_entry(channel, "out", reply))
+        self._commit(state, channel, entries, {"last_inbound_at": utcnow(), "nudge_count": 0})
+
+    def save_opener(self, state: ScreeningState, channel: str, text: str) -> None:
+        self._commit(state, channel, [_entry(channel, "out", text)])
+
+    def save_nudge(self, state: ScreeningState, channel: str, text: str, nudge_count: int) -> None:
+        self._commit(state, channel, [_entry(channel, "out", text)], {"nudge_count": nudge_count})
+
+    def save_state(self, state: ScreeningState, channel: str) -> None:
+        self._commit(state, channel)
 
     def record_message(
         self,
@@ -64,125 +85,165 @@ class Repository:
         body: str,
         external_id: str | None = None,
     ) -> None:
-        with Session(self.engine) as session:
-            session.add(
-                Message(
-                    candidate_id=candidate_id,
-                    direction=direction,
-                    channel=channel,
-                    body=body,
-                    external_id=external_id,
-                )
-            )
-            session.commit()
+        self.candidates.update_one(
+            {"_id": candidate_id},
+            {"$push": {"transcript": _entry(channel, direction, body, external_id).model_dump()}},
+        )
 
     def record_event(self, candidate_id: str, kind: str, payload: dict[str, Any]) -> None:
-        with Session(self.engine) as session:
-            session.add(Event(candidate_id=candidate_id, kind=kind, payload=payload))
-            session.commit()
+        self.events.insert_one(
+            Event(candidate_id=candidate_id, kind=kind, payload=payload).model_dump()
+        )
 
     def set_summary(self, candidate_id: str, summary: str) -> None:
-        with Session(self.engine) as session:
-            candidate = session.get(Candidate, candidate_id)
-            if candidate:
-                candidate.summary = summary
-                session.add(candidate)
-                session.commit()
+        self.candidates.update_one({"_id": candidate_id}, {"$set": {"summary": summary}})
 
     def override(
         self, candidate_id: str, status: str | None, notes: str | None
     ) -> Candidate | None:
-        """Writes the new status into the live conversation state too, so the flow engine honours it."""
-        with Session(self.engine) as session:
-            candidate = session.get(Candidate, candidate_id)
-            if candidate is None:
-                return None
-            if status:
-                candidate.status = status
-                candidate.disqualify_reason = None
-                candidate.review_reason = None
-                conversation = self._conversation(session, candidate_id)
-                if conversation is not None:
-                    conversation.state = {
-                        **conversation.state,
-                        "status": status,
-                        "disqualify_reason": None,
-                        "review_reason": None,
-                    }
-                    conversation.updated_at = utcnow()
-                    session.add(conversation)
-            if notes is not None:
-                candidate.recruiter_notes = notes
-            candidate.updated_at = utcnow()
-            session.add(candidate)
-            session.commit()
-            session.refresh(candidate)
-            return candidate
+        """Writes the new status into the live state too, so the engine honours it. Reopening resets
+        the silence clock, otherwise the next sweep abandons the candidate again."""
+        changes: dict[str, Any] = {"updated_at": utcnow()}
+        if status:
+            changes.update(
+                {
+                    "status": status,
+                    "disqualify_reason": None,
+                    "review_reason": None,
+                    "state.status": status,
+                    "state.disqualify_reason": None,
+                    "state.review_reason": None,
+                }
+            )
+            if status == Status.IN_PROGRESS:
+                changes.update({"last_inbound_at": utcnow(), "nudge_count": 0})
+        if notes is not None:
+            changes["recruiter_notes"] = notes
+        document = self.candidates.find_one_and_update(
+            {"_id": candidate_id},
+            {"$set": changes, "$inc": {"version": 1}},
+            return_document=True,
+        )
+        return None if document is None else _candidate(document)
 
     def list_candidates(
         self, status: str | None = None, stage: str | None = None
     ) -> list[Candidate]:
-        query = select(Candidate)
+        query: dict[str, Any] = {}
         if status:
-            query = query.where(Candidate.status == status)
+            query["status"] = status
         if stage:
-            query = query.where(Candidate.stage == stage)
-        with Session(self.engine) as session:
-            return list(session.exec(query.order_by(Candidate.updated_at.desc())))
+            query["stage"] = stage
+        cursor = self.candidates.find(query, _CANDIDATE_FIELDS).sort("updated_at", DESCENDING)
+        return [_candidate(document) for document in cursor]
 
     def get_candidate(self, candidate_id: str) -> Candidate | None:
-        with Session(self.engine) as session:
-            return session.get(Candidate, candidate_id)
+        document = self.candidates.find_one({"_id": candidate_id}, _CANDIDATE_FIELDS)
+        return None if document is None else _candidate(document)
+
+    def open_conversations(self) -> list[SilenceCandidate]:
+        cursor = self.candidates.find({"status": Status.IN_PROGRESS.value}, _SILENCE_FIELDS)
+        return [_silence_candidate(document) for document in cursor]
+
+    def silence_candidate(self, candidate_id: str) -> SilenceCandidate | None:
+        document = self.candidates.find_one({"_id": candidate_id}, _SILENCE_FIELDS)
+        return None if document is None else _silence_candidate(document)
 
     def funnel(self) -> dict[str, dict[str, int]]:
-        with Session(self.engine) as session:
-            rows = session.exec(select(Candidate.status, Candidate.stage)).all()
+        rows = list(self.candidates.find({}, {"status": 1, "stage": 1}))
         return {
-            "by_status": dict(Counter(status for status, _ in rows)),
-            "by_stage": dict(Counter(stage for _, stage in rows)),
+            "by_status": dict(Counter(row["status"] for row in rows)),
+            "by_stage": dict(Counter(row["stage"] for row in rows)),
         }
 
-    @staticmethod
-    def _conversation(session: Session, candidate_id: str) -> Conversation | None:
-        return session.exec(
-            select(Conversation).where(Conversation.candidate_id == candidate_id)
-        ).first()
-
-    def _write_state(self, session: Session, state: ScreeningState, channel: str) -> None:
+    def _commit(
+        self,
+        state: ScreeningState,
+        channel: str,
+        entries: list[TranscriptEntry] | None = None,
+        timing: dict[str, Any] | None = None,
+    ) -> None:
+        """Conditional on the loaded version: a writer that loaded an older version loses."""
         candidate_id = state["candidate_id"]
-        serialisable: dict[str, Any] = {**state, "messages": messages_to_dict(state["messages"])}
-        candidate = session.get(Candidate, candidate_id) or Candidate(id=candidate_id)
-        candidate.status = str(state.get("status", "in_progress"))
-        candidate.stage = stage_of(state).value
-        candidate.disqualify_reason = str_or_none(state.get("disqualify_reason"))
-        candidate.review_reason = str_or_none(state.get("review_reason"))
-        candidate.profile = state.get("profile", {})
-        candidate.updated_at = utcnow()
-        session.add(candidate)
-        conversation = self._conversation(session, candidate_id) or Conversation(
-            candidate_id=candidate_id, channel=channel
-        )
-        conversation.state = serialisable
-        conversation.channel = channel
-        conversation.updated_at = utcnow()
-        session.add(conversation)
+        expected = state.get("version", 0)
+        now = utcnow()
+        fields = {
+            "status": str(state.get("status", "in_progress")),
+            "stage": stage_of(state).value,
+            "disqualify_reason": str_or_none(state.get("disqualify_reason")),
+            "review_reason": str_or_none(state.get("review_reason")),
+            "profile": state.get("profile", {}),
+            "channel": channel,
+            "version": expected + 1,
+            "state": {
+                **state,
+                "messages": messages_to_dict(state["messages"]),
+                "version": expected + 1,
+            },
+            "updated_at": now,
+            **(timing or {}),
+        }
+        update: dict[str, Any] = {
+            "$set": fields,
+            "$setOnInsert": {
+                "created_at": now,
+                "opened_at": now,
+                "summary": None,
+                "recruiter_notes": None,
+            },
+        }
+        if entries:
+            update["$push"] = {"transcript": {"$each": [e.model_dump() for e in entries]}}
+        if not (timing and "last_inbound_at" in timing):
+            update["$setOnInsert"]["last_inbound_at"] = None
+        if not (timing and "nudge_count" in timing):
+            update["$setOnInsert"]["nudge_count"] = 0
+        if expected == 0:
+            if self.conversation_exists(candidate_id):
+                raise StaleStateError(f"{candidate_id}: created by another writer")
+            self.candidates.update_one({"_id": candidate_id}, update, upsert=True)
+            return
+        result = self.candidates.update_one({"_id": candidate_id, "version": expected}, update)
+        if result.matched_count == 0:
+            raise StaleStateError(f"{candidate_id}: version {expected} no longer current")
+
+
+_CANDIDATE_FIELDS = {"state": 0, "transcript": 0}
+_SILENCE_FIELDS = {
+    "channel": 1,
+    "state.language": 1,
+    "opened_at": 1,
+    "last_inbound_at": 1,
+    "nudge_count": 1,
+}
 
 
 def str_or_none(value: Any) -> str | None:
     return None if value is None else str(value)
 
 
-def _ensure_sqlite_directory(database_url: str) -> None:
-    prefix = "sqlite:///"
-    if database_url.startswith(prefix) and ":memory:" not in database_url:
-        Path(database_url[len(prefix) :]).parent.mkdir(parents=True, exist_ok=True)
+def _entry(
+    channel: str, direction: str, body: str, external_id: str | None = None
+) -> TranscriptEntry:
+    return TranscriptEntry(direction=direction, channel=channel, body=body, external_id=external_id)
 
 
-def _sqlite_engine_options(database_url: str) -> dict[str, Any]:
-    if not database_url.startswith("sqlite"):
-        return {}
-    # FastAPI serves requests from worker threads; an in-memory database needs one shared connection.
-    options: dict[str, Any] = {"connect_args": {"check_same_thread": False}}
-    if ":memory:" in database_url or database_url.endswith("sqlite://"):
-        options["poolclass"] = StaticPool
-    return options
+def _candidate(document: dict[str, Any]) -> Candidate:
+    return Candidate(id=document["_id"], **{k: v for k, v in document.items() if k != "_id"})
+
+
+def _silence_candidate(document: dict[str, Any]) -> SilenceCandidate:
+    return SilenceCandidate(
+        candidate_id=document["_id"],
+        channel=document["channel"],
+        language=Language(document.get("state", {}).get("language", Language.ES)),
+        opened_at=_as_utc(document["opened_at"]),  # type: ignore[arg-type]
+        last_inbound_at=_as_utc(document.get("last_inbound_at")),
+        nudge_count=document.get("nudge_count", 0),
+    )
+
+
+def _as_utc(value: datetime | None) -> datetime | None:
+    if value is None or value.tzinfo is not None:
+        return value
+    return value.replace(tzinfo=UTC)

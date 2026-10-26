@@ -239,13 +239,11 @@ def test_empty_consent_turn_reasks_consent(make_engine):
     assert "asistente de IA" in drive(engine, ["hola"])[-1]
 
 
-def test_off_topic_twice_closes_and_keeps_history(make_engine, monkeypatch):
-    from screening_agent.flow import engine as engine_module
+def test_off_topic_twice_closes_and_keeps_history(make_engine):
     from screening_agent.llm.guardrail import GuardrailVerdict
 
-    engine, repository, _ = make_engine([])
-    monkeypatch.setattr(
-        engine_module, "check", lambda text: GuardrailVerdict(allowed=False, reason="off_topic")
+    engine, repository, _ = make_engine(
+        [], guardrail=lambda text: GuardrailVerdict(allowed=False, reason="off_topic")
     )
     replies = drive(engine, ["¿me vendes un coche?", "¿y una moto?"])
     assert "centrarnos" in replies[0]
@@ -289,3 +287,18 @@ def test_start_date_is_judged_in_candidate_timezone(make_engine, monkeypatch):
     )
     drive(engine, ["sí", "Ana García", "sí", "Tijuana", "hoy"])
     assert repository.get_candidate("cand").profile["start_date"] == tijuana_today.isoformat()
+
+
+def test_consent_prompt_after_opener_does_not_reintroduce():
+    from langchain_core.messages import AIMessage, HumanMessage
+
+    from screening_agent.domain.enums import Stage
+    from screening_agent.flow.state import initial_state
+    from screening_agent.llm.turn import build_prompt
+
+    fresh = initial_state("c")
+    fresh["messages"] = [HumanMessage(content="hola")]
+    assert "Introduce yourself" in build_prompt(fresh, Stage.CONSENT)
+    opened = initial_state("c")
+    opened["messages"] = [AIMessage(content="opener"), HumanMessage(content="sí")]
+    assert "Do not introduce yourself again" in build_prompt(opened, Stage.CONSENT)

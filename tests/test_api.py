@@ -4,7 +4,7 @@ from fastapi.testclient import TestClient
 from screening_agent.api import app as api
 from screening_agent.channels.whatsapp import _twilio_signature
 from screening_agent.config import settings
-from tests.conftest import ai
+from tests.conftest import FakeOutbound, ai
 
 WEBHOOK = "/webhook/whatsapp"
 
@@ -97,3 +97,20 @@ def test_webhook_fails_closed_without_token_outside_dev_mode(client, monkeypatch
 
 def test_webhook_rejects_form_without_message_sid(client):
     assert client.post(WEBHOOK, data={"Body": "sí"}).status_code == 422
+
+
+def test_start_candidate_sends_opener_once(client):
+    outbound = FakeOutbound()
+    api.app.dependency_overrides[api.get_whatsapp_outbound] = lambda: outbound
+    created = client.post("/candidates", json={"phone": "+34600111222", "language": "en"})
+    assert created.status_code == 201
+    assert created.json() == {"candidate_id": "+34600111222", "status": "in_progress"}
+    assert client.post("/candidates", json={"phone": "+34600111222"}).status_code == 409
+    assert [phone for phone, _ in outbound.openers] == ["+34600111222"]
+    assert "AI assistant" in outbound.openers[0][1]
+    assert client.get("/candidates/+34600111222").json()["stage"] == "consent"
+    assert client.post("/candidates", json={"phone": "whatsapp:+34"}).status_code == 422
+
+
+def test_start_candidate_without_twilio_config_is_503(client):
+    assert client.post("/candidates", json={"phone": "+34600111333"}).status_code == 503

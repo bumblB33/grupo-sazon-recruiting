@@ -26,6 +26,8 @@ class ScreeningState(TypedDict, total=False):
     language: Language
     invalid_counts: dict[str, int]
     reply: str
+    # Mirrors Conversation.version at load time; the repository refuses a write from an older version.
+    version: int
 
 
 def initial_state(candidate_id: str) -> ScreeningState:
@@ -41,6 +43,7 @@ def initial_state(candidate_id: str) -> ScreeningState:
         language=Language.ES,
         invalid_counts={},
         reply="",
+        version=0,
     )
 
 

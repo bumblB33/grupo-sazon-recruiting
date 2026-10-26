@@ -13,15 +13,17 @@ dependencies = [
     "fastapi>=0.162",
     "python-multipart>=0.0.20",
     "uvicorn>=0.30",
-    "sqlmodel>=0.0.48",
+    "pymongo>=4.10",
     "rapidfuzz>=3.14",
+    "httpx>=0.27",
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=9.0", "ruff>=0.8"]
+dev = ["pytest>=9.0", "ruff>=0.8", "testcontainers[mongodb]>=4.0"]
 
 [project.scripts]
 screening-cli = "screening_agent.channels.chat_cli:main"
+screening-nudge = "screening_agent.channels.nudge_cli:main"
 
 [build-system]
 requires = ["setuptools>=68"]

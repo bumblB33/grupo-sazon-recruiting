@@ -1,10 +1,14 @@
+import os
 import uuid
 from collections.abc import Callable, Iterable
 
 import pytest
+from fastapi.testclient import TestClient
 from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
 from langchain_core.messages import AIMessage
 
+from screening_agent.api import app as api
+from screening_agent.config import settings
 from screening_agent.flow.engine import ScreeningEngine
 from screening_agent.flow.graph import build_graph
 from screening_agent.llm.guardrail import GuardrailVerdict, permit_all
@@ -45,7 +49,12 @@ def ai_multi(text: str, *calls: tuple[str, dict]) -> AIMessage:
 
 @pytest.fixture(scope="session")
 def mongo_url() -> Iterable[str]:
-    """One Mongo container per session; each test gets its own database name for isolation."""
+    """One Mongo container per session; each test gets its own database name for isolation.
+    SCREENING_TEST_DATABASE_URL points at an existing server when Docker is not available."""
+    external = os.environ.get("SCREENING_TEST_DATABASE_URL")
+    if external:
+        yield external
+        return
     try:
         from testcontainers.community.mongodb import MongoDbContainer
 
@@ -60,7 +69,8 @@ def mongo_url() -> Iterable[str]:
 
 @pytest.fixture
 def repository(mongo_url: str) -> Repository:
-    return Repository(f"{mongo_url.rstrip('/')}/test_{uuid.uuid4().hex}")
+    # The container's root user lives in admin; a database in the path would become the auth source.
+    return Repository(f"{mongo_url.rstrip('/')}/test_{uuid.uuid4().hex}?authSource=admin")
 
 
 @pytest.fixture
@@ -95,3 +105,36 @@ class FakeOutbound:
     def send_opener(self, candidate_id: str, text: str) -> None:
         self.openers.append((candidate_id, text))
 
+
+NO_LICENCE_TURNS = ["sí", "Ana García", "no tengo carnet"]
+# One no-licence screening, then one consent so a test can open a second candidate.
+API_SCRIPT = [
+    ai("Hola", "record_consent", {"accepted": True}),
+    ai("¿Nombre?", "record_full_name", {"full_name": "Ana García"}),
+    ai("¿Carnet?", "record_licence", {"has_licence": False}),
+    ai("Hola", "record_consent", {"accepted": True}),
+]
+
+
+@pytest.fixture
+def client(make_engine, monkeypatch) -> Iterable[TestClient]:
+    """API client in dev mode with no secrets; tests set a secret via monkeypatch to exercise auth."""
+    monkeypatch.setattr(settings, "dev_mode", True)
+    monkeypatch.setattr(settings, "recruiter_api_key", None)
+    monkeypatch.setattr(settings, "twilio_auth_token", None)
+    monkeypatch.setattr(settings, "twilio_webhook_url", None)
+    engine, repository, _ = make_engine(API_SCRIPT)
+    api.app.dependency_overrides[api.get_repository] = lambda: repository
+    api.app.dependency_overrides[api.get_engine] = lambda: engine
+    with TestClient(api.app) as test_client:
+        yield test_client
+    api.app.dependency_overrides.clear()
+
+
+def twilio_form(sid: str, phone: str, body: str) -> dict[str, str]:
+    return {"MessageSid": sid, "From": f"whatsapp:{phone}", "To": "whatsapp:+1555", "Body": body}
+
+
+def screen_no_licence(client: TestClient, phone: str) -> None:
+    for index, text in enumerate(NO_LICENCE_TURNS):
+        client.post("/webhook/whatsapp", data=twilio_form(f"{phone}-{index}", phone, text))

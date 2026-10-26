@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block title %}Login{% endblock %}
+{% block header %}{% endblock %}
+{% block content %}
+<h1>Recruiter login</h1>
+{% if error %}<p class="error">{{ error }}</p>{% endif %}
+<form method="post" action="/recruiter/login">
+  <label for="key">Recruiter key</label>
+  <input id="key" name="key" type="password" autofocus required>
+  <button type="submit">Enter</button>
+</form>
+{% endblock %}

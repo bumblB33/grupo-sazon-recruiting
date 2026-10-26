@@ -11,7 +11,13 @@ from screening_agent.config import settings
 from screening_agent.domain.enums import Language, Status
 from screening_agent.flow.silence import SilenceCandidate
 from screening_agent.flow.state import ScreeningState, initial_state, stage_of
-from screening_agent.storage.models import Candidate, Event, TranscriptEntry, utcnow
+from screening_agent.storage.models import (
+    Candidate,
+    CandidateDetail,
+    Event,
+    TranscriptEntry,
+    utcnow,
+)
 
 
 class StaleStateError(RuntimeError):
@@ -61,12 +67,16 @@ class Repository:
         self, state: ScreeningState, channel: str, inbound: str, reply: str, external_id: str | None
     ) -> None:
         """One update for inbound, state and reply, so a failed turn leaves no dedupe entry."""
-        if external_id and self.has_message(external_id):
-            raise DuplicateMessageError(external_id)
         entries = [_entry(channel, "in", inbound, external_id)]
         if reply:
             entries.append(_entry(channel, "out", reply))
-        self._commit(state, channel, entries, {"last_inbound_at": utcnow(), "nudge_count": 0})
+        self._commit(
+            state,
+            channel,
+            entries,
+            {"last_inbound_at": utcnow(), "nudge_count": 0},
+            external_id=external_id,
+        )
 
     def save_opener(self, state: ScreeningState, channel: str, text: str) -> None:
         self._commit(state, channel, [_entry(channel, "out", text)])
@@ -99,7 +109,7 @@ class Repository:
         self.candidates.update_one({"_id": candidate_id}, {"$set": {"summary": summary}})
 
     def override(
-        self, candidate_id: str, status: str | None, notes: str | None
+        self, candidate_id: str, status: Status | None, notes: str | None
     ) -> Candidate | None:
         """Writes the new status into the live state too, so the engine honours it. Reopening resets
         the silence clock, otherwise the next sweep abandons the candidate again."""
@@ -124,7 +134,12 @@ class Repository:
             {"$set": changes, "$inc": {"version": 1}},
             return_document=True,
         )
-        return None if document is None else _candidate(document)
+        if document is None:
+            return None
+        self.record_event(
+            candidate_id, "recruiter_override", {"status": str_or_none(status), "notes": notes}
+        )
+        return Candidate(**_candidate_fields(document))
 
     def list_candidates(
         self, status: str | None = None, stage: str | None = None
@@ -140,6 +155,18 @@ class Repository:
     def get_candidate(self, candidate_id: str) -> Candidate | None:
         document = self.candidates.find_one({"_id": candidate_id}, _CANDIDATE_FIELDS)
         return None if document is None else _candidate(document)
+
+    def get_candidate_detail(self, candidate_id: str) -> CandidateDetail | None:
+        document = self.candidates.find_one({"_id": candidate_id}, {"state": 0})
+        if document is None:
+            return None
+        return CandidateDetail(events=self.list_events(candidate_id), **_candidate_fields(document))
+
+    def list_events(self, candidate_id: str) -> list[Event]:
+        cursor = self.events.find({"candidate_id": candidate_id}).sort(
+            [("created_at", ASCENDING), ("_id", ASCENDING)]
+        )
+        return [Event.model_validate(document) for document in cursor]
 
     def open_conversations(self) -> list[SilenceCandidate]:
         cursor = self.candidates.find({"status": Status.IN_PROGRESS.value}, _SILENCE_FIELDS)
@@ -162,8 +189,10 @@ class Repository:
         channel: str,
         entries: list[TranscriptEntry] | None = None,
         timing: dict[str, Any] | None = None,
+        external_id: str | None = None,
     ) -> None:
-        """Conditional on the loaded version: a writer that loaded an older version loses."""
+        """Conditional on the loaded version and on the external id not being in the transcript yet,
+        so a lost race across processes is refused by the database, not by a prior read."""
         candidate_id = state["candidate_id"]
         expected = state.get("version", 0)
         now = utcnow()
@@ -203,8 +232,16 @@ class Repository:
                 raise StaleStateError(f"{candidate_id}: created by another writer")
             self.candidates.update_one({"_id": candidate_id}, update, upsert=True)
             return
-        result = self.candidates.update_one({"_id": candidate_id, "version": expected}, update)
+        query: dict[str, Any] = {"_id": candidate_id, "version": expected}
+        if external_id:
+            query["transcript.external_id"] = {"$ne": external_id}
+        result = self.candidates.update_one(query, update)
         if result.matched_count == 0:
+            version_current = self.candidates.count_documents(
+                {"_id": candidate_id, "version": expected}, limit=1
+            )
+            if external_id and version_current:
+                raise DuplicateMessageError(external_id)
             raise StaleStateError(f"{candidate_id}: version {expected} no longer current")
 
 
@@ -229,7 +266,11 @@ def _entry(
 
 
 def _candidate(document: dict[str, Any]) -> Candidate:
-    return Candidate(id=document["_id"], **{k: v for k, v in document.items() if k != "_id"})
+    return Candidate(**_candidate_fields(document))
+
+
+def _candidate_fields(document: dict[str, Any]) -> dict[str, Any]:
+    return {"id": document["_id"], **{k: v for k, v in document.items() if k != "_id"}}
 
 
 def _silence_candidate(document: dict[str, Any]) -> SilenceCandidate:

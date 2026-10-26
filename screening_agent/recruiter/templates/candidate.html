@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% block title %}{{ candidate.id }}{% endblock %}
+{% block content %}
+<h1>{{ candidate.profile.get("full_name") or candidate.id }}</h1>
+<p>
+  <span class="badge {{ candidate.status }}">{{ candidate.status }}</span>
+  stage <strong>{{ candidate.stage }}</strong>
+  {% set reason = candidate.disqualify_reason or candidate.review_reason %}
+  {% if reason %}· reason <strong>{{ reason }}</strong>{% endif %}
+  <span class="meta">· {{ candidate.id }} · updated {{ candidate.updated_at.strftime("%Y-%m-%d %H:%M") }}</span>
+</p>
+
+<section>
+  <h2>Summary</h2>
+  {% if candidate.summary %}<pre>{{ candidate.summary }}</pre>{% else %}<p class="meta">No summary yet.</p>{% endif %}
+</section>
+
+<section>
+  <h2>Override</h2>
+  <form method="post" action="/recruiter/candidates/{{ candidate.id | urlencode }}/override">
+    <label for="status">Status</label>
+    <select id="status" name="status">
+      <option value="">keep {{ candidate.status }}</option>
+      {% for option in statuses %}<option value="{{ option.value }}">{{ option.value }}</option>{% endfor %}
+    </select>
+    <label for="notes">Recruiter notes</label>
+    <textarea id="notes" name="notes" rows="3">{{ candidate.recruiter_notes or "" }}</textarea>
+    <p><button type="submit">Save</button></p>
+  </form>
+</section>
+
+<section>
+  <h2>Profile</h2>
+  <pre>{{ profile_json }}</pre>
+</section>
+
+<section>
+  <h2>Transcript</h2>
+  <ul class="transcript">
+  {% for entry in candidate.transcript %}
+    <li class="{{ entry.direction }}">{{ entry.body }}<div class="meta">{{ entry.channel }} · {{ entry.created_at.strftime("%Y-%m-%d %H:%M") }}</div></li>
+  {% else %}
+    <li class="meta">No messages yet.</li>
+  {% endfor %}
+  </ul>
+</section>
+
+<section>
+  <h2>Events</h2>
+  <table>
+    <thead><tr><th>When</th><th>Kind</th><th>Payload</th></tr></thead>
+    <tbody>
+    {% for event in candidate.events %}
+      <tr><td class="meta">{{ event.created_at.strftime("%Y-%m-%d %H:%M:%S") }}</td><td>{{ event.kind }}</td><td><code>{{ event.payload }}</code></td></tr>
+    {% else %}
+      <tr><td colspan="3" class="meta">No events.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}

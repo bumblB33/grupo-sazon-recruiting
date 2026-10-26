@@ -38,3 +38,8 @@ class Event(BaseModel):
     kind: str
     payload: dict[str, Any] = Field(default_factory=dict)
     created_at: datetime = Field(default_factory=utcnow)
+
+
+class CandidateDetail(Candidate):
+    transcript: list[TranscriptEntry] = Field(default_factory=list)
+    events: list[Event] = Field(default_factory=list)

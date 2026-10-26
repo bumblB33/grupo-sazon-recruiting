@@ -1,21 +1,25 @@
 import logging
 from contextlib import asynccontextmanager
-from functools import cache
 
 from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 
+from screening_agent.api.deps import (
+    get_engine,
+    get_repository,
+    get_whatsapp_outbound,
+    require_recruiter,
+)
 from screening_agent.channels.whatsapp import (
     InboundWhatsAppMessage,
-    OutboundNotConfiguredError,
-    TwilioWhatsAppSender,
     twiml_reply,
     verify_twilio_signature,
 )
 from screening_agent.config import settings
 from screening_agent.domain.enums import Language, Status
 from screening_agent.flow.engine import OutboundChannel, ScreeningEngine
-from screening_agent.storage.models import Candidate
+from screening_agent.recruiter.router import recruiter_router
+from screening_agent.storage.models import Candidate, CandidateDetail
 from screening_agent.storage.repository import Repository
 
 logger = logging.getLogger(__name__)
@@ -33,40 +37,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Grupo Sazón screening agent", lifespan=lifespan)
-
-
-@cache
-def get_repository() -> Repository:
-    return Repository()
-
-
-@cache
-def get_engine() -> ScreeningEngine:
-    return ScreeningEngine(get_repository())
-
-
-@cache
-def whatsapp_sender() -> TwilioWhatsAppSender:
-    return TwilioWhatsAppSender.from_settings()
-
-
-def get_whatsapp_outbound() -> OutboundChannel:
-    try:
-        return whatsapp_sender()
-    except OutboundNotConfiguredError as exc:
-        raise HTTPException(
-            status_code=503, detail=f"whatsapp outbound not configured: {exc}"
-        ) from exc
-
-
-def require_recruiter(x_api_key: str | None = Header(default=None)) -> None:
-    """Fails closed: no configured key means no access, unless dev mode is on."""
-    if settings.recruiter_api_key is None:
-        if settings.dev_mode:
-            return
-        raise HTTPException(status_code=503, detail="recruiter api key not configured")
-    if x_api_key != settings.recruiter_api_key:
-        raise HTTPException(status_code=401, detail="recruiter api key required")
+app.include_router(recruiter_router)
 
 
 async def verified_webhook_message(
@@ -143,8 +114,10 @@ def list_candidates(
 
 
 @app.get("/candidates/{candidate_id}", dependencies=[Depends(require_recruiter)])
-def get_candidate(candidate_id: str, repository: Repository = Depends(get_repository)) -> Candidate:
-    candidate = repository.get_candidate(candidate_id)
+def get_candidate(
+    candidate_id: str, repository: Repository = Depends(get_repository)
+) -> CandidateDetail:
+    candidate = repository.get_candidate_detail(candidate_id)
     if candidate is None:
         raise HTTPException(status_code=404, detail="candidate not found")
     return candidate
@@ -157,7 +130,6 @@ def override_candidate(
     candidate = repository.override(candidate_id, body.status, body.notes)
     if candidate is None:
         raise HTTPException(status_code=404, detail="candidate not found")
-    repository.record_event(candidate_id, "recruiter_override", body.model_dump(mode="json"))
     return candidate
 
 

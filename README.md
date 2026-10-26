@@ -27,7 +27,7 @@ Configuration is read from `SCREENING_*` environment variables or `.env`. See `s
 
 ```bash
 screening-cli                        # text chat against the screening flow
-uvicorn screening_agent.api.app:app  # webhook, candidates, analytics
+uvicorn screening_agent.api.app:app  # webhook, candidates, analytics, recruiter pages at /recruiter/
 screening-nudge                      # silence sweep for cron: nudges, then abandons
 pytest                               # unit and flow tests, no LLM calls
 python -m evals.run_evals            # persona evals against the live model
@@ -50,7 +50,8 @@ flow/graph.py    LangGraph: turn (one tool-calling LLM call) -> apply_tools
 flow/transitions.py   Pydantic validation, hard stops, zone matching, single qualify rule
 domain/          CandidateProfile, enums, service areas, language detection
 storage/         MongoDB: one candidate document (recruiter fields, engine state, version, transcript), events (append-only)
-api/             FastAPI: /webhook/whatsapp (Twilio form POST, TwiML reply), POST /candidates (opener), /candidates, /candidates/{id}, PATCH override, /analytics
+api/             FastAPI: /webhook/whatsapp (Twilio form POST, TwiML reply), POST /candidates (opener), /candidates, /candidates/{id} (profile, summary, transcript, events), PATCH override, /analytics
+recruiter/       server-rendered pages on the same app: login, candidate table with filters and funnel, detail with transcript and override form
 evals/           personas, code-based graders on final JSON and outcome
 ```
 
@@ -65,6 +66,7 @@ evals/           personas, code-based graders on final JSON and outcome
 - **Candidate-local dates.** "Today" for start dates and the prompt is the calendar day in the candidate's service-area timezone, not the server's.
 - **One document per candidate.** MongoDB holds recruiter fields, engine state, silence timing and transcript together, so a turn is one atomic update without a replica set. Events are a separate append-only collection.
 - **Fail-closed API.** Recruiter routes and the webhook return 503 until their secrets are configured, unless `SCREENING_DEV_MODE` is on. The summary LLM call runs as a background task after the reply.
+- **One recruiter key, two carriers.** The recruiter pages are plain HTML forms on the API app. Login stores the recruiter key in an HttpOnly cookie, and JSON routes accept either the header or the cookie.
 - **Guardrail fails open.** One structured-output classification before each turn. A classifier outage allows the message and logs an event; it never blocks a candidate.
 - **Silence is a cron sweep.** No long-lived timers. `screening-nudge` reads opener time, last candidate message and nudges sent, decides nudge or abandon, and runs under the same per-candidate lock as the webhook.
 - **Provider is configuration.** `SCREENING_LIVE_MODEL` takes any `provider:model` id supported by LangChain. The default is a placeholder until the bake-off runs.
@@ -73,7 +75,7 @@ Process design: `docs/process-design.md`.
 
 ## Status
 
-Working: domain validators, LangGraph flow, CLI, SQLite storage, FastAPI routes with key auth and webhook signature check, post-outcome summary, guardrail classifier, WhatsApp opener and nudges via Twilio REST, silence sweep with `abandoned`, tests with fakes for all of it. Not yet built: voice channel, recruiter UI, Logfire tracing, model bake-off, full persona set. Service areas are fixture data. Per-candidate locking is process-local; cross-process writes (api vs sweep containers) are guarded by a version check on the candidate document, and the loser re-reads.
+Working: domain validators, LangGraph flow, CLI, MongoDB storage, FastAPI routes with key auth and webhook signature check, recruiter pages with override, post-outcome summary, guardrail classifier, WhatsApp opener and nudges via Twilio REST, silence sweep with `abandoned`, tests with fakes for all of it. Not yet built: voice channel, Logfire tracing, model bake-off, full persona set. Service areas are fixture data. Per-candidate locking is process-local; cross-process writes (api vs sweep containers) are guarded by a version check on the candidate document, and the loser re-reads.
 
 ## Sample conversations
 

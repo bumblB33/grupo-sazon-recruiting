@@ -23,5 +23,4 @@ PERSONAS: tuple[Persona, ...] = (
             status="disqualified", disqualify_reason="outside_service_area", max_turns=6
         ),
     ),
-    # TODO: cooperative, code_switcher, ghoster, rude personas; two audio personas on the voice day
 )

@@ -48,10 +48,10 @@ Structured output is the JSON dump of `CandidateProfile`.
 
 ## Edge cases
 
-- **Silence** (planned, needs a scheduler). No reply to the opener: one template retry at about 24 hours, then `abandoned` at stage `consent`. Silence after a reply: a free-form nudge at 2 hours and a last one at about 23 hours, inside the window, then `abandoned` with the stage recorded.
+- **Silence.** No reply to the opener: one template retry at about 24 hours, then `abandoned` at stage `consent`. Silence after a reply: a free-form nudge at 2 hours and a last one at about 23 hours, inside the window, then `abandoned` with the stage recorded.
 - **Invalid or ambiguous answer.** The validator rejects the tool call. Code sends a fixed re-ask message with an example. After two rejections on the same stage the candidate goes to `needs_recruiter_review` instead of looping.
 - **Language switch.** Language is detected per message. The agent replies in that message's language. The history of languages is stored. Code-switched messages work because the tools are language-agnostic.
-- **Off-topic or inappropriate input.** A guardrail check runs before the turn (classifier not yet built). Redirect once, then close politely to `needs_recruiter_review`.
+- **Off-topic or inappropriate input.** A guardrail check runs before the turn. Redirect once, then close politely to `needs_recruiter_review`.
 - **Candidate answers several questions at once.** All matching tools are called in one turn and the flow skips the satisfied stages.
 
 ## Outcomes
@@ -61,7 +61,7 @@ Structured output is the JSON dump of `CandidateProfile`.
 | `qualified` | Code, all fields valid | Fixed message: a recruiter will book a short interview | Summary, profile JSON, transcript |
 | `disqualified` | Code, on no licence or out of zone only | The real reason, in their language. Application kept on file | Reason code. Override button |
 | `needs_recruiter_review` | Code, on anything ambiguous | A recruiter will follow up | Reason code, transcript |
-| `abandoned` | Code, on silence (planned) | Nothing further | Drop-off stage |
+| `abandoned` | Code, on silence | Nothing further | Drop-off stage |
 
 Only the two objective criteria disqualify automatically. Everything judgement-shaped goes to a human. Every outcome and override is written to an append-only event log with its reason.
 

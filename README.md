@@ -92,7 +92,7 @@ ruff check . && ruff format .
 
 ## Architecture
 
-The section follows the [C4 model](https://c4model.com): system context, then containers, then one runtime view. Stage order, validation rules and outcomes are design, owned by `docs/process-design.md`.
+The section follows the [C4 model](https://c4model.com): system context, then containers, then two runtime views. Stage order, validation rules and outcomes are design, owned by `docs/process-design.md`.
 
 ### System context
 
@@ -100,101 +100,174 @@ Who talks to the system and what it depends on.
 
 ```mermaid
 flowchart LR
-    candidate([Candidate<br/>delivery-driver applicant])
-    recruiter([Recruiter<br/>Grupo Sazón staff])
-    machine([Machine client<br/>e.g. ATS sync])
-    operator([Operator<br/>admin CLI, cron])
+    candidate([Candidate])
+    recruiter([Recruiter])
+    machine([Machine client])
+    operator([Operator])
 
-    system[[Screening agent<br/>screens candidates over WhatsApp,<br/>hands qualified ones to recruiters]]
+    system[[Screening agent]]
 
-    twilio[Twilio WhatsApp<br/>inbound webhook, outbound Messages API]
-    sendgrid[Twilio SendGrid<br/>login emails]
-    llm[LLM providers<br/>Anthropic, OpenAI, Mistral,<br/>Bedrock, Vertex via LangChain]
+    subgraph external [External services]
+        direction TB
+        twilio[Twilio WhatsApp]
+        sendgrid[Twilio SendGrid]
+        llm[LLM providers]
+    end
 
-    candidate <-->|WhatsApp messages| twilio
-    twilio <-->|HTTPS form POST / TwiML,<br/>REST JSON| system
-    recruiter -->|browser, email login link| system
+    candidate <-->|WhatsApp| twilio
+    twilio -->|signed webhook| system
+    system -->|TwiML reply, Messages API| twilio
+    recruiter -->|browser| system
     system -->|login link| sendgrid
     sendgrid -->|email| recruiter
-    machine -->|JSON over HTTPS, X-API-Key| system
+    machine -->|JSON, X-API-Key| system
     operator -->|shell| system
-    system -->|chat completions with tools| llm
+    system -->|chat with tools| llm
 ```
 
-The candidate never talks to the system directly. Twilio delivers each WhatsApp message as a signed form POST and relays the TwiML reply. Recruiters use a browser. Machine clients use the same JSON routes with a per-client key. Operators mint keys and manage recruiters with `screening-admin` and run the silence sweep from cron or the `sweep` container.
+| Actor or system | Role |
+| --- | --- |
+| Candidate | Delivery-driver applicant. Only ever talks to Twilio. |
+| Recruiter | Grupo Sazón staff. Browser plus an emailed one-time login link. |
+| Machine client | For example an ATS sync. Same JSON routes, per-client key. |
+| Operator | Mints keys and manages recruiters with `screening-admin`, runs the sweep from cron or the `sweep` container. |
+| Twilio WhatsApp | Delivers each message as a signed form POST, relays the TwiML reply, carries outbound openers and nudges over the Messages REST API. |
+| Twilio SendGrid | Sends the login email. |
+| LLM providers | Anthropic, OpenAI and Mistral through the provider table. Bedrock and Vertex only through LangChain's `init_chat_model`. |
 
 ### Containers
 
-Runnable units as deployed by `compose.yaml`, plus the two local processes.
+Runnable units as deployed by `compose.yaml`, plus the two local processes. Edges to external services show what each process actually calls.
 
 ```mermaid
 flowchart TB
     subgraph compose [docker compose]
-        api[api<br/>FastAPI under uvicorn, port 8000<br/>webhook, JSON routes, recruiter pages]
-        sweep[sweep<br/>loops screening-nudge every SWEEP_INTERVAL_SECONDS]
-        mongo[(mongo<br/>MongoDB 7, named volume<br/>candidates, events, recruiters,<br/>api_keys, login_tokens, login_throttles)]
+        api[api<br/>FastAPI under uvicorn, port 8000]
+        sweep[sweep<br/>screening-nudge in a loop]
+        mongo[(mongo<br/>MongoDB 7, named volume)]
     end
-    cli[screening-cli<br/>local text chat, no Twilio]
-    admin[screening-admin<br/>keys and recruiters]
+    cli[screening-cli]
+    admin[screening-admin]
 
-    api -->|pymongo| mongo
-    sweep -->|pymongo| mongo
-    cli -->|pymongo| mongo
-    admin -->|pymongo| mongo
-    api -->|HTTPS| ext[Twilio, SendGrid, LLM providers]
-    sweep -->|HTTPS| ext
-    cli -->|HTTPS| ext
+    twilio[Twilio]
+    sendgrid[SendGrid]
+    llm[LLM providers]
+
+    api --> mongo
+    sweep --> mongo
+    cli --> mongo
+    admin --> mongo
+
+    api --> twilio
+    api --> sendgrid
+    api --> llm
+    sweep --> twilio
+    cli --> llm
 ```
+
+| Process | Serves | Calls out to |
+| --- | --- | --- |
+| `api` | Webhook, JSON routes, recruiter pages | Twilio (TwiML, Messages API), SendGrid (login email), LLM providers (turn, guardrail, summary) |
+| `sweep` | Silence policy every `SWEEP_INTERVAL_SECONDS` | Twilio only. Nudge text is a fixed template and `abandoned` gets no summary call. |
+| `mongo` | Collections `candidates`, `events`, `recruiters`, `api_keys`, `login_tokens`, `login_throttles` | nothing |
+| `screening-cli` | Local text chat | LLM providers only. No Twilio. |
+| `screening-admin` | Keys and recruiter accounts | nothing |
 
 `api` and `sweep` run the same image and the same `ScreeningEngine`. They share no memory. Each process serialises one candidate with a local lock, and the candidate document's `version` field arbitrates between processes: a write from a stale version fails, the webhook re-runs its turn once, the sweep skips that candidate. No queue, no replica set, no transactions across documents.
 
 ### Runtime view: one inbound WhatsApp message
 
+Two diagrams. The first is the request path and the three outcomes `handle` can return. The second is the inside of one turn.
+
 ```mermaid
 sequenceDiagram
     participant T as Twilio
-    participant A as api (FastAPI)
+    participant A as api
+    participant E as ScreeningEngine
+    participant M as MongoDB
+
+    T->>A: POST /webhook/whatsapp, signed form
+    A->>A: verify X-Twilio-Signature
+    A->>E: handle(phone, text, "whatsapp", message_id)
+    E->>E: take per-candidate lock
+    E->>M: transcript holds message_id?
+    alt duplicate
+        E-->>A: duplicate, empty reply
+    else conversation already closed
+        E->>M: record inbound only
+        E-->>A: closed, empty reply
+    else open
+        E->>E: run one turn (next diagram)
+        E->>M: save_turn, conditional on version and message_id
+        Note over E,M: stale version: reload and run the turn once more
+        E-->>A: replied, terminal flag
+    end
+    A-->>T: TwiML reply
+    opt terminal
+        A->>E: summarize_outcome(phone), background task
+        E->>M: set_summary
+    end
+```
+
+```mermaid
+sequenceDiagram
     participant E as ScreeningEngine
     participant G as Guardrail LLM
     participant L as Turn LLM
     participant M as MongoDB
 
-    T->>A: POST /webhook/whatsapp (signed form)
-    A->>A: verify X-Twilio-Signature
-    A->>E: handle(phone, text, "whatsapp", message_id)
-    E->>E: acquire per-candidate lock
-    E->>M: has_message(message_id)?
-    alt already seen
-        E-->>A: duplicate
-    else new
-        E->>M: load_state(phone)
-        E->>G: classify(text)
-        alt blocked
-            E->>E: off-topic strike, fixed redirect or close
-        else allowed
-            E->>L: one call, tools = fields still missing
-            L-->>E: tool calls + reply text
-            E->>E: apply_tools: validate args, transition stage, pick reply
+    E->>G: classify(text)
+    alt blocked
+        E->>M: guardrail_blocked event
+        E->>E: strike 1: fixed redirect, strike 2: needs_recruiter_review
+    else allowed, or classifier error
+        opt classifier error
+            E->>M: guardrail_failed event
         end
-        E->>M: save_turn: inbound + state + reply, conditional on version and message_id
-        E-->>A: replied (terminal?)
+        E->>L: one call, tools = fields still missing
+        L-->>E: tool calls and reply text
+        E->>E: apply_tools: validate, transition, pick reply
     end
-    A-->>T: TwiML <Message>
-    opt terminal
-        A->>E: summarize_outcome(phone) as background task
-        E->>L: summary call
-        E->>M: store summary
+    opt new status is terminal
+        E->>M: outcome event
     end
 ```
 
-What the diagram fixes in place:
+What the diagrams fix in place:
 
 - One LLM turn per message. The guardrail is a second, cheaper call that runs first and fails open.
 - The graph is two nodes, `turn` and `apply_tools`, invoked once per message with no checkpointer. State lives in the candidate document, not in LangGraph.
-- Inbound message, new state and reply are written together. A crash before the write leaves no trace, so Twilio's retry is processed as new.
+- Inbound message, new state and reply are written together. A crash before the write leaves no transcript entry, so Twilio's retry is processed as new. Guardrail events written earlier stay in `events`.
 - The summary never delays the reply. It runs after the response is sent and outside the lock.
 
-The sweep is the other entry point. `screening-nudge` reads every open conversation, applies the pure `silence_action` policy, then nudges through Twilio or sets `abandoned`, each under the same per-candidate lock and version check. See `flow/silence.py` for the thresholds.
+### Runtime view: silence sweep
+
+```mermaid
+sequenceDiagram
+    participant S as sweep
+    participant E as ScreeningEngine
+    participant M as MongoDB
+    participant T as Twilio
+
+    S->>E: sweep_silence(now, channels)
+    E->>M: open conversations snapshot
+    loop each candidate due for action
+        E->>E: take per-candidate lock
+        E->>M: re-read timing and status
+        alt no longer due, or closed
+            E->>E: skip
+        else nudge
+            E->>T: opener retry or stage re-ask
+            E->>M: save_nudge, conditional on version
+        else abandon
+            E->>M: save_state abandoned, conditional on version
+            E->>M: outcome event
+        end
+    end
+    E-->>S: nudged, abandoned, failed counts
+```
+
+`silence_action` in `flow/silence.py` is a pure decision over stored timestamps and holds the thresholds. A failed send is isolated to that candidate as a `nudge_failed` event. A stale version on save means the candidate replied while the sweep ran. Their turn wins and the sweep logs `nudge_unrecorded` instead.
 
 ### Components
 

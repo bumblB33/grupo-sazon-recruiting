@@ -16,7 +16,7 @@ Scaffold stage. Decisions taken 23 Oct that override the outline where they diff
 
 Working: domain, flow, CLI, storage, API with magic-link sessions, per-client API keys and webhook signature check, recruiter pages (`screening_agent/recruiter/`) with a per-turn inspector (`recruiter/views.py`), summary, guardrail classifier, WhatsApp opener and outbound via Twilio REST, silence sweep (`screening-nudge`) that nudges and sets `abandoned`, evals and bake-off runner (`evals/`), tests for all of it with fakes. Not started: voice channel.
 
-Remaining work and open findings are tracked in `docs/STATUS.md`.
+Remaining work and open findings are tracked in `docs/STATUS.md`. The last-day plan is `PLAN-demo-console-and-scheduler.md`. Demo runbook, commands run and known failures are in `TROUBLESHOOTING.md`; the demo scripts and compose override live in `~/sazon-demo/`, outside the repo.
 
 ## Commands
 

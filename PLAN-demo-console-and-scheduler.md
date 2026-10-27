@@ -18,6 +18,8 @@ Taken by the maintainer on 27 Oct 2026. Binding.
 - LLM choice is justified from design in the README. The failed scripted bake-off is named as is, with the provider errors, and listed under improvements.
 - Demo reset, when built: archive and re-key, only phones in `SCREENING_DEMO_PHONES`. Reset re-keys the candidate's events. `docs/process-design.md` and the README change from "append-only" to "append-only, except that a demo reset re-keys a candidate's events to the archive id".
 - Inspector shows the trace id as text. No Logfire link.
+- Tunnel: ngrok's free dev domain pins the Twilio webhook URL, so it is pasted once. cloudflared quick tunnel is the fallback and changes URL on every start. A named Cloudflare tunnel needs a domain and is not used. Twilio's sandbox webhook is console-only, so no script can set it.
+- Tool exposure stays as built (every missing field from the current stage onward). README and CLAUDE.md corrected to match. Narrate it in the video rather than change behaviour on demo day.
 - Candidate page refreshes with a meta tag only while the conversation is in progress.
 - Fonts and shell restyle untouched today.
 
@@ -75,18 +77,20 @@ If reset is not built, the recorded take uses a second phone number joined to th
 
 Each step leaves the suite green.
 
-1. Inspector: `views.py`, the two partials, candidate page, refresh setting, `base.html` head block. Tests: `test_views.py` for the mapping and label coverage, `test_recruiter.py` for the rendered inspector and the refresh tag only while in progress. Gates: pytest, ruff check, ruff format, pyright.
-2. WhatsApp preflight on the laptop. Provider keys and workspace id in `.env`. Compose override outside the repo with short silence thresholds and `SCREENING_DEV_MODE` off. `docker compose up --build` (the image has not been rebuilt since the Logfire dependency landed). Tunnel up, Twilio sandbox joined, console webhook and `SCREENING_TWILIO_WEBHOOK_URL` set to `<tunnel>/webhook/whatsapp`. One full screening from the phone. Read every reply in the inspector. Log each prose or tone fault as a persona or policy case. Fix blockers only.
-3. README sections above. CLAUDE.md "Current state" and STATUS patched to the shipped scope.
+1. Done (`53c0e0d`). Inspector: `views.py`, the two partials, candidate page, refresh setting, `base.html` head block. Tests in `test_views.py` and `test_recruiter.py`. Gates green: pytest 177, ruff, pyright.
+2. In progress. Done: image rebuilt, override at `~/sazon-demo/compose.demo.yaml` (dev mode on so the login link prints; the Twilio signature check stays on because the auth token is set), launcher, tunnel probes passed (200 on `/docs`, 401 on an unsigned webhook POST). Maintainer: install ngrok and add the authtoken, re-run `demo-up.sh`, paste the webhook URL into the Twilio sandbox once, join from the phone. Then one full screening from the phone. Read every reply in the inspector. Log each prose or tone fault as a persona or policy case. Fix blockers only.
+3. Done except "Sample conversations", which waits for the live run (`ce30d1a`, `00b6300`, `2c00758`). README has LLM choice, deployment and scaling, improvements. CLAUDE.md and STATUS patched. `TROUBLESHOOTING.md` added.
 4. Record the video: phone screening on screen beside the candidate page, the inspector on one turn with a rejected tool call or a policy fallback if the run produced one, the summary, one override.
 5. Demo reset, only if time remains after the video is recorded. Then the process-design and README wording change.
 6. Multi-lens adversarial review of the branch. Gates: pytest, ruff check, ruff format, pyright.
 
 ## Risks
 
-- No live run has happened yet. The preflight is the first. Budget for provider or Twilio surprises before the README step, because the sample conversations come from it.
+- No live LLM turn has happened yet. The first WhatsApp message is the first. Budget for provider surprises (the org key needs `PROJECT_ANTHROPIC_WORKSPACE_ID`, set in `.env`) before the sample conversations can be written.
 - No browser fallback. A tunnel or Twilio failure during the take means a second take, not a different channel.
 - Silence thresholds are wall-clock. The preflight override sets short thresholds, so a paused take is abandoned by the `sweep` service. Keep the take moving or stop the `sweep` service for the recording.
 - Twilio sandbox: unverified whether a joined number receives the plain-text opener with no prior inbound. The preflight answers it. If not, the candidate sends the first message: the webhook handles an unknown number as a new conversation at the consent stage (`Repository.load_state` returns `initial_state`), so the demo still runs, without the fixed opener and the AI disclosure it carries.
 - Meta refresh discards an unsaved override note while in progress. Write the note after the outcome.
 - Reset is not atomic. A crash between steps leaves the phone occupied until reset is pressed again.
+- The launcher's ngrok branch is untested until ngrok is installed on this machine.
+- A sandbox join lasts three days. Rejoin before the recording if the join is older.

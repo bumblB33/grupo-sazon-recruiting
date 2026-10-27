@@ -8,6 +8,7 @@ Documents:
 - `docs/STATUS.md`: project status, known gaps, open questions and remaining work.
 - `docs/Orbio-Assignment.md`: the brief.
 - `TROUBLESHOOTING.md`: demo runbook, commands run, warnings seen and common failures.
+- `PLAN-demo-console-and-scheduler.md`: the plan for the last build day, with the decisions taken and the work deferred.
 
 ## Setup
 
@@ -101,7 +102,7 @@ pyright                              # standard mode, config in pyproject.toml
 | `PATCH /candidates/{id}` | recruiter | Outcome override. Writes a `recruiter_override` event with the actor. |
 | `GET /analytics` | recruiter | Funnel counts. |
 | `GET /csrf-token` | recruiter | The CSRF token for the caller's session cookie, or `null` for an API key. |
-| `/recruiter/...` | session cookie | Server-rendered pages: login, candidate table with filters and funnel, detail with override form. |
+| `/recruiter/...` | session cookie | Server-rendered pages: login, candidate table with filters and funnel, detail with the transcript, a per-turn inspector and the override form. The detail page reloads itself every `SCREENING_CANDIDATE_PAGE_REFRESH_SECONDS` while the conversation is open. |
 
 "recruiter" means a session cookie or an `X-API-Key`. A cookie caller on `POST` or `PATCH` must also send the token from `GET /csrf-token` in `X-CSRF-Token`, because `SameSite=Lax` still sends the cookie from sibling subdomains. Routes answer 503 until their secrets are configured, unless `SCREENING_DEV_MODE` is on. Page routes answer 303 to login instead of 401.
 
@@ -408,7 +409,7 @@ sequenceDiagram
 - **One document per candidate.** Chosen so a turn is one atomic write with no replica set or transaction. Mechanism in Architecture, containers.
 - **Fail-closed API.** Recruiter routes and the webhook return 503 until their secrets are configured, unless `SCREENING_DEV_MODE` is on. Dev mode opens the recruiter routes only while `SCREENING_SESSION_SECRET` is unset, and skips the webhook signature only while `SCREENING_TWILIO_AUTH_TOKEN` is unset. A stray dev-mode flag on a deployment with real secrets opens neither. The summary LLM call runs as a background task after the reply.
 - **People log in by email, machines by key.** The recruiter pages are plain HTML forms on the API app. Login is a one-time emailed link. The cookie is a signed, expiring session, not a secret, and deactivating a recruiter ends it on the next request. JSON routes accept that cookie, with a CSRF header on writes, or a per-client `X-API-Key` whose hash lives in MongoDB. Nothing is pasted or shared.
-- **Every turn explains itself.** The inbound transcript entry carries a turn record: stage before and after, guardrail category, tools exposed and called, why each call was accepted or rejected, where the reply came from, the model text a template replaced, tokens, latency and the trace id. It is written in the same update as the turn, so a turn that is not saved leaves no record. Traces in Logfire carry metadata only: no message text, phone numbers or emails.
+- **Every turn explains itself.** The inbound transcript entry carries a turn record: stage before and after, guardrail category, tools exposed and called, why each call was accepted or rejected, where the reply came from, the model text a template replaced, tokens, latency and the trace id. It is written in the same update as the turn, so a turn that is not saved leaves no record. The recruiter candidate page shows it under every answered message. Traces in Logfire carry metadata only: no message text, phone numbers or emails.
 - **Model replies are checked before sending.** One question, one emoji, a length limit, no markdown or links, the candidate's language. A reply that breaks a rule is replaced by the fixed question for the current stage, with no second AI call. The guardrail call also reads the candidate's tone, and a confused or frustrated candidate gets a calmer instruction for that turn.
 - **Guardrail fails open.** One structured-output classification before each turn. A classifier outage allows the message and logs an event. It never blocks a candidate.
 - **Silence is a cron sweep.** No long-lived timers, so a restart loses nothing and the policy is a pure function over stored timestamps. Mechanism in Architecture, runtime view.

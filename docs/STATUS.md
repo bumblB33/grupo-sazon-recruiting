@@ -18,11 +18,13 @@ Moving state for the screening agent. The README describes the system as built. 
 - Pyright in `standard` mode with no errors.
 - Logfire tracing with a no-PII test, and the per-turn decision record on the inbound transcript entry.
 - Live reply policy with a fixed-question fallback, and candidate tone from the guardrail call.
+- Per-turn inspector on the recruiter candidate page (`recruiter/views.py`, `_turn.html`), with a meta refresh while the conversation is open.
+- Demo tooling outside the repo (`~/sazon-demo/`): launcher, login-link helper and stop script. Runbook in `TROUBLESHOOTING.md`.
 - Tests with fakes for all of the above. The full suite, including the Mongo-backed tests, passes with no LLM calls.
 
 ## Not built
 
-- Live demo console: web chat, turn inspector, how-it-works page, ops panel, Orbio-styled shell.
+- Demo console beyond the inspector: web chat, how-it-works page, ops panel, start form, demo reset, Orbio-styled shell. Deferred, see "Remaining work".
 - In-API silence scheduler with a sweep lease and per-nudge claims.
 - Voice channel (Pipecat, Deepgram STT, ElevenLabs TTS) on the same engine.
 
@@ -33,12 +35,12 @@ Against `docs/Orbio-Assignment.md`. Rubric weights: technical build 40%, process
 | Requirement | State | Closed by |
 |---|---|---|
 | Phase 1 process design | `docs/process-design.md` | none |
-| Screening agent, validation, JSON output, history, storage, summary, error handling | built and tested with fakes, never run live | Live preflight |
-| Recruiter tool | built: list, funnel, detail, override | Console restyle, web chat, console pages |
-| LLM choice justified | not done: the bake-off has no valid run | Bake-off, model defaults, README |
-| Live demo ("show, don't tell") | not possible: no live run, no web chat, mocked data | Everything up to the live preflight |
+| Screening agent, validation, JSON output, history, storage, summary, error handling | built and tested with fakes. Stack up through a tunnel, API reachable from the internet, signature check confirmed live. No live LLM turn yet | Live preflight |
+| Recruiter tool | built: list, funnel, detail with per-turn inspector, override | none for the video; console pages deferred |
+| LLM choice justified | README "LLM choice": justified from design, failed bake-off named | none; re-run is the first improvement |
+| Live demo ("show, don't tell") | stack and tunnel up, Twilio webhook paste and sandbox join pending | Live preflight |
 | README: setup, architecture, key decisions | present | README |
-| README: potential improvements, sample conversations | missing | README |
+| README: potential improvements, sample conversations | improvements and deployment written; sample conversations wait for the live run | Live preflight |
 | Demo video, 5-10 minutes | missing | Demo video |
 | Bonus: multi-language with code-switching, re-engagement, tests and evals | built | none |
 | Bonus: guardrails | input classifier and live reply policy built | none |
@@ -86,7 +88,7 @@ Goal: a live demo on a call. Every feature is reachable in the browser. Every ag
 - Pages stay server-rendered. Each action is a form post followed by a redirect. The candidate page refreshes itself with `<meta http-equiv="refresh">` while the conversation is in progress, so WhatsApp turns appear in the inspector without a manual reload. The web chat page never auto-refreshes, because a refresh would wipe the message being typed. A web chat turn blocks the form post for the LLM call, with no progress indicator.
 - Self-hosted fonts and any other static files need a `StaticFiles` mount and a package-data glob in `pyproject.toml`. Today package data covers only `templates/*.html`, and the Docker image installs with `pip install .`.
 - The demo runs on the presenter's laptop with `docker compose`, presented over screen share. No public hosting.
-- WhatsApp is shown live with the presenter's own phone as the candidate, through the Twilio sandbox and a tunnel to the laptop. Web chat is the fallback if the tunnel or Twilio fails on the call.
+- WhatsApp is shown live with the presenter's own phone as the candidate, through the Twilio sandbox and a tunnel to the laptop. Decided 27 Oct: web chat is dropped for the deadline, so there is no browser fallback. A failed take is re-recorded.
 
 ### Surfaces
 
@@ -136,7 +138,7 @@ Built. `screening_agent/observability.py` owns it.
 Decided 27 Oct: the case study is due today with a 5 to 10 minute video. Scope is cut to what the video needs. The plan is `PLAN-demo-console-and-scheduler.md`.
 
 1. Turn inspector on the recruiter candidate page, with a meta refresh while the conversation is in progress. See "Surfaces".
-2. WhatsApp preflight on the laptop: provider keys and workspace id in `.env`, `docker compose up --build`, short silence thresholds in a compose override outside the repo, tunnel up, Twilio sandbox joined, console webhook and `SCREENING_TWILIO_WEBHOOK_URL` set to `<tunnel>/webhook/whatsapp`, one full screening from the phone. Read every reply in the inspector and log each prose or tone fault as a persona or policy case.
+2. WhatsApp preflight on the laptop. Done: image rebuilt, override written, `demo-up.sh` brings tunnel and stack up, `GET /docs` through the tunnel answers 200 and an unsigned webhook POST answers 401, dev-mode login link printed by `demo-login.sh`. Pending, maintainer actions: install ngrok and add the authtoken so the webhook URL is fixed (cloudflared quick tunnel is the fallback and changes URL on restart), paste the webhook URL into the Twilio sandbox, join from the phone, send one message. Then one full screening, read every reply in the inspector, log each prose or tone fault as a persona or policy case. Commands in `TROUBLESHOOTING.md`.
 3. README deliverable sections: "LLM choice" justified from design with the failed bake-off named, "Sample conversations" from the preflight transcripts, "Potential improvements", "Deployment and scaling". Update README and CLAUDE.md for tracing, reply policy and the inspector.
 4. Record the video: phone screening beside the candidate page, the inspector, the summary, one override.
 5. Demo reset (archive and re-key, `SCREENING_DEMO_PHONES`), only if time remains after the video. Then reword "append-only" in `docs/process-design.md` and the README to allow the re-key.
@@ -148,7 +150,9 @@ Deferred past the deadline, designs kept in this file: service areas and persona
 
 - Login links appear in access and proxy logs until used or expired. The token is still single use and short lived.
 - No trace has been sent to a real Logfire project. The no-PII test uses an in-memory exporter.
-- The Docker image has not been rebuilt since `logfire[fastapi,pymongo,httpx]` was added to the dependencies.
+- The launcher's ngrok branch is untested until ngrok is installed. `ngrok config check` as the "authtoken present" probe is from the CLI's `config` family, not confirmed in docs; fix the probe on the first run if it is wrong.
+- Tool exposure: `tools_for` exposes every tool for a missing field from the current stage onward, not only the current stage's. README and CLAUDE.md said the latter and were corrected on 27 Oct. The stage order and the hard stops are still code-enforced. The inspector shows the full exposed list, so the demo narration must say this.
+- `demo-status.md` in the repo root is a pasted copy of a chat table with an ephemeral tunnel URL. Not a doc. Delete it.
 - The guardrail tone prompt and the tone cases are untested on a live model. Category accuracy after the tone change is unverified until the bake-off runs.
 - Every recruiter and API key has the same rights. There are no roles or scopes.
 - The bake-off cost column counts the turn model only. Guardrail, summary and judge tokens are not included.

@@ -7,6 +7,7 @@ Documents:
 - `docs/process-design.md`: the Phase 1 process design (stages, validation, outcomes, tone).
 - `docs/STATUS.md`: project status, known gaps, open questions and remaining work.
 - `docs/Orbio-Assignment.md`: the brief.
+- `TROUBLESHOOTING.md`: demo runbook, commands run, warnings seen and common failures.
 
 ## Setup
 

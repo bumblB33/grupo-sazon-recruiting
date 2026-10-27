@@ -21,6 +21,7 @@ def test_session_round_trip_and_expiry():
     issued = datetime.now(UTC)
     token = issue_session("ana@gruposazon.com", "s", 12, now=issued)
     session = read_session(token, "s")
+    assert session is not None
     assert session.email == "ana@gruposazon.com"
     assert abs((session.issued_at - issued).total_seconds()) < 0.001
     assert read_session(token, "other") is None

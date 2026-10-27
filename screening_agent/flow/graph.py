@@ -1,8 +1,8 @@
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from typing import Any
 
 from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import AIMessage, SystemMessage, ToolMessage
+from langchain_core.messages import AIMessage, SystemMessage, ToolCall, ToolMessage
 from langgraph.graph import END, START, StateGraph
 
 from screening_agent.config import settings
@@ -21,7 +21,7 @@ class UnexpectedModelOutputError(RuntimeError):
     pass
 
 
-def exposed_tools(state: dict[str, Any]):
+def exposed_tools(state: Mapping[str, Any]):
     profile = CandidateProfile.model_validate(state.get("profile", {}))
     return tools_for(stage_of(state), profile.missing_fields(), bool(state.get("pending_zone")))
 
@@ -49,7 +49,7 @@ def build_graph(llm: BaseChatModel, build_prompt: PromptBuilder):
             )
         language = state.get("language", Language.ES)
         turn_state = TurnState(state)
-        tool_messages: list[ToolMessage] = []
+        tool_messages: list[ToolMessage | AIMessage] = []
         reask_stages: list[Stage] = []
         strike_stages: list[Stage] = []
         confirm_area: str | None = None
@@ -95,7 +95,7 @@ def build_graph(llm: BaseChatModel, build_prompt: PromptBuilder):
 class TurnState:
     """Accumulates this turn's state updates and keeps the merged working view in step with them."""
 
-    def __init__(self, state: dict[str, Any]) -> None:
+    def __init__(self, state: Mapping[str, Any]) -> None:
         self.updates: dict[str, Any] = {"profile": dict(state.get("profile", {}))}
         self.working: dict[str, Any] = {**state, **self.updates}
 
@@ -110,7 +110,7 @@ class TurnState:
         self.working = {**self.working, **self.updates}
 
 
-def _run_tool(call: dict[str, Any], state: dict[str, Any]) -> Transition:
+def _run_tool(call: ToolCall, state: dict[str, Any]) -> Transition:
     name = call["name"]
     if name not in {tool.name for tool in exposed_tools(state)}:
         return Transition.rejected(

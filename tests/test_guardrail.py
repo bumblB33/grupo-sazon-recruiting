@@ -24,7 +24,7 @@ def test_classifier_failure_fails_open_with_error():
 
     verdict = Guardrail(RunnableLambda(boom)).check("hola")
     assert verdict.allowed
-    assert "slow" in verdict.error
+    assert verdict.error is not None and "slow" in verdict.error
 
 
 def test_candidate_text_reaches_the_classifier_as_human_message():

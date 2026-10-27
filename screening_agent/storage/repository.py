@@ -164,7 +164,7 @@ class Repository:
             upsert=True,
             return_document=ReturnDocument.AFTER,
         )
-        return _recruiter(document)
+        return _recruiter(_upserted(document))
 
     def mark_recruiter_login(self, email: str) -> None:
         self.recruiters.update_one({"_id": email}, {"$set": {"last_login_at": utcnow()}})
@@ -209,7 +209,7 @@ class Repository:
             upsert=True,
             return_document=ReturnDocument.AFTER,
         )
-        if ip_counter["count"] > ip_limit:
+        if _upserted(ip_counter)["count"] > ip_limit:
             return False
         try:
             # An unexpired cooldown row does not match, so the upsert collides on _id.
@@ -390,6 +390,13 @@ _SILENCE_FIELDS = {
     "last_inbound_at": 1,
     "nudge_count": 1,
 }
+
+
+def _upserted(document: dict[str, Any] | None) -> dict[str, Any]:
+    """An upsert with ReturnDocument.AFTER always returns a document; pymongo types it Optional."""
+    if document is None:
+        raise RuntimeError("upsert returned no document")
+    return document
 
 
 def str_or_none(value: Any) -> str | None:

@@ -223,6 +223,7 @@ def test_run_persona_records_turns_tokens_and_grade(make_engine):
     assert run.error is None
     # The scripted licence refusal closes the conversation on turn 3; the fourth turn is never sent.
     assert [turn.candidate for turn in run.turns] == list(persona.turns[:3])
+    assert run.candidate is not None
     assert run.candidate.status == "disqualified"
     assert run.candidate.summary == "summary"
     assert run.input_tokens == 0
@@ -300,7 +301,8 @@ def test_db_without_database_name_is_a_usage_error(monkeypatch):
 
 def test_unavailable_guardrail_model_scores_zero_instead_of_raising():
     score = score_guardrail("openai:gpt-6-luna")
-    assert score.correct == 0 and "OPENAI_API_KEY" in score.unavailable
+    assert score.correct == 0
+    assert score.unavailable is not None and "OPENAI_API_KEY" in score.unavailable
 
 
 def test_p95_never_exceeds_the_slowest_call():

@@ -89,7 +89,9 @@ class ModelRecord(BaseModel):
             for p in self.personas
             if p.completed
         ]
-        return None if not costs or any(c is None for c in costs) else mean(costs)
+        priced = [c for c in costs if c is not None]
+        # One unpriced persona makes the mean wrong, so the report shows no cost instead.
+        return mean(priced) if priced and len(priced) == len(costs) else None
 
     def _judge_mean(self, key: str) -> float | None:
         scores = [p.judge[key].score for p in self.personas if key in p.judge]

@@ -1,14 +1,15 @@
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
+from typing import cast
 
 import pytest
 
-from screening_agent.flow.state import initial_state
+from screening_agent.flow.state import ScreeningState, initial_state
 from screening_agent.storage.repository import DuplicateMessageError, Repository, StaleStateError
 
 
 def saved(repository: Repository, candidate_id: str, **state_overrides) -> None:
-    state = {**initial_state(candidate_id), **state_overrides}
+    state = cast(ScreeningState, {**initial_state(candidate_id), **state_overrides})
     repository.save_turn(state, "cli", "hola", "reply", external_id=f"{candidate_id}-1")
 
 

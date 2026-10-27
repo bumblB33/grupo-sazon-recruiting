@@ -28,6 +28,7 @@ pip install -e ".[dev]"
 pytest                              # all tests, no LLM calls
 pytest tests/test_flow.py::test_no_licence_is_hard_stop
 ruff check . && ruff format .
+pyright                             # standard mode, config in pyproject.toml
 screening-cli                       # chat loop against the graph, needs PROJECT_ANTHROPIC_API_KEY or the provider's key
 uvicorn screening_agent.api.app:app --reload    # needs a Mongo at SCREENING_DATABASE_URL
 screening-nudge                     # silence sweep, run from cron every few minutes

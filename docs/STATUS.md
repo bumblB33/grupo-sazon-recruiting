@@ -15,6 +15,7 @@ Moving state for the screening agent. The README describes the system as built. 
 - WhatsApp opener and nudges via Twilio REST.
 - Silence sweep (`screening-nudge`) that nudges, then sets `abandoned`.
 - Evals and bake-off runner.
+- Pyright in `standard` mode with no errors.
 - Tests with fakes for all of the above. The full suite, including the Mongo-backed tests, passes with no LLM calls.
 
 ## Not built
@@ -23,7 +24,6 @@ Moving state for the screening agent. The README describes the system as built. 
 - Logfire tracing and the per-turn decision record.
 - Live reply policy and candidate tone detection.
 - In-API silence scheduler with a sweep lease and per-nudge claims.
-- Type checking. Pyright `standard` reports 49 errors and no checker runs in the dev loop.
 - Voice channel (Pipecat, Deepgram STT, ElevenLabs TTS) on the same engine.
 
 ## Requirements coverage
@@ -126,25 +126,22 @@ Goal: a live demo on a call. Every feature is reachable in the browser. Every ag
 
 ## Remaining work, in order
 
-Precondition: commit the `compose.yaml` `FORWARDED_ALLOW_IPS` change, then branch from it.
-
-1. Type checking: add `[tool.pyright]` in `standard` mode to `pyproject.toml` and pyright to the dev dependencies. Fix the root causes first. Helpers typed `dict[str, Any]` take `ScreeningState`, a `TypedDict` with `total=False`, which is not a `dict` subtype (about 17 errors). Code reads keys that are not required, such as `state["messages"]` (about 10). Structured-output return types need narrowing (`guardrail.py`, `evals/judge.py`). Upserted `find_one_and_update` results are `Optional` to the checker. `graph.py` appends an `AIMessage` to a `list[ToolMessage]`. `tests/test_models.py` reads provider attributes off `BaseChatModel`. The `evals/results.py` mean-over-`None` report is a false positive behind an `any(... is None)` guard. The tracing and reply-policy work edits `engine.py` and `graph.py`, which hold 22 of the 49, so this comes first.
-2. Tracing and the turn record, test first with `logfire.testing`. See "Tracing".
-3. Reply policy and candidate tone, test first. See "Live reply quality".
-4. Service areas: author the 45 locations and their aliases. See "Names and data".
-5. Persona review: rewrite the eval personas as realistic candidates. See "Names and data".
-6. Run the live bake-off with `--out docs`. It needs the three provider keys and a Mongo on `localhost:27017` (the compose `mongo` service does not publish a host port). It writes `docs/bakeoff.json` and `bakeoff.html`. The current files are from a failed run: both Anthropic models hit the missing `anthropic-workspace-id` header, and every OpenAI call errored. Only Mistral produced results, so they do not support a model choice. The bake-off grades raw model text and reports the policy fallback rate per model. It runs before the console work, because it closes a core requirement and the reply policy and personas change its inputs.
-7. Set the `Settings` defaults for `live_model`, `summary_model` and `guardrail_model` in `screening_agent/config.py` to the winners. The current defaults are placeholders.
-8. Seed the demo database with the persona run on the chosen models. See "Names and data".
-9. Silence scheduler, lease and nudge claims, test first. See "Silence scheduler".
-10. Console shell restyle with the Orbio tokens across every existing page.
-11. Web chat and turn inspector. Delete `screening-cli`.
-12. How-it-works page, ops panel, start-screening form and demo reset. Add completion rate, drop-off stage and average duration to the funnel, from `opened_at`, `updated_at` and the outcome event.
-13. Live preflight on the laptop: provider keys and workspace id in `.env`, `docker compose up --build` before the call, seeded personas plus one hand-typed conversation per outcome through the web chat, Logfire token set and one trace opened from the inspector link. The `mongo-data` volume keeps these conversations between runs. Never run `docker compose down -v` before the call. Short silence thresholds or a dry run inside the window. WhatsApp leg: Twilio account and API key in `.env`, presenter's phone joined to the sandbox and in `SCREENING_DEMO_PHONES`, tunnel up, Twilio console webhook and `SCREENING_TWILIO_WEBHOOK_URL` set to `<tunnel>/webhook/whatsapp`, one full screening from the phone, then a demo reset. Read every live reply in the inspector and log each prose or tone fault as a persona or policy case before the call.
-14. README deliverable sections that are missing: "Sample conversations" from live transcripts, "LLM choice" justified from `bakeoff.html`, "Potential improvements", and "Deployment and scaling" (monitoring and alerts through Logfire, the path to 10K candidates a week, the process-local lock as the first limit). Update README and CLAUDE.md for the console, tracing, reply policy and scheduler. Move the as-built parts of "Demo design" out of this file into the README.
-15. Multi-lens adversarial review of the branch. Gates: pytest, ruff, pyright with no new errors.
-16. Record the 5-10 minute demo video from the console: one WhatsApp screening from the phone, the turn inspector, a trace, the how-it-works page, an override.
-17. Voice channel, only if time remains after the video.
+1. Tracing and the turn record, test first with `logfire.testing`. See "Tracing".
+2. Reply policy and candidate tone, test first. See "Live reply quality".
+3. Service areas: author the 45 locations and their aliases. See "Names and data".
+4. Persona review: rewrite the eval personas as realistic candidates. See "Names and data".
+5. Run the live bake-off with `--out docs`. It needs the three provider keys and a Mongo on `localhost:27017` (the compose `mongo` service does not publish a host port). It writes `docs/bakeoff.json` and `bakeoff.html`. The current files are from a failed run: both Anthropic models hit the missing `anthropic-workspace-id` header, and every OpenAI call errored. Only Mistral produced results, so they do not support a model choice. The bake-off grades raw model text and reports the policy fallback rate per model. It runs before the console work, because it closes a core requirement and the reply policy and personas change its inputs.
+6. Set the `Settings` defaults for `live_model`, `summary_model` and `guardrail_model` in `screening_agent/config.py` to the winners. The current defaults are placeholders.
+7. Seed the demo database with the persona run on the chosen models. See "Names and data".
+8. Silence scheduler, lease and nudge claims, test first. See "Silence scheduler".
+9. Console shell restyle with the Orbio tokens across every existing page.
+10. Web chat and turn inspector. Delete `screening-cli`.
+11. How-it-works page, ops panel, start-screening form and demo reset. Add completion rate, drop-off stage and average duration to the funnel, from `opened_at`, `updated_at` and the outcome event.
+12. Live preflight on the laptop: provider keys and workspace id in `.env`, `docker compose up --build` before the call, seeded personas plus one hand-typed conversation per outcome through the web chat, Logfire token set and one trace opened from the inspector link. The `mongo-data` volume keeps these conversations between runs. Never run `docker compose down -v` before the call. Short silence thresholds or a dry run inside the window. WhatsApp leg: Twilio account and API key in `.env`, presenter's phone joined to the sandbox and in `SCREENING_DEMO_PHONES`, tunnel up, Twilio console webhook and `SCREENING_TWILIO_WEBHOOK_URL` set to `<tunnel>/webhook/whatsapp`, one full screening from the phone, then a demo reset. Read every live reply in the inspector and log each prose or tone fault as a persona or policy case before the call.
+13. README deliverable sections that are missing: "Sample conversations" from live transcripts, "LLM choice" justified from `bakeoff.html`, "Potential improvements", and "Deployment and scaling" (monitoring and alerts through Logfire, the path to 10K candidates a week, the process-local lock as the first limit). Update README and CLAUDE.md for the console, tracing, reply policy and scheduler. Move the as-built parts of "Demo design" out of this file into the README.
+14. Multi-lens adversarial review of the branch. Gates: pytest, ruff, pyright with no new errors.
+15. Record the 5-10 minute demo video from the console: one WhatsApp screening from the phone, the turn inspector, a trace, the how-it-works page, an override.
+16. Voice channel, only if time remains after the video.
 
 ## Known gaps
 

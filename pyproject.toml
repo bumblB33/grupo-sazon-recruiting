@@ -21,7 +21,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=9.0", "ruff>=0.8", "testcontainers[mongodb]>=4.0"]
+dev = ["pytest>=9.0", "ruff>=0.8", "testcontainers[mongodb]>=4.0", "pyright>=1.1.414"]
 # Extra providers for the bake-off; the service itself only needs the provider in SCREENING_LIVE_MODEL.
 evals = ["langchain-openai>=1.7", "langchain-mistralai>=1.1"]
 
@@ -43,6 +43,13 @@ include = ["screening_agent*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+
+[tool.pyright]
+include = ["screening_agent", "evals", "tests"]
+typeCheckingMode = "standard"
+pythonVersion = "3.12"
+venvPath = "."
+venv = ".venv"
 
 [tool.ruff]
 line-length = 100

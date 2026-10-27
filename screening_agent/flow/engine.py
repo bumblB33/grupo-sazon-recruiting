@@ -4,7 +4,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
-from typing import Protocol
+from typing import Protocol, cast
 
 from langchain_core.messages import AIMessage, HumanMessage
 from langgraph.graph.state import CompiledStateGraph
@@ -226,8 +226,12 @@ class ScreeningEngine:
                 candidate_id, "guardrail_blocked", {"reason": verdict.reason}
             )
             return _off_topic(state, text)
-        new_state: ScreeningState = self.graph.invoke(
-            {**state, "messages": [*state["messages"], HumanMessage(content=text)]}
+        # LangGraph types invoke() as dict[str, Any]; the graph's state schema is ScreeningState.
+        new_state = cast(
+            ScreeningState,
+            self.graph.invoke(
+                {**state, "messages": [*state["messages"], HumanMessage(content=text)]}
+            ),
         )
         return new_state, new_state.get("reply", "")
 

@@ -1,4 +1,5 @@
-from typing import Annotated, Any, TypedDict
+from collections.abc import Mapping
+from typing import Annotated, Any, Required, TypedDict
 
 from langchain_core.messages import AnyMessage
 from langgraph.graph.message import add_messages
@@ -15,12 +16,12 @@ from screening_agent.domain.profile import CandidateProfile
 
 
 class ScreeningState(TypedDict, total=False):
-    candidate_id: str
-    messages: Annotated[list[AnyMessage], add_messages]
+    candidate_id: Required[str]
+    messages: Required[Annotated[list[AnyMessage], add_messages]]
     profile: dict[str, Any]
     consent: bool | None
     pending_zone: str | None
-    status: Status
+    status: Required[Status]
     disqualify_reason: DisqualifyReason | None
     review_reason: ReviewReason | None
     language: Language
@@ -47,11 +48,11 @@ def initial_state(candidate_id: str) -> ScreeningState:
     )
 
 
-def is_closed(state: dict[str, Any]) -> bool:
+def is_closed(state: Mapping[str, Any]) -> bool:
     return state.get("status", Status.IN_PROGRESS) in TERMINAL_STATUSES
 
 
-def stage_of(state: dict[str, Any]) -> Stage:
+def stage_of(state: Mapping[str, Any]) -> Stage:
     if not state.get("consent"):
         return Stage.CONSENT
     return CandidateProfile.model_validate(state.get("profile", {})).current_stage()

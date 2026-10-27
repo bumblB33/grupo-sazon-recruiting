@@ -44,7 +44,7 @@ GUARDRAIL_SYSTEM = (
 class Guardrail:
     """One structured-output call before the turn. The classifier is injected so tests never call a model."""
 
-    def __init__(self, classifier: Runnable[list[BaseMessage], Classification]) -> None:
+    def __init__(self, classifier: Runnable[list[BaseMessage], object]) -> None:
         self.classifier = classifier
 
     @classmethod
@@ -58,7 +58,7 @@ class Guardrail:
             )
         except Exception as exc:  # fail open: a classifier outage must not stall screening
             return GuardrailVerdict(allowed=True, error=str(exc) or type(exc).__name__)
-        if result is None:  # structured output returns None when the model emits no tool call
+        if not isinstance(result, Classification):  # None when the model emits no tool call
             return GuardrailVerdict(allowed=True, error="classifier returned no classification")
         if result.category == GuardrailCategory.ON_TOPIC:
             return GuardrailVerdict(allowed=True)

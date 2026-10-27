@@ -35,7 +35,7 @@ def chat_model(model_id: str) -> BaseChatModel:
         "timeout": settings.llm_timeout_seconds,
         "max_retries": settings.llm_max_retries,
     }
-    provider = PROVIDERS.get(_provider(model_id))
+    provider = _provider(model_id)
     if provider is not None:
         key = getattr(settings, provider.key_setting)
         if key is None:
@@ -48,8 +48,8 @@ def chat_model(model_id: str) -> BaseChatModel:
     return init_chat_model(model_id, **options)
 
 
-def _provider(model_id: str) -> str | None:
-    provider, separator, _ = model_id.partition(":")
-    if separator:
-        return provider
-    return next((name for prefix, name in BARE_ID_PROVIDERS if model_id.startswith(prefix)), None)
+def _provider(model_id: str) -> Provider | None:
+    name, separator, _ = model_id.partition(":")
+    if not separator:
+        name = next((n for prefix, n in BARE_ID_PROVIDERS if model_id.startswith(prefix)), "")
+    return PROVIDERS.get(name)

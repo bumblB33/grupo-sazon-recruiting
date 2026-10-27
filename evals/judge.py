@@ -53,10 +53,11 @@ class Judge:
     def _ask(self, system: str, body: str) -> Verdict | None:
         """None means the judge failed; the report shows a gap rather than a score of 1."""
         try:
-            return self.model.invoke([SystemMessage(content=system), HumanMessage(content=body)])
+            verdict = self.model.invoke([SystemMessage(content=system), HumanMessage(content=body)])
         except Exception as exc:  # a judge outage must not lose the persona results
             print(f"judge error: {exc}", file=sys.stderr)
             return None
+        return verdict if isinstance(verdict, Verdict) else None
 
 
 def _dialogue(turns: list[Turn]) -> str:

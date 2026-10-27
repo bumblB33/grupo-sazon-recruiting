@@ -31,7 +31,22 @@ cloudflared --version
 
 Result on this machine: `cloudflared version 2026.10.5` at `/usr/local/bin/cloudflared`.
 
-A quick tunnel (`cloudflared tunnel --url ...`) needs no account. Its `https://<words>.trycloudflare.com` URL changes every time the tunnel process restarts. A stable hostname needs a domain on a Cloudflare account and a named tunnel; not used here.
+A quick tunnel (`cloudflared tunnel --url ...`) needs no account. Its `https://<words>.trycloudflare.com` URL changes every time the tunnel process restarts, and the Twilio webhook URL changes with it. A stable Cloudflare hostname needs a domain on a Cloudflare account; not used here.
+
+## 1b. Pin the webhook URL with ngrok's free dev domain
+
+Twilio's sandbox docs: the inbound webhook can be set only in the console, so the pin has to come from the tunnel. ngrok's free plan assigns each account one dev domain, described in ngrok's docs as "a stable, auto-assigned hostname" that "cannot be changed". The launcher prefers ngrok when it is installed and has an authtoken, and falls back to cloudflared.
+
+ngrok's apt repository is its own S3 bucket, key pinned in `trusted.gpg.d`. Commands as published on ngrok's Linux download page:
+
+```bash
+curl -sSL https://ngrok-agent.s3.amazonaws.com/ngrok.asc | sudo tee /etc/apt/trusted.gpg.d/ngrok.asc >/dev/null
+echo "deb https://ngrok-agent.s3.amazonaws.com bookworm main" | sudo tee /etc/apt/sources.list.d/ngrok.list
+sudo apt update && sudo apt install ngrok
+ngrok config add-authtoken "<token from dashboard.ngrok.com>"
+```
+
+The launcher then runs `ngrok http 8000 --url 'https://'`, which binds the account's dev domain, and reads the public URL from the agent's local API at `http://127.0.0.1:4040/api/tunnels` (`public_url`). After the first paste into Twilio the webhook never changes.
 
 ## 2. Build the image
 
@@ -81,7 +96,9 @@ In the Twilio console, Messaging, Try it out, Send a WhatsApp message, Sandbox s
 2. Join the sandbox from the phone with the join phrase shown on that page.
 3. The sandbox number must equal `SCREENING_TWILIO_WHATSAPP_FROM` in `.env`.
 
-After every tunnel restart, repeat step 1 with the new URL. Nothing else changes.
+With ngrok the URL is fixed and step 1 is done once. With cloudflared, repeat step 1 with the new URL after every tunnel restart. Nothing else changes.
+
+A sandbox join expires three days after joining (Twilio sandbox docs). Rejoin from the phone before the recording if the join is older.
 
 ## 6. Recruiter login
 
@@ -126,7 +143,7 @@ Runs `docker compose down` without `-v`, so the conversations in `mongo-data` su
 | Webhook answers 401 to Twilio | `SCREENING_TWILIO_AUTH_TOKEN` in `.env` is not the account's auth token, or the URL mismatch above | Check the token in the Twilio console, then the URL |
 | Webhook answers 503 | Twilio auth token unset and dev mode off | Set the token in `.env`, or dev mode in the override |
 | `POST /candidates` answers 409 | The phone already has a conversation | Use another number, or the demo reset once built |
-| Reply never arrives but the inspector shows the turn | Outbound is TwiML on the webhook response, so the turn did reply; Twilio could not deliver | Re-send the join phrase from the phone. How long a sandbox join lasts is unverified (STATUS open question) |
+| Reply never arrives but the inspector shows the turn | Outbound is TwiML on the webhook response, so the turn did reply; Twilio could not deliver | Re-send the join phrase from the phone. A sandbox join expires after three days |
 | First reply takes long or 500s | Provider key missing or the org key lacks `PROJECT_ANTHROPIC_WORKSPACE_ID` | `docker compose logs api` for `ProviderKeyMissingError` or a 400 from the provider |
 | Login link not printed by `demo-login.sh` | Address not invited or domain not allowed | `docker compose exec api screening-admin invite <email>`; domain in the override |
 | `pymongo.errors.ServerSelectionTimeoutError` in tests | mongod died at Docker's default open-file limit | `docker logs` for `Too many open files`; the test container sets `nofile=65536` |

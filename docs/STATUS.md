@@ -163,5 +163,4 @@ Deferred past the deadline, designs kept in this file: service areas and persona
 - Which model wins the bake-off for the live turn, the summary and the guardrail. Decided by `docs/bakeoff.html` from a valid run. The current file is from a failed run.
 - Logfire trace link format and project URL for the inspector. Needs the Logfire project to exist. Until then the inspector shows the trace id only.
 - Fonts: self-host Geist, Inter and IBM Plex Mono, or load them from a CDN. A CDN fails on a call with poor network and sends visitor IPs to a third party. Self-hosting needs each font licence checked first.
-- Which tunnel exposes the laptop to Twilio (cloudflared or ngrok), and whether its URL is stable across restarts. A changed URL means updating the Twilio console and `SCREENING_TWILIO_WEBHOOK_URL` before the call.
-- How long a Twilio sandbox join lasts, and whether the sandbox delivers the plain-text opener to a joined number with no prior inbound. Unverified. The dry run answers both.
+- Whether the sandbox delivers the plain-text opener to a joined number with no prior inbound. Unverified. The dry run answers it. (A sandbox join lasts three days, per Twilio's sandbox docs.)

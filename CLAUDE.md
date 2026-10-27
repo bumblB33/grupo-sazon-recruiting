@@ -10,7 +10,7 @@ Take-home case study for Orbio: an AI candidate-screening agent for Grupo Sazón
 
 Scaffold stage. Decisions taken 23 Oct that override the outline where they differ:
 - LangGraph owns the node graph. Channels (CLI, WhatsApp via Twilio, voice) are adapters. Pipecat is a voice adapter only, added on the voice day.
-- Build order is core first: domain, graph, turn, CLI, storage, summary, minimal recruiter table, then browser voice, then evals and README.
+- Voice is optional and comes last, after the demo video.
 - Layout is `screening_agent/` per the outline. The old `src/` tree is deleted.
 - The design outline is private prep material and lives outside the repo. The shippable Phase 1 deliverable is `docs/process-design.md`.
 

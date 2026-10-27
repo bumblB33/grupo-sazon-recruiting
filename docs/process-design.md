@@ -6,7 +6,7 @@ Grupo Sazón receives about 1,000 delivery-driver applications a week across 45 
 
 ## Channel policy
 
-Text to ask, call to screen, text to recover. First contact is a WhatsApp template sent minutes after the application. It names the assistant, says it is an AI, says the conversation is recorded, and asks for a good moment. The reply is the opt-in and opens the 24-hour WhatsApp service window. The full screening runs on WhatsApp. A browser voice call running the same flow is the second channel. A channel switch never restarts the flow. One call attempt per day.
+WhatsApp carries the whole screening. First contact is a WhatsApp template sent minutes after the application. It names the assistant, says it is an AI, says the conversation is recorded, and asks for a good moment. The reply is the opt-in and opens the 24-hour WhatsApp service window. A web chat in the recruiter console runs the same flow, so recruiters can test and demo it without a phone. A browser voice call on the same flow is optional and comes last. A channel switch never restarts the flow.
 
 ## Conversation stages
 
@@ -53,6 +53,7 @@ Structured output is the JSON dump of `CandidateProfile`.
 - **Language switch.** Language is detected per message. The agent replies in that message's language. The history of languages is stored. Code-switched messages work because the tools are language-agnostic.
 - **Off-topic or inappropriate input.** A guardrail check runs before the turn. Redirect once, then close politely to `needs_recruiter_review`.
 - **Candidate answers several questions at once.** All matching tools are called in one turn and the flow skips the satisfied stages.
+- **Confused or frustrated candidate.** The guardrail check also reads the candidate's tone. A confused or frustrated candidate gets simpler, calmer wording for that turn. A failed check counts as neutral.
 
 ## Outcomes
 
@@ -68,3 +69,5 @@ Only the two objective criteria disqualify automatically. Everything judgement-s
 ## Tone and length
 
 Messaging, not email. One to two sentences. One question. No bullet lists. Reply within seconds. Never more than two agent messages in a row without a candidate reply. Closing messages are fixed text owned by code, so a disqualified candidate always hears the real reason.
+
+Code checks every model reply before it is sent: one question, at most one emoji, a length limit, the candidate's language, no markdown and no links. A reply that fails a check is replaced by the fixed question for the current stage. There is no second LLM call, so the check adds no latency.

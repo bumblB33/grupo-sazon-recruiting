@@ -7,7 +7,7 @@ SPANISH_MARKERS = frozenset(
     "mañana tarde noche semana carnet licencia vivo trabajo años".split()
 )
 ENGLISH_MARKERS = frozenset(
-    "yes no hello thanks i have am can want that of the and in for with a is morning afternoon "
+    "yes no hi hey hello thanks i have am can want that of the and in for with a is morning afternoon "
     "evening week licence license live work years".split()
 )
 

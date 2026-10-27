@@ -10,3 +10,8 @@ def test_spanish_and_english_are_detected():
 def test_tie_and_empty_fall_back_to_default():
     assert detect_language("no", default=Language.EN) == Language.EN
     assert detect_language("", default=Language.ES) == Language.ES
+
+
+def test_english_greeting_is_detected():
+    assert detect_language("hi") == Language.EN
+    assert detect_language("hey") == Language.EN

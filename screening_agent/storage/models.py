@@ -40,6 +40,24 @@ class Event(BaseModel):
     created_at: datetime = Field(default_factory=utcnow)
 
 
+class Recruiter(BaseModel):
+    """One row per person. Deactivating a recruiter ends their sessions and blocks new login links."""
+
+    email: str
+    active: bool = True
+    created_at: datetime = Field(default_factory=utcnow)
+    last_login_at: datetime | None = None
+
+
+class ApiKey(BaseModel):
+    """One row per machine client; the hash of the secret is stored, the secret is shown once."""
+
+    key_id: str
+    label: str
+    active: bool = True
+    created_at: datetime = Field(default_factory=utcnow)
+
+
 class CandidateDetail(Candidate):
     transcript: list[TranscriptEntry] = Field(default_factory=list)
     events: list[Event] = Field(default_factory=list)

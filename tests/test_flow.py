@@ -196,7 +196,7 @@ def test_redelivered_message_is_ignored(make_engine):
 def test_recruiter_override_is_honoured_by_engine(make_engine):
     engine, repository, _ = make_engine([CONSENT, NAME])
     drive(engine, ["sí"])
-    repository.override("cand", status="disqualified", notes="called, not eligible")
+    repository.override("cand", "disqualified", "called, not eligible", actor="recruiter:test")
     assert engine.handle("cand", "Ana García", "cli", external_id="m9").outcome == Outcome.CLOSED
     candidate = repository.get_candidate("cand")
     assert candidate.status == Status.DISQUALIFIED

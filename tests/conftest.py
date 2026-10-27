@@ -8,10 +8,12 @@ from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
 from langchain_core.messages import AIMessage
 
 from screening_agent.api import app as api
+from screening_agent.api.deps import get_email_sender
 from screening_agent.config import settings
 from screening_agent.flow.engine import ScreeningEngine
 from screening_agent.flow.graph import build_graph
 from screening_agent.llm.guardrail import GuardrailVerdict, permit_all
+from screening_agent.recruiter.router import LOGIN_PATH
 from screening_agent.storage.repository import Repository
 
 
@@ -56,9 +58,14 @@ def mongo_url() -> Iterable[str]:
         yield external
         return
     try:
+        from docker.types import Ulimit
         from testcontainers.community.mongodb import MongoDbContainer
 
-        container = MongoDbContainer("mongo:7").start()
+        # Docker's default 1024 open files is below what one database per test needs; mongod aborts at it.
+        container = MongoDbContainer("mongo:7").with_kwargs(
+            ulimits=[Ulimit(name="nofile", soft=65536, hard=65536)]
+        )
+        container.start()
     except Exception as exc:  # no Docker socket on this machine
         pytest.skip(f"MongoDB test container unavailable: {exc}")
     try:
@@ -68,9 +75,13 @@ def mongo_url() -> Iterable[str]:
 
 
 @pytest.fixture
-def repository(mongo_url: str) -> Repository:
+def repository(mongo_url: str) -> Iterable[Repository]:
     # The container's root user lives in admin; a database in the path would become the auth source.
-    return Repository(f"{mongo_url.rstrip('/')}/test_{uuid.uuid4().hex}?authSource=admin")
+    repository = Repository(f"{mongo_url.rstrip('/')}/test_{uuid.uuid4().hex}?authSource=admin")
+    yield repository
+    # mongod holds open files per collection and index; undropped databases exhaust its 1024 fd limit.
+    repository.client.drop_database(repository.db.name)
+    repository.client.close()
 
 
 @pytest.fixture
@@ -120,7 +131,10 @@ SECRET_SETTINGS = (
     "anthropic_api_key",
     "openai_api_key",
     "mistral_api_key",
-    "recruiter_api_key",
+    "session_secret",
+    "sendgrid_api_key",
+    "login_email_from",
+    "public_url",
     "twilio_auth_token",
     "twilio_webhook_url",
     "twilio_account_sid",
@@ -136,15 +150,35 @@ def no_secrets_from_env(monkeypatch) -> None:
     """Settings also read .env; a developer's live keys must never reach a test or a real provider."""
     for name in SECRET_SETTINGS:
         monkeypatch.setattr(settings, name, None)
+    monkeypatch.setattr(settings, "recruiter_email_domains", [])
+
+
+class FakeEmail:
+    """Captures login emails so a test can follow the link."""
+
+    def __init__(self) -> None:
+        self.sent: list[tuple[str, str, str]] = []
+
+    def send(self, to: str, subject: str, text: str) -> None:
+        self.sent.append((to, subject, text))
+
+    def last_link(self) -> str:
+        return next(word for word in self.sent[-1][2].split() if word.startswith("http"))
 
 
 @pytest.fixture
-def client(make_engine, monkeypatch) -> Iterable[TestClient]:
+def email() -> FakeEmail:
+    return FakeEmail()
+
+
+@pytest.fixture
+def client(make_engine, email, monkeypatch) -> Iterable[TestClient]:
     """API client in dev mode with no secrets; tests set a secret via monkeypatch to exercise auth."""
     monkeypatch.setattr(settings, "dev_mode", True)
     engine, repository, _ = make_engine(API_SCRIPT)
     api.app.dependency_overrides[api.get_repository] = lambda: repository
     api.app.dependency_overrides[api.get_engine] = lambda: engine
+    api.app.dependency_overrides[get_email_sender] = lambda: email
     with TestClient(api.app) as test_client:
         yield test_client
     api.app.dependency_overrides.clear()
@@ -157,3 +191,13 @@ def twilio_form(sid: str, phone: str, body: str) -> dict[str, str]:
 def screen_no_licence(client: TestClient, phone: str) -> None:
     for index, text in enumerate(NO_LICENCE_TURNS):
         client.post("/webhook/whatsapp", data=twilio_form(f"{phone}-{index}", phone, text))
+
+
+RECRUITER_EMAIL = "ana@gruposazon.com"
+
+
+def log_in(client: TestClient, email: FakeEmail, address: str = RECRUITER_EMAIL) -> None:
+    """Requests a link for an allowed address and follows it; the session cookie lands on the client."""
+    client.post(LOGIN_PATH, data={"email": address})
+    response = client.get(email.last_link(), follow_redirects=False)
+    assert response.status_code == 303, response.text

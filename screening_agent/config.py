@@ -25,7 +25,21 @@ class Settings(BaseSettings):
     assistant_name: str = "Sazón"
     # Candidate-facing dates use the service area's zone once known; this covers the stages before it.
     default_timezone: str = "Europe/Madrid"
-    recruiter_api_key: SecretStr | None = None
+    # Signs the recruiter session cookie; rotating it logs every recruiter out once.
+    session_secret: SecretStr | None = None
+    session_hours: float = 12.0
+    login_link_minutes: float = 15.0
+    # Any address at one of these domains enrolls itself on first login. Empty means nobody can.
+    recruiter_email_domains: list[str] = []
+    # Base URL the login link points at. Required outside dev mode: the Host header is attacker-controlled.
+    public_url: str | None = None
+    # One login email per address per cooldown, and at most this many per client IP per window.
+    login_email_cooldown_seconds: float = 60.0
+    login_requests_per_ip: int = 30
+    login_ip_window_minutes: float = 60.0
+    # Login links go out through Twilio SendGrid.
+    sendgrid_api_key: SecretStr | None = None
+    login_email_from: str | None = None
     twilio_auth_token: SecretStr | None = None
     # Twilio signs the URL configured in its console; set this when a proxy rewrites the request URL.
     twilio_webhook_url: str | None = None

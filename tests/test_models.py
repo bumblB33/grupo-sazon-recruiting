@@ -50,6 +50,6 @@ def test_claude_on_bedrock_gets_no_sampling_parameters_and_no_anthropic_key(monk
 
 def test_empty_env_assignment_is_treated_as_unset(monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "")
-    monkeypatch.setenv("SCREENING_RECRUITER_API_KEY", "")
+    monkeypatch.setenv("SCREENING_SESSION_SECRET", "")
     fresh = Settings(_env_file=None)
-    assert fresh.openai_api_key is None and fresh.recruiter_api_key is None
+    assert fresh.openai_api_key is None and fresh.session_secret is None

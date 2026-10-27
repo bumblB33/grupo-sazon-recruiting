@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 
+from screening_agent.api.auth import Principal
 from screening_agent.api.deps import (
     get_engine,
     get_repository,
@@ -29,8 +30,10 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     if settings.dev_mode:
         logger.warning("SCREENING_DEV_MODE is on: unauthenticated recruiter routes and webhook")
-    if not settings.recruiter_api_key:
-        logger.warning("SCREENING_RECRUITER_API_KEY is unset")
+    if not settings.session_secret:
+        logger.warning("SCREENING_SESSION_SECRET is unset")
+    if not settings.recruiter_email_domains:
+        logger.warning("SCREENING_RECRUITER_EMAIL_DOMAINS is empty: no recruiter can log in")
     if not settings.twilio_auth_token:
         logger.warning("SCREENING_TWILIO_AUTH_TOKEN is unset")
     yield
@@ -125,11 +128,14 @@ def get_candidate(
     return candidate
 
 
-@app.patch("/candidates/{candidate_id}", dependencies=[Depends(require_recruiter)])
+@app.patch("/candidates/{candidate_id}")
 def override_candidate(
-    candidate_id: str, body: OverrideRequest, repository: Repository = Depends(get_repository)
+    candidate_id: str,
+    body: OverrideRequest,
+    repository: Repository = Depends(get_repository),
+    principal: Principal = Depends(require_recruiter),
 ) -> Candidate:
-    candidate = repository.override(candidate_id, body.status, body.notes)
+    candidate = repository.override(candidate_id, body.status, body.notes, principal.label)
     if candidate is None:
         raise HTTPException(status_code=404, detail="candidate not found")
     return candidate

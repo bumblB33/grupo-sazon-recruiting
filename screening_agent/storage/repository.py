@@ -1,10 +1,11 @@
 from collections import Counter
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from langchain_core.messages import messages_from_dict, messages_to_dict
-from pymongo import ASCENDING, DESCENDING, MongoClient
+from pymongo import ASCENDING, DESCENDING, MongoClient, ReturnDocument
 from pymongo.database import Database
+from pymongo.errors import DuplicateKeyError
 from pymongo.uri_parser import parse_uri
 
 from screening_agent.config import settings
@@ -12,9 +13,11 @@ from screening_agent.domain.enums import Language, Status
 from screening_agent.flow.silence import SilenceCandidate
 from screening_agent.flow.state import ScreeningState, initial_state, stage_of
 from screening_agent.storage.models import (
+    ApiKey,
     Candidate,
     CandidateDetail,
     Event,
+    Recruiter,
     TranscriptEntry,
     utcnow,
 )
@@ -41,10 +44,16 @@ class Repository:
         self.db: Database = self.client[database_name]
         self.candidates = self.db["candidates"]
         self.events = self.db["events"]
+        self.recruiters = self.db["recruiters"]
+        self.login_tokens = self.db["login_tokens"]
+        self.login_throttles = self.db["login_throttles"]
+        self.api_keys = self.db["api_keys"]
         self.candidates.create_index([("transcript.external_id", ASCENDING)])
         self.candidates.create_index([("status", ASCENDING), ("updated_at", DESCENDING)])
         self.candidates.create_index([("stage", ASCENDING)])
         self.events.create_index([("candidate_id", ASCENDING), ("created_at", ASCENDING)])
+        self.login_tokens.create_index("expires_at", expireAfterSeconds=0)
+        self.login_throttles.create_index("expires_at", expireAfterSeconds=0)
 
     def load_state(self, candidate_id: str) -> ScreeningState:
         document = self.candidates.find_one({"_id": candidate_id}, {"state": 1, "version": 1})
@@ -109,7 +118,7 @@ class Repository:
         self.candidates.update_one({"_id": candidate_id}, {"$set": {"summary": summary}})
 
     def override(
-        self, candidate_id: str, status: Status | None, notes: str | None
+        self, candidate_id: str, status: Status | None, notes: str | None, actor: str
     ) -> Candidate | None:
         """Writes the new status into the live state too, so the engine honours it. Reopening resets
         the silence clock, otherwise the next sweep abandons the candidate again."""
@@ -137,9 +146,114 @@ class Repository:
         if document is None:
             return None
         self.record_event(
-            candidate_id, "recruiter_override", {"status": str_or_none(status), "notes": notes}
+            candidate_id,
+            "recruiter_override",
+            {"status": str_or_none(status), "notes": notes, "actor": actor},
         )
         return Candidate(**_candidate_fields(document))
+
+    def get_recruiter(self, email: str) -> Recruiter | None:
+        document = self.recruiters.find_one({"_id": email})
+        return None if document is None else _recruiter(document)
+
+    def enrol_recruiter(self, email: str) -> Recruiter:
+        """Creates the row on first login and leaves an existing one, including its active flag, alone."""
+        document = self.recruiters.find_one_and_update(
+            {"_id": email},
+            {"$setOnInsert": {"active": True, "created_at": utcnow(), "last_login_at": None}},
+            upsert=True,
+            return_document=ReturnDocument.AFTER,
+        )
+        return _recruiter(document)
+
+    def mark_recruiter_login(self, email: str) -> None:
+        self.recruiters.update_one({"_id": email}, {"$set": {"last_login_at": utcnow()}})
+
+    def set_recruiter_active(self, email: str, active: bool) -> bool:
+        return (
+            self.recruiters.update_one({"_id": email}, {"$set": {"active": active}}).matched_count
+            == 1
+        )
+
+    def list_recruiters(self) -> list[Recruiter]:
+        return [_recruiter(document) for document in self.recruiters.find().sort("_id", ASCENDING)]
+
+    def try_acquire_login_slot(
+        self,
+        email: str,
+        client_ip: str,
+        now: datetime,
+        email_cooldown: timedelta,
+        ip_limit: int,
+        ip_window: timedelta,
+    ) -> bool:
+        """Both limits are single atomic writes, so concurrent requests cannot slip past either one."""
+        window_seconds = ip_window.total_seconds()
+        window_index = int(now.timestamp() // window_seconds)
+        window_end = datetime.fromtimestamp((window_index + 1) * window_seconds, UTC)
+        ip_counter = self.login_throttles.find_one_and_update(
+            {"_id": f"ip:{client_ip}:{window_index}"},
+            {"$inc": {"count": 1}, "$setOnInsert": {"expires_at": window_end}},
+            upsert=True,
+            return_document=ReturnDocument.AFTER,
+        )
+        if ip_counter["count"] > ip_limit:
+            return False
+        try:
+            # An unexpired cooldown row does not match, so the upsert collides on _id.
+            self.login_throttles.update_one(
+                {"_id": f"email:{email}", "expires_at": {"$lte": now}},
+                {"$set": {"expires_at": now + email_cooldown}},
+                upsert=True,
+            )
+        except DuplicateKeyError:
+            return False
+        return True
+
+    def save_login_token(self, token_hash: str, email: str, expires_at: datetime) -> None:
+        self.login_tokens.insert_one(
+            {"_id": token_hash, "email": email, "expires_at": expires_at, "used_at": None}
+        )
+
+    def consume_login_token(self, token_hash: str, now: datetime) -> str | None:
+        """Single use: the conditional update is the lock, so two clicks cannot both log in."""
+        document = self.login_tokens.find_one_and_update(
+            {"_id": token_hash, "used_at": None, "expires_at": {"$gt": now}},
+            {"$set": {"used_at": now}},
+        )
+        return None if document is None else document["email"]
+
+    def save_api_key(self, key_id: str, secret_hash: str, label: str) -> ApiKey:
+        api_key = ApiKey(key_id=key_id, label=label)
+        self.api_keys.insert_one(
+            {
+                "_id": key_id,
+                "hash": secret_hash,
+                "label": label,
+                "active": True,
+                "created_at": api_key.created_at,
+            }
+        )
+        return api_key
+
+    def api_key_hash(self, key_id: str) -> tuple[str, str] | None:
+        """Returns (label, secret hash) for an active key id."""
+        document = self.api_keys.find_one({"_id": key_id, "active": True})
+        return None if document is None else (document["label"], document["hash"])
+
+    def revoke_api_key(self, key_id: str) -> bool:
+        return (
+            self.api_keys.update_one({"_id": key_id}, {"$set": {"active": False}}).matched_count
+            == 1
+        )
+
+    def list_api_keys(self) -> list[ApiKey]:
+        return [
+            ApiKey(
+                key_id=d["_id"], label=d["label"], active=d["active"], created_at=d["created_at"]
+            )
+            for d in self.api_keys.find().sort("created_at", ASCENDING)
+        ]
 
     def list_candidates(
         self, status: str | None = None, stage: str | None = None
@@ -288,3 +402,12 @@ def _as_utc(value: datetime | None) -> datetime | None:
     if value is None or value.tzinfo is not None:
         return value
     return value.replace(tzinfo=UTC)
+
+
+def _recruiter(document: dict[str, Any]) -> Recruiter:
+    return Recruiter(
+        email=document["_id"],
+        active=document["active"],
+        created_at=document["created_at"],
+        last_login_at=document.get("last_login_at"),
+    )

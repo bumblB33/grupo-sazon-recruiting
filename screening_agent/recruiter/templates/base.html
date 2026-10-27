@@ -53,6 +53,7 @@
     header nav a { color: var(--paper); font: 600 12px var(--mono); letter-spacing: 0.12em; text-transform: uppercase; text-decoration: none; }
     header nav a:hover { color: var(--marigold); }
     header form { margin-left: auto; }
+    header .who { color: var(--paper); font: 500 12px var(--mono); margin-right: 12px; opacity: 0.8; }
     header button { background: transparent; color: var(--paper); border-color: rgba(244, 236, 220, 0.4); box-shadow: none; }
     header button:hover { background: var(--chile); border-color: var(--chile); }
 
@@ -170,7 +171,7 @@
     <a class="brand" href="/recruiter/">Sazón<small>reclutamiento · repartidores</small></a>
     {% block header %}
     <nav><a href="/recruiter/">Candidates</a></nav>
-    <form method="post" action="/recruiter/logout"><button type="submit">Log out</button></form>
+    <form method="post" action="/recruiter/logout">{% if principal %}<span class="who">{{ principal.id }}</span> {% endif %}<button type="submit">Log out</button></form>
     {% endblock %}
   </header>
   <div class="picado" aria-hidden="true"></div>

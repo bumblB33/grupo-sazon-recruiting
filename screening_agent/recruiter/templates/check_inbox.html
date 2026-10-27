@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}Check your inbox{% endblock %}
+{% block header %}{% endblock %}
+{% block styles %}
+    .login { max-width: 380px; margin: 8vh auto 0; }
+    .login h1 { font-size: 40px; }
+{% endblock %}
+{% block content %}
+<div class="login card ticket reveal">
+  <p class="kicker">Pase de cocina</p>
+  <h1>Check your inbox</h1>
+  <p>If <strong>{{ email }}</strong> belongs to a recruiter, a login link is on its way. It works once and expires soon.</p>
+  <p><a href="/recruiter/login">Use a different address</a></p>
+</div>
+{% endblock %}

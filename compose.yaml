@@ -6,6 +6,7 @@ services:
     env_file: .env
     environment:
       SCREENING_DATABASE_URL: mongodb://mongo:27017/screening
+      FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-127.0.0.1}
     depends_on:
       mongo:
         condition: service_healthy

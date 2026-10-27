@@ -6,7 +6,8 @@ from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
-from evals.results import BakeoffResults, GuardrailRecord, ModelRecord, PersonaRecord
+from evals.guardrail_cases import GuardrailScore
+from evals.results import BakeoffResults, ModelRecord, PersonaRecord
 
 SERIES_SLOTS = 8
 REQUEST_ID = re.compile(r",?\s*'request_id':\s*'[^']*'")
@@ -116,9 +117,8 @@ def issues(results: BakeoffResults) -> list[Issue]:
     found = []
     for model in results.models:
         found.extend(_collapse(model.live_model, _persona_issue_texts(model)))
-    gates = results.gates
     for g in results.guardrails:
-        reasons = g.gate_failures(gates.guardrail_min_accuracy, gates.guardrail_max_latency_seconds)
+        reasons = results.gates.failures(g)
         if reasons:
             found.append(Issue(g.model, "; ".join(reasons)))
     return found
@@ -139,15 +139,16 @@ def _collapse(scope: str, texts: list[str]) -> list[Issue]:
     return [Issue(scope, text, count) for text, count in counts.items()]
 
 
-def grouped_misses(record: GuardrailRecord) -> list[Issue]:
+def grouped_misses(score: GuardrailScore) -> list[Issue]:
     """Classifier errors repeat one provider message per case; show the message once with a count."""
-    errors = [
-        m.partition(": classifier error ")[2] for m in record.misses if ": classifier error " in m
+    wrong = [
+        Issue(score.model, f"{m.text!r}: {m.got.value} != {m.expected.value}")
+        for m in score.misses
+        if m.got is not None
     ]
-    wrong = [m for m in record.misses if ": classifier error " not in m]
-    return [Issue(record.model, text) for text in wrong] + [
-        Issue(record.model, f"classifier error {text}", count)
-        for text, count in Counter(REQUEST_ID.sub("", e) for e in errors).items()
+    errors = Counter(REQUEST_ID.sub("", m.error) for m in score.misses if m.error is not None)
+    return wrong + [
+        Issue(score.model, f"classifier error {text}", count) for text, count in errors.items()
     ]
 
 
@@ -175,7 +176,7 @@ def score_rows(models: list[ModelRecord]) -> list[ScoreRow]:
     ]
     cells_by_model: list[list[Cell]] = [[] for _ in models]
     for value_of, fmt, maximum, higher_better in columns:
-        values = [value_of(m) if _ran(m) else None for m in models]
+        values = [value_of(m) if m.ran else None for m in models]
         known = [v for v in values if v is not None]
         scale = maximum if maximum is not None else max(known, default=0)
         best = (max(known) if higher_better else min(known)) if len(known) > 1 else None
@@ -190,14 +191,10 @@ def score_rows(models: list[ModelRecord]) -> list[ScoreRow]:
     ]
 
 
-def _ran(model: ModelRecord) -> bool:
-    return any(p.turns for p in model.personas)
-
-
 def _unavailable(model: ModelRecord) -> str | None:
     """A model whose every persona died with the same error never ran; the number cells would lie."""
     errors = {REQUEST_ID.sub("", p.error) if p.error else None for p in model.personas}
-    if model.personas and len(errors) == 1 and None not in errors and not _ran(model):
+    if model.personas and len(errors) == 1 and None not in errors and not model.ran:
         return next(iter(errors))
     return None
 
@@ -234,7 +231,7 @@ def latency_strips(models: list[ModelRecord], scale: float) -> list[Strip]:
     for i, m in enumerate(models):
         latencies = sorted(t.latency_seconds for p in m.personas for t in p.turns)
         dots = [(_share(v, scale), v) for v in latencies]
-        p50 = m.latency_p50 if latencies else None
+        p50 = m.latency_p50
         strips.append(
             Strip(
                 m.live_model,
@@ -273,7 +270,7 @@ def guardrail_rows(results: BakeoffResults) -> list[GuardrailRow]:
                 f"{g.latency_p95:.2f}s",
                 _share(g.latency_p95, latency_scale),
                 _share(gates.guardrail_max_latency_seconds, latency_scale),
-                g.latency_p95 <= gates.guardrail_max_latency_seconds,
+                gates.latency_passes(g),
             )
         rows.append(
             GuardrailRow(
@@ -285,7 +282,7 @@ def guardrail_rows(results: BakeoffResults) -> list[GuardrailRow]:
                     f"{g.accuracy:.0%}",
                     _share(g.accuracy, 1.0),
                     _share(gates.guardrail_min_accuracy, 1.0),
-                    g.accuracy >= gates.guardrail_min_accuracy,
+                    gates.accuracy_passes(g),
                 ),
                 latency,
                 f"{g.latency_p50:.2f}s" if g.latencies else "n/a",

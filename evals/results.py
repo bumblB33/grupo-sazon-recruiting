@@ -1,12 +1,20 @@
+import json
 from datetime import UTC, datetime
 from pathlib import Path
 from statistics import mean, median
 
 from pydantic import BaseModel, Field
 
-from evals.guardrail_cases import GuardrailScore, latency_p50, latency_p95
+from evals.guardrail_cases import GuardrailScore
 from evals.pricing import cost_usd
 from evals.runner import PersonaRun
+
+# Bump on any change a renderer cannot read; an old file then fails with a clear message.
+SCHEMA_VERSION = 1
+
+
+class IncompatibleResultsError(ValueError):
+    pass
 
 
 class TurnRecord(BaseModel):
@@ -39,10 +47,19 @@ class PersonaRecord(BaseModel):
     def style_failure_count(self) -> int:
         return sum(len(turn.style) for turn in self.turns)
 
+    @property
+    def completed(self) -> bool:
+        """A run cut short by an error spent fewer tokens than a screening, so it would flatter cost."""
+        return bool(self.turns) and self.error is None
+
 
 class ModelRecord(BaseModel):
     live_model: str
     personas: list[PersonaRecord]
+
+    @property
+    def ran(self) -> bool:
+        return any(p.turns for p in self.personas)
 
     @property
     def passed(self) -> int:
@@ -53,9 +70,9 @@ class ModelRecord(BaseModel):
         return sum(persona.style_failure_count for persona in self.personas)
 
     @property
-    def latency_p50(self) -> float:
+    def latency_p50(self) -> float | None:
         latencies = [turn.latency_seconds for p in self.personas for turn in p.turns]
-        return median(latencies) if latencies else 0.0
+        return median(latencies) if latencies else None
 
     @property
     def tone(self) -> float | None:
@@ -66,16 +83,12 @@ class ModelRecord(BaseModel):
         return self._judge_mean("summary")
 
     @property
-    def input_tokens(self) -> int:
-        return sum(persona.input_tokens for persona in self.personas)
-
-    @property
-    def output_tokens(self) -> int:
-        return sum(persona.output_tokens for persona in self.personas)
-
-    @property
     def cost_per_screening(self) -> float | None:
-        costs = [cost_usd(self.live_model, p.input_tokens, p.output_tokens) for p in self.personas]
+        costs = [
+            cost_usd(self.live_model, p.input_tokens, p.output_tokens)
+            for p in self.personas
+            if p.completed
+        ]
         return None if not costs or any(c is None for c in costs) else mean(costs)
 
     def _judge_mean(self, key: str) -> float | None:
@@ -83,50 +96,41 @@ class ModelRecord(BaseModel):
         return mean(scores) if scores else None
 
 
-class GuardrailRecord(BaseModel):
-    model: str
-    correct: int
-    total: int
-    misses: list[str]
-    latencies: list[float] = Field(default_factory=list)
-
-    @property
-    def accuracy(self) -> float:
-        return self.correct / self.total if self.total else 0.0
-
-    @property
-    def latency_p50(self) -> float:
-        return latency_p50(self.latencies)
-
-    @property
-    def latency_p95(self) -> float:
-        return latency_p95(self.latencies)
-
-    def gate_failures(self, min_accuracy: float, max_latency_seconds: float) -> list[str]:
-        """An unavailable model has no latencies and zero accuracy, so it fails on accuracy alone."""
-        failures = []
-        if self.accuracy < min_accuracy:
-            failures.append(f"accuracy {self.accuracy:.0%} < {min_accuracy:.0%}")
-        if self.latencies and self.latency_p95 > max_latency_seconds:
-            failures.append(f"p95 latency {self.latency_p95:.1f}s > {max_latency_seconds:.1f}s")
-        return failures
-
-
 class Gates(BaseModel):
     guardrail_min_accuracy: float
     guardrail_max_latency_seconds: float
 
+    def accuracy_passes(self, score: GuardrailScore) -> bool:
+        return score.accuracy >= self.guardrail_min_accuracy
+
+    def latency_passes(self, score: GuardrailScore) -> bool:
+        """No answered call means no latency to judge; such a model already fails on accuracy."""
+        return not score.latencies or score.latency_p95 <= self.guardrail_max_latency_seconds
+
+    def failures(self, score: GuardrailScore) -> list[str]:
+        if score.unavailable:
+            return [f"unavailable: {score.unavailable}"]
+        failures = []
+        if not self.accuracy_passes(score):
+            failures.append(f"accuracy {score.accuracy:.0%} < {self.guardrail_min_accuracy:.0%}")
+        if not self.latency_passes(score):
+            failures.append(
+                f"p95 latency {score.latency_p95:.1f}s > {self.guardrail_max_latency_seconds:.1f}s"
+            )
+        return failures
+
 
 class BakeoffResults(BaseModel):
-    """The JSON contract between a live run and the renderers, so the report can be rebuilt offline."""
+    """The JSON contract between a live run and the renderer, so the report can be rebuilt offline."""
 
+    schema_version: int = SCHEMA_VERSION
     generated_at: datetime
     summary_model: str
     guardrail_model: str
     judge_model: str | None
     gates: Gates
     models: list[ModelRecord]
-    guardrails: list[GuardrailRecord]
+    guardrails: list[GuardrailScore]
 
     @classmethod
     def from_runs(
@@ -149,16 +153,7 @@ class BakeoffResults(BaseModel):
                 ModelRecord(live_model=model, personas=[_persona_record(r) for r in runs])
                 for model, runs in runs_by_model.items()
             ],
-            guardrails=[
-                GuardrailRecord(
-                    model=s.model,
-                    correct=s.correct,
-                    total=s.total,
-                    misses=list(s.misses),
-                    latencies=list(s.latencies),
-                )
-                for s in guardrails
-            ],
+            guardrails=guardrails,
         )
 
     @property
@@ -175,28 +170,29 @@ class BakeoffResults(BaseModel):
         return [
             f"{g.model}: {'; '.join(reasons)}"
             for g in self.guardrails
-            if (
-                reasons := g.gate_failures(
-                    self.gates.guardrail_min_accuracy, self.gates.guardrail_max_latency_seconds
-                )
-            )
+            if (reasons := self.gates.failures(g))
         ]
 
     @property
     def passed(self) -> bool:
         return not self.persona_failures and not self.guardrail_failures
 
-    def guardrail_passed(self, record: GuardrailRecord) -> bool:
-        return not record.gate_failures(
-            self.gates.guardrail_min_accuracy, self.gates.guardrail_max_latency_seconds
-        )
+    def guardrail_passed(self, score: GuardrailScore) -> bool:
+        return not self.gates.failures(score)
 
     def save(self, path: Path) -> None:
         path.write_text(self.model_dump_json(indent=2) + "\n")
 
     @classmethod
     def load(cls, path: Path) -> "BakeoffResults":
-        return cls.model_validate_json(path.read_text())
+        text = path.read_text()
+        version = json.loads(text).get("schema_version")
+        if version != SCHEMA_VERSION:
+            raise IncompatibleResultsError(
+                f"{path} has schema version {version}, this renderer reads {SCHEMA_VERSION}; "
+                "re-run the evals to produce it"
+            )
+        return cls.model_validate_json(text)
 
 
 def _persona_record(run: PersonaRun) -> PersonaRecord:

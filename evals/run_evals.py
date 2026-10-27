@@ -9,11 +9,11 @@ from evals.guardrail_cases import score_guardrail
 from evals.judge import JUDGE_MODEL, Judge
 from evals.personas.text_personas import PERSONAS
 from evals.render_report import write_reports
-from evals.report import render
 from evals.results import BakeoffResults, Gates
 from evals.runner import ModelSet, PersonaRun, build_engine, run_persona
 from screening_agent.config import settings
 from screening_agent.flow.engine import ScreeningEngine
+from screening_agent.llm.models import chat_model
 from screening_agent.storage.repository import Repository
 
 
@@ -55,8 +55,7 @@ def main() -> int:
     if args.out:
         for path in write_reports(results, Path(args.out)):
             print(f"written {path}", file=sys.stderr)
-    else:
-        print(render(results))
+    print("PASS" if results.passed else "FAIL", file=sys.stderr)
     return 0 if results.passed else 1
 
 
@@ -125,9 +124,13 @@ def _parse() -> argparse.Namespace:
     parser.add_argument(
         "--out",
         default=None,
-        help="directory for bakeoff.json, bakeoff.md and bakeoff.html; without it the markdown goes to stdout",
+        help="directory for bakeoff.json and bakeoff.html; without it only the verdict is printed",
     )
-    parser.add_argument("--db", default=settings.database_url)
+    parser.add_argument(
+        "--db",
+        default=settings.eval_database_url,
+        help="Mongo for throwaway eval databases; never the app's SCREENING_DATABASE_URL",
+    )
     parser.add_argument(
         "--keep-db", action="store_true", help="keep each eval database to inspect transcripts"
     )
@@ -136,7 +139,19 @@ def _parse() -> argparse.Namespace:
         parser.error("--models needs at least one model id")
     if not urlsplit(args.db).path.strip("/"):
         parser.error("--db must name a database, e.g. mongodb://host:27017/screening")
+    for model_id in _models_used_in_runs(args):
+        try:
+            chat_model(model_id)
+        except Exception as exc:
+            parser.error(f"{model_id}: {type(exc).__name__}: {exc}")
     return args
+
+
+def _models_used_in_runs(args: argparse.Namespace) -> list[str]:
+    """Checked before any paid call: a bad id mid-run would end it before results are written.
+    Scored guardrail models are left out, an unusable one scores zero instead."""
+    judge = [args.judge_model] if args.judge else []
+    return [*args.models, args.summary_model, args.guardrail_model, *judge]
 
 
 def _csv(value: str) -> list[str]:

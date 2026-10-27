@@ -42,10 +42,6 @@ class PersonaRun:
     error: str | None = None
     judge: dict = field(default_factory=dict)
 
-    @property
-    def style_failure_count(self) -> int:
-        return sum(len(turn.style) for turn in self.turns)
-
 
 def build_engine(repository: Repository, models: ModelSet) -> ScreeningEngine:
     return ScreeningEngine(

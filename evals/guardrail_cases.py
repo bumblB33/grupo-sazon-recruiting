@@ -3,6 +3,8 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from statistics import median, quantiles
 
+from pydantic import BaseModel, Field
+
 from screening_agent.llm.guardrail import Guardrail, GuardrailCategory
 
 
@@ -39,13 +41,27 @@ GUARDRAIL_CASES: tuple[GuardrailCase, ...] = (
 )
 
 
-@dataclass(frozen=True)
-class GuardrailScore:
+class GuardrailMiss(BaseModel):
+    """A wrong label has `got`; a failed classifier call has `error` instead."""
+
+    text: str
+    expected: GuardrailCategory
+    got: GuardrailCategory | None = None
+    error: str | None = None
+
+
+class GuardrailScore(BaseModel):
+    """Also the guardrail section of bakeoff.json. Latencies cover answered calls only."""
+
     model: str
-    correct: int
     total: int
-    misses: tuple[str, ...]
-    latencies: tuple[float, ...] = ()
+    misses: list[GuardrailMiss] = Field(default_factory=list)
+    latencies: list[float] = Field(default_factory=list)
+    unavailable: str | None = None
+
+    @property
+    def correct(self) -> int:
+        return 0 if self.unavailable else self.total - len(self.misses)
 
     @property
     def accuracy(self) -> float:
@@ -65,9 +81,10 @@ def latency_p50(latencies: Sequence[float]) -> float:
 
 
 def latency_p95(latencies: Sequence[float]) -> float:
+    """Inclusive, so the gate never compares against a value slower than any observed call."""
     if len(latencies) < 2:
         return latencies[0] if latencies else 0.0
-    return quantiles(latencies, n=20)[-1]
+    return quantiles(latencies, n=20, method="inclusive")[-1]
 
 
 def score_guardrail(model_id: str) -> GuardrailScore:
@@ -75,27 +92,32 @@ def score_guardrail(model_id: str) -> GuardrailScore:
     try:
         guardrail = Guardrail.for_model(model_id)
     except Exception as exc:
-        reason = f"unavailable: {type(exc).__name__}: {exc}"
-        return GuardrailScore(model_id, 0, len(GUARDRAIL_CASES), (reason,))
+        return GuardrailScore(
+            model=model_id,
+            total=len(GUARDRAIL_CASES),
+            unavailable=f"{type(exc).__name__}: {exc}",
+        )
     return score_cases(guardrail, model_id)
 
 
 def score_cases(
     guardrail: Guardrail, label: str, cases: tuple[GuardrailCase, ...] = GUARDRAIL_CASES
 ) -> GuardrailScore:
-    """Accuracy on labelled messages. A fail-open verdict is a miss, not an on_topic hit."""
-    misses: list[str] = []
+    """Accuracy on labelled messages. A fail-open verdict is a miss, not an on_topic hit.
+    A failed call returns fast, so its time would flatter the latency gate."""
+    misses: list[GuardrailMiss] = []
     latencies: list[float] = []
     for case in cases:
         started = time.perf_counter()
         verdict = guardrail.check(case.text)
-        latencies.append(time.perf_counter() - started)
+        elapsed = time.perf_counter() - started
         if verdict.error:
-            misses.append(f"{case.text!r}: classifier error {verdict.error}")
+            misses.append(
+                GuardrailMiss(text=case.text, expected=case.category, error=verdict.error)
+            )
             continue
+        latencies.append(elapsed)
         got = GuardrailCategory.ON_TOPIC if verdict.allowed else GuardrailCategory(verdict.reason)
         if got != case.category:
-            misses.append(f"{case.text!r}: {got.value} != {case.category.value}")
-    return GuardrailScore(
-        label, len(cases) - len(misses), len(cases), tuple(misses), tuple(latencies)
-    )
+            misses.append(GuardrailMiss(text=case.text, expected=case.category, got=got))
+    return GuardrailScore(model=label, total=len(cases), misses=misses, latencies=latencies)

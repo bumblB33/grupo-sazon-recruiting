@@ -1,6 +1,6 @@
 # Troubleshooting and demo runbook
 
-Commands run and checks made to bring the stack up on a laptop with a public tunnel for the Twilio WhatsApp sandbox. Each section records what was run, what it showed, and what to do when it does not.
+Commands run and checks made to bring the stack up on a laptop with a public tunnel for the Twilio WhatsApp sandbox. Each section records what was run, what it showed, and what to do when it does not. Tech debt is listed at the end. Open product work is in `docs/STATUS.md`.
 
 The demo scripts live outside the repo in `~/sazon-demo/`, so no secret or tunnel URL is ever committed. `.env` is never edited by a script.
 
@@ -8,36 +8,19 @@ The demo scripts live outside the repo in `~/sazon-demo/`, so no secret or tunne
 
 | File | Purpose |
 |---|---|
-| `~/sazon-demo/compose.demo.yaml` | Compose override: dev mode, generated session secret, recruiter domain, short silence thresholds, 60 s sweep, 3 s candidate page refresh, webhook URL from `TUNNEL_URL`. |
-| `~/sazon-demo/demo.env` | Written by the launcher. One line, `TUNNEL_URL=https://...`. Read by compose for variable substitution. |
-| `~/sazon-demo/demo-up.sh` | Starts the tunnel, writes `demo.env`, brings the stack up, waits for the API, invites the demo recruiter, prints the URLs to paste. |
-| `~/sazon-demo/demo-login.sh` | Requests a login link for the demo recruiter and prints it from the container's stderr. |
-| `~/sazon-demo/demo-down.sh` | Stops the stack and the tunnel. Keeps the `mongo-data` volume. |
-| `~/sazon-demo/cloudflared.log`, `cloudflared.pid` | Tunnel output and process id. |
+| `~/sazon-demo/compose.demo.yaml` | Compose override: dev mode, generated session secret, recruiter domain, short silence thresholds, 60 s sweep, 3 s candidate page refresh, public URL and webhook URL from `NGROK_URL`, login mail redirected to the presenter's inbox. |
+| `~/sazon-demo/demo.env` | Written by the launcher with mode 0600. `NGROK_URL` and `NGROK_AUTHTOKEN`. Read by compose for variable substitution. |
+| `~/sazon-demo/demo-up.sh` | Writes `demo.env`, brings the stack up with the `tunnel` profile, waits for the API and the tunnel, invites the demo recruiter, prints the URLs. |
+| `~/sazon-demo/demo-login.sh` | Fallback when `.env` has no SendGrid keys: requests a login link for the demo recruiter and prints it from the container's stderr. |
+| `~/sazon-demo/demo-down.sh` | Stops the stack including the tunnel. Keeps the `mongo-data` volume. |
 
-## 1. Install cloudflared
+## 1. The public URL is the `ngrok` compose service
 
-`cloudflared` is Cloudflare's tunnel client. Verified before installing: GitHub `cloudflare/cloudflared`, Apache-2.0, release built by Cloudflare's bot; Cloudflare's docs name `pkg.cloudflare.com` as the install source. There is no `cloudflared` on PyPI, so never `pip install` it.
+`compose.yaml` has an `ngrok` service (image `ngrok/ngrok:3`) behind the `tunnel` profile, so `docker compose up` alone starts no tunnel. It runs `ngrok http api:8000 --url $NGROK_URL` inside the compose network, so the host port is irrelevant; the equivalent host command is `ngrok http 8000 --url <domain>`. `NGROK_AUTHTOKEN` and `NGROK_URL` are required; compose refuses to start the profile without them.
 
-This machine is Linux Mint 22.3, which is Ubuntu 24.04 `noble`. Vendor apt repository with the key pinned by `signed-by`:
+ngrok's free plan assigns each account one dev domain, described in ngrok's docs as "a stable, auto-assigned hostname" that "cannot be changed". The launcher's default is this account's domain; override it with `NGROK_URL=https://<name>.ngrok-free.dev`. Twilio's sandbox webhook can be set only in the console, so the fixed domain is what makes the paste a one-time step.
 
-```bash
-sudo mkdir -p --mode=0755 /usr/share/keyrings
-curl -fsSL https://pkg.cloudflare.com/cloudflare-main.gpg | sudo tee /usr/share/keyrings/cloudflare-main.gpg >/dev/null
-echo 'deb [signed-by=/usr/share/keyrings/cloudflare-main.gpg] https://pkg.cloudflare.com/cloudflared noble main' | sudo tee /etc/apt/sources.list.d/cloudflared.list
-sudo apt-get update && sudo apt-get install cloudflared
-cloudflared --version
-```
-
-Result on this machine: `cloudflared version 2026.10.5` at `/usr/local/bin/cloudflared`.
-
-A quick tunnel (`cloudflared tunnel --url ...`) needs no account. Its `https://<words>.trycloudflare.com` URL changes every time the tunnel process restarts, and the Twilio webhook URL changes with it. A stable Cloudflare hostname needs a domain on a Cloudflare account; not used here.
-
-## 1b. Pin the webhook URL with ngrok's free dev domain
-
-Twilio's sandbox docs: the inbound webhook can be set only in the console, so the pin has to come from the tunnel. ngrok's free plan assigns each account one dev domain, described in ngrok's docs as "a stable, auto-assigned hostname" that "cannot be changed". The launcher prefers ngrok when it is installed and has an authtoken, and falls back to cloudflared.
-
-ngrok's apt repository is its own S3 bucket, key pinned in `trusted.gpg.d`. Commands as published on ngrok's Linux download page:
+Install the host agent once, to hold the authtoken the launcher copies into `demo.env`. Commands as published on ngrok's Linux download page:
 
 ```bash
 curl -sSL https://ngrok-agent.s3.amazonaws.com/ngrok.asc | sudo tee /etc/apt/trusted.gpg.d/ngrok.asc >/dev/null
@@ -46,7 +29,11 @@ sudo apt update && sudo apt install ngrok
 ngrok config add-authtoken "<token from dashboard.ngrok.com>"
 ```
 
-The launcher then runs `ngrok http 8000 --url 'https://'`, which binds the account's dev domain, and reads the public URL from the agent's local API at `http://127.0.0.1:4040/api/tunnels` (`public_url`). After the first paste into Twilio the webhook never changes.
+Verified 27 Oct: `ngrok version 3.39.13`, config at `~/.config/ngrok/ngrok.yml`. Exporting `NGROK_AUTHTOKEN` before the launcher also works.
+
+The launcher reads the bound URL from the container's local API, published on `127.0.0.1:4040` (`/api/tunnels`, `public_url`), and fails when it differs from `NGROK_URL`. Browser requests through a free ngrok domain see an interstitial page once per browser; `curl` checks pass `ngrok-skip-browser-warning: 1` to skip it. Twilio's webhook POST is not affected.
+
+cloudflared is no longer used. The old quick-tunnel launcher changed URL on every start.
 
 ## 2. Build the image
 
@@ -64,13 +51,12 @@ docker compose build api
 
 What it does, in order:
 
-1. Checks `docker`, `cloudflared`, `curl` exist, the Docker daemon answers, and `.env` exists in the repo.
-2. Starts `cloudflared tunnel --url http://localhost:8000 --no-autoupdate` in the background unless the pid file points at a live process.
-3. Polls the tunnel log up to 60 s for the `trycloudflare.com` URL and writes it to `demo.env`.
-4. Runs `docker compose --project-directory <repo> --env-file ~/sazon-demo/demo.env -f compose.yaml -f ~/sazon-demo/compose.demo.yaml up -d --remove-orphans`. The API reads `SCREENING_TWILIO_WEBHOOK_URL` at start, so a new tunnel URL recreates the `api` container.
-5. Polls `http://localhost:8000/docs` up to 60 s.
-6. Runs `screening-admin invite demo@gruposazon.com` inside `api`. The invite is an upsert, so repeating it is safe.
-7. Prints the tunnel URL, the Twilio webhook URL to paste, and the login page.
+1. Checks `docker` and `curl` exist, the Docker daemon answers, and `.env` exists in the repo.
+2. Reads the authtoken from `~/.config/ngrok/ngrok.yml` (or `NGROK_AUTHTOKEN`) and writes `NGROK_URL` and `NGROK_AUTHTOKEN` to `demo.env`.
+3. Runs `docker compose --project-directory <repo> --env-file ~/sazon-demo/demo.env -f compose.yaml -f ~/sazon-demo/compose.demo.yaml --profile tunnel up -d --remove-orphans`.
+4. Polls `http://localhost:8000/docs` up to 60 s, then `http://127.0.0.1:4040/api/tunnels` up to 60 s and checks the bound URL equals `NGROK_URL`.
+5. Runs `screening-admin invite demo@gruposazon.com` inside `api`. The invite is an upsert, so repeating it is safe.
+6. Prints the public URL, the Twilio webhook URL to paste, and the login page.
 
 Override the recruiter address with `RECRUITER_EMAIL=you@gruposazon.com ~/sazon-demo/demo-up.sh`. The domain must be in `SCREENING_RECRUITER_EMAIL_DOMAINS` in the override.
 
@@ -79,14 +65,14 @@ Override the recruiter address with `RECRUITER_EMAIL=you@gruposazon.com ~/sazon-
 Known-positive control, then the negative:
 
 ```bash
-URL=$(cut -d= -f2 ~/sazon-demo/demo.env)
-curl -s -o /dev/null -w "%{http_code}\n" "$URL/docs"
-curl -s -o /dev/null -w "%{http_code}\n" -X POST "$URL/webhook/whatsapp" -d "From=whatsapp:%2B34600&Body=hi&MessageSid=x"
+URL=$(sed -n 's/^NGROK_URL=//p' ~/sazon-demo/demo.env)
+curl -s -o /dev/null -w "%{http_code}\n" -H "ngrok-skip-browser-warning: 1" "$URL/docs"
+curl -s -o /dev/null -w "%{http_code}\n" -X POST -H "ngrok-skip-browser-warning: 1" "$URL/webhook/whatsapp" -d "From=whatsapp:%2B34600&Body=hi&MessageSid=x"
 ```
 
 Expected: `200` then `401`. The 200 proves the public URL reaches the API. The 401 proves the Twilio signature check is live outside dev mode: an unsigned request is refused, a request Twilio signs for the exact URL in the console is accepted.
 
-If the first is not 200: `tail ~/sazon-demo/cloudflared.log` for the tunnel, `docker compose logs api` for the app.
+Passed 27 Oct against the fixed domain. If the first is not 200: `docker compose --profile tunnel logs ngrok` for the tunnel, `docker compose logs api` for the app.
 
 ## 5. Twilio sandbox
 
@@ -96,19 +82,23 @@ In the Twilio console, Messaging, Try it out, Send a WhatsApp message, Sandbox s
 2. Join the sandbox from the phone with the join phrase shown on that page.
 3. The sandbox number must equal `SCREENING_TWILIO_WHATSAPP_FROM` in `.env`.
 
-With ngrok the URL is fixed and step 1 is done once. With cloudflared, repeat step 1 with the new URL after every tunnel restart. Nothing else changes.
+The URL is fixed, so step 1 is done once.
 
 A sandbox join expires three days after joining (Twilio sandbox docs). Rejoin from the phone before the recording if the join is older.
 
 ## 6. Recruiter login
 
-Dev mode in the override routes the login email to the container's stderr instead of SendGrid.
+Two paths. Which one runs depends only on whether `.env` has `SCREENING_SENDGRID_API_KEY` and `SCREENING_LOGIN_EMAIL_FROM`. Dev mode alone does not pick.
+
+Mailbox path, for the recording. The override sets `SCREENING_LOGIN_EMAIL_REDIRECT_TO` to the presenter's mailbox, so the login mail for `demo@gruposazon.com` is delivered there with "Requested for demo@gruposazon.com." as its first line. Needs the two SendGrid settings in `.env` and a sender verified in SendGrid. Type the demo address on `http://localhost:8000/recruiter/login`, open the mail, replace the link's host with `localhost:8000`, open it, press confirm. The session cookie is host-only and set on the origin that confirms the link, so a confirm on the public domain does not log in `localhost`. The redirect is refused outside dev mode: the login form answers 503 and the log names the setting.
+
+Terminal path, when the SendGrid settings are empty. The sender falls back to stderr, and the redirect only changes the printed "email to" address:
 
 ```bash
 ~/sazon-demo/demo-login.sh
 ```
 
-Prints a link like `http://localhost:8000/recruiter/login/<token>`. Open it, click confirm. The link is single use and expires in 15 minutes. Run the script again for a new one.
+Prints a link on the public domain, `https://<name>.ngrok-free.dev/recruiter/login/<token>`, because `SCREENING_PUBLIC_URL` in the override is that domain. Replace the host with `localhost:8000` before opening it, for the same cookie reason as above. Click confirm. The link is single use and expires in 15 minutes. Run the script again for a new one.
 
 ## 7. Watch a live screening
 
@@ -118,7 +108,13 @@ docker compose -f compose.yaml -f ~/sazon-demo/compose.demo.yaml logs -f api
 
 Open `http://localhost:8000/recruiter/candidates/<E.164 phone>` for the inspector. The page reloads itself every 3 s while the conversation is open (`SCREENING_CANDIDATE_PAGE_REFRESH_SECONDS` in the override).
 
-Silence thresholds in the override, in minutes: nudge at 3 and 6, abandon at 12, opener retry at 3, opener abandon at 12. The sweep runs every 60 s. A paused take is abandoned by the sweep.
+Silence thresholds in the override, in minutes: nudge at 3 and 6, abandon at 12, opener retry at 3, opener abandon at 12. The sweep runs every 60 s. A paused take is abandoned by the sweep. Keep the take moving, or stop the `sweep` service for the recording with `docker compose stop sweep`.
+
+Thresholds are wall-clock. A laptop that sleeps between the dry run and the recording abandons every in-progress candidate on the first tick after it wakes. Run the dry run inside the window or restart the stack first.
+
+Open the recruiter pages on `http://localhost:8000` for the recording, the origin the login was confirmed on. The free ngrok domain shows a one-time interstitial page in a browser.
+
+The meta refresh on the candidate page discards an unsaved override note while the conversation is in progress. Write the note after the outcome.
 
 ## 8. Stop
 
@@ -132,18 +128,32 @@ Runs `docker compose down` without `-v`, so the conversations in `mongo-data` su
 
 - `zsh: no such file or directory: tunnel` after pasting a command with `<tunnel>` in it. The angle brackets are a placeholder. zsh read `<tunnel>` as a file redirect. Replace it with the real URL, or use the launcher, which never asks for a paste.
 - `service "api" is not running` from `docker compose exec`. The stack is down, usually because the previous command failed. Run `demo-up.sh`.
-- `WRN ... GID ... is not within ping_group_range` and `ICMP proxy feature is disabled` from cloudflared. The ICMP proxy serves `ping` through private-network tunnels for WARP clients. An HTTP quick tunnel never uses it. Ignore. To silence it, a system-wide kernel change: `sudo sysctl -w net.ipv4.ping_group_range="0 2147483647"`, persisted in `/etc/sysctl.d/99-cloudflared.conf`.
 - `InsecureKeyLengthWarning` from PyJWT in the test suite. Tests use a short session secret on purpose. The override generates a 32-byte secret.
 
 ## Common failures
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| Twilio's debugger shows a webhook fetch error, or the phone gets no reply | Webhook URL in the console differs from `SCREENING_TWILIO_WEBHOOK_URL`, or the tunnel restarted | Re-run `demo-up.sh`, paste the printed URL into the console |
+| Twilio's debugger shows a webhook fetch error, or the phone gets no reply | Webhook URL in the console differs from `SCREENING_TWILIO_WEBHOOK_URL`, or the `ngrok` container is down | `docker compose --profile tunnel ps`, re-run `demo-up.sh`, compare the console URL with the printed one |
+| `ngrok` container exits at once | Authtoken missing or wrong, or the domain belongs to another account | `docker compose --profile tunnel logs ngrok`, then `ngrok config add-authtoken` and re-run `demo-up.sh` |
 | Webhook answers 401 to Twilio | `SCREENING_TWILIO_AUTH_TOKEN` in `.env` is not the account's auth token, or the URL mismatch above | Check the token in the Twilio console, then the URL |
 | Webhook answers 503 | Twilio auth token unset and dev mode off | Set the token in `.env`, or dev mode in the override |
 | `POST /candidates` answers 409 | The phone already has a conversation | Use another number, or the demo reset once built |
 | Reply never arrives but the inspector shows the turn | Outbound is TwiML on the webhook response, so the turn did reply; Twilio could not deliver | Re-send the join phrase from the phone. A sandbox join expires after three days |
 | First reply takes long or 500s | Provider key missing or the org key lacks `PROJECT_ANTHROPIC_WORKSPACE_ID` | `docker compose logs api` for `ProviderKeyMissingError` or a 400 from the provider |
 | Login link not printed by `demo-login.sh` | Address not invited or domain not allowed | `docker compose exec api screening-admin invite <email>`; domain in the override |
+| Login link not printed by `demo-login.sh`, no "email to" line in the log | SendGrid keys present in `.env`, so the mail went out for real | Read the redirect inbox, or empty the two SendGrid settings for the terminal path |
+| Login form answers 503, log says `SCREENING_LOGIN_EMAIL_REDIRECT_TO is allowed in dev mode only` | Redirect set with dev mode off | Remove the redirect or set `SCREENING_DEV_MODE=true` in the override |
 | `pymongo.errors.ServerSelectionTimeoutError` in tests | mongod died at Docker's default open-file limit | `docker logs` for `Too many open files`; the test container sets `nofile=65536` |
+
+## Tech debt
+
+- Login links appear in access and proxy logs until used or expired. The token is single use and short lived, so this is accepted for now.
+- The bake-off cost column counts the turn model only. Guardrail, summary and judge tokens are not included.
+- The guardrail latency gate default (p95 at most 2.5 s) was set before any live run. Adjust from the first valid `bakeoff.json`.
+- `llm_timeout_seconds` is a float. `langchain-mistralai` types its timeout as int. Keep it whole-numbered for Mistral runs.
+- `mistralai:mistral-medium-latest` and `mistralai:mistral-small-latest` are aliases that Mistral can move to a new model and price. Pin `mistral-medium-3-5` and `mistral-small-2603` for a repeatable bake-off.
+- The no-PII test configures Logfire in-process, so pymongo, httpx and the app stay instrumented for the rest of the pytest session. Nothing is sent without a token. A subprocess would isolate it at the cost of speed and debuggability.
+- The Logfire pytest plugin is disabled in `addopts`. It exports test spans whenever `CI` and `LOGFIRE_TOKEN` are both set.
+- The span-processor order relative to Logfire's pending-span processor comes from installed source, not docs. The no-PII test pins it; a Logfire upgrade can break it.
+- Package data covers only `templates/*.html`. Any static file for the console needs a `StaticFiles` mount and a package-data glob in `pyproject.toml`.

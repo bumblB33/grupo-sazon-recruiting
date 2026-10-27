@@ -4,11 +4,11 @@ AI candidate-screening agent for delivery-driver hiring, plus a recruiter API an
 
 Documents:
 
-- `docs/process-design.md`: the Phase 1 process design (stages, validation, outcomes, tone).
-- `docs/STATUS.md`: project status, known gaps, open questions and remaining work.
 - `docs/Orbio-Assignment.md`: the brief.
-- `TROUBLESHOOTING.md`: demo runbook, commands run, warnings seen and common failures.
-- `PLAN-demo-console-and-scheduler.md`: the plan for the last build day, with the decisions taken and the work deferred.
+- `docs/process-design.md`: the Phase 1 process design (stages, validation, outcomes, tone).
+- This README: the system as built, design decisions, LLM choice, deployment and improvements.
+- `docs/STATUS.md`: remaining work, requirements coverage, known gaps, open questions and deferred designs.
+- `TROUBLESHOOTING.md`: demo runbook, commands run, common failures and tech debt.
 
 ## Setup
 
@@ -22,6 +22,7 @@ export SCREENING_SESSION_SECRET=...        # signs the recruiter session cookie,
 export SCREENING_RECRUITER_EMAIL_DOMAINS='["gruposazon.com"]'   # who may log in
 export SCREENING_SENDGRID_API_KEY=SG...    # login links go out through Twilio SendGrid
 export SCREENING_LOGIN_EMAIL_FROM=...      # a sender verified in SendGrid
+# export SCREENING_LOGIN_EMAIL_REDIRECT_TO=...   # dev mode only: every login email goes to this demo inbox
 export SCREENING_PUBLIC_URL=https://...    # base URL of every login link; required outside dev mode
 export SCREENING_TWILIO_AUTH_TOKEN=...     # verifies X-Twilio-Signature on the webhook
 export SCREENING_TWILIO_WEBHOOK_URL=...    # the exact URL set in the Twilio console, see below
@@ -35,7 +36,7 @@ export SCREENING_CANDIDATE_HASH_SECRET=... # keys the candidate id in traces; un
 export SCREENING_DATABASE_URL=mongodb://localhost:27017/screening
 ```
 
-Docker: copy `.env.example` to `.env`, fill the secrets, then `docker compose up --build`. The stack runs the API on port 8000, a sweep loop and MongoDB with a named volume. Tests also need Docker: pytest starts a throwaway `mongo:7` container and skips the repository-backed tests when no Docker socket is present.
+Docker: copy `.env.example` to `.env`, fill the secrets, then `docker compose up --build`. The stack runs the API on port 8000, a sweep loop and MongoDB with a named volume. Add `--profile tunnel` to also run the `ngrok` service, which publishes the API at the account's fixed ngrok dev domain (`NGROK_AUTHTOKEN`, `NGROK_URL`); set `SCREENING_PUBLIC_URL` and `SCREENING_TWILIO_WEBHOOK_URL` to that domain. Without the profile no tunnel starts. Tests also need Docker: pytest starts a throwaway `mongo:7` container and skips the repository-backed tests when no Docker socket is present.
 
 Configuration is read from `SCREENING_*` environment variables or `.env`. See `screening_agent/config.py` for every setting and its default.
 
@@ -47,7 +48,9 @@ Recruiters do not get a password or a key. An admin invites each work address wi
 python -c "import secrets; print(secrets.token_urlsafe(32))"
 ```
 
-Without SendGrid credentials in dev mode, the login link is printed to the server log.
+The login pages and the login email are localised by `recruiter/i18n.py`: `es-MX` by default, `es-ES` and `en-US` through the `?lang=` links on the login form, remembered in the `recruiter_lang` cookie, otherwise taken from `Accept-Language`. Pages behind the login stay English.
+
+In dev mode without the SendGrid settings, the login email is written to the process's stderr, which Docker shows in `docker compose logs api`; it is never a log record, so tracing cannot export it. `SCREENING_LOGIN_EMAIL_REDIRECT_TO` delivers every login email to one address instead of the recruiter's, for a demo inbox; it is honoured in dev mode only and the login form answers 503 when it is set outside dev mode.
 
 Upgrading from a deployment where any address at an allowed domain could log in: existing recruiter rows survive unchanged and keep working. A recruiter who has never logged in needs `screening-admin invite <email>` before their first link is sent.
 
@@ -73,7 +76,7 @@ Every override event records who did it (`recruiter:<email>` or `api_key:<label>
 
 ### Twilio webhook
 
-`SCREENING_TWILIO_WEBHOOK_URL` is the public URL you type into the Twilio console as the WhatsApp sender's "when a message comes in" webhook, for example `https://<your-tunnel-host>/webhook/whatsapp`. Twilio signs that exact string. Set it when the app sees a different URL than Twilio called, which is the case behind a tunnel or reverse proxy, including the Docker stack behind ngrok. Leave it empty when Twilio reaches the app directly at the URL it signed.
+`SCREENING_TWILIO_WEBHOOK_URL` is the public URL you type into the Twilio console as the WhatsApp sender's "when a message comes in" webhook, for example `https://<your-tunnel-host>/webhook/whatsapp`. Twilio signs that exact string. Set it when the app sees a different URL than Twilio called, which is the case behind a tunnel or reverse proxy, including the Docker stack behind the `ngrok` compose service (`docker compose --profile tunnel up`, with `NGROK_AUTHTOKEN` and `NGROK_URL` set). Leave it empty when Twilio reaches the app directly at the URL it signed.
 
 ## Run
 
@@ -196,7 +199,7 @@ Recruiters open a web page. There is no password. They type their work email and
 
 ### What is not built yet
 
-The voice-call channel is not built. The list of restaurant cities is sample data, not the client's real list of 45 locations. The test that compares AI models has not produced a valid run yet (see LLM choice). The current state is tracked in the file `docs/STATUS.md` in this repository.
+The voice-call channel, the silence scheduler inside the API, the web chat and the demo reset are not built. The list of restaurant cities is sample data, not the client's real list of 45 locations. The test that compares AI models has not produced a valid run yet (see LLM choice). Remaining work is tracked in `docs/STATUS.md`.
 
 ## Architecture
 
@@ -245,7 +248,7 @@ flowchart LR
 
 ### Containers
 
-Runnable units as deployed by `compose.yaml`, plus the two local processes. Edges to external services show what each process actually calls.
+Runnable units as deployed by `compose.yaml`, plus the two local processes. `ngrok` runs only under the `tunnel` profile. Edges to external services show what each process actually calls.
 
 ```mermaid
 flowchart TB
@@ -253,6 +256,7 @@ flowchart TB
         api[api<br/>FastAPI under uvicorn, port 8000]
         sweep[sweep<br/>screening-nudge in a loop]
         mongo[(mongo<br/>MongoDB 7, named volume)]
+        ngrok[ngrok<br/>tunnel profile, fixed dev domain]
     end
     cli[screening-cli]
     admin[screening-admin]
@@ -262,6 +266,7 @@ flowchart TB
     llm[LLM providers]
     logfire[Logfire]
 
+    ngrok --> api
     api --> mongo
     sweep --> mongo
     cli --> mongo
@@ -281,6 +286,7 @@ flowchart TB
 | `api` | Webhook, JSON routes, recruiter pages | Twilio (TwiML, Messages API), SendGrid (login email), LLM providers (turn, guardrail, summary), Logfire when `SCREENING_LOGFIRE_TOKEN` is set |
 | `sweep` | Silence policy every `SWEEP_INTERVAL_SECONDS` | Twilio, and Logfire when the token is set. Nudge text is a fixed template and `abandoned` gets no summary call. |
 | `mongo` | Collections `candidates`, `events`, `recruiters`, `api_keys`, `login_tokens`, `login_throttles` | nothing |
+| `ngrok` | Public HTTPS at `NGROK_URL`, forwarded to `api:8000`; local inspector on `127.0.0.1:4040` | ngrok's edge |
 | `screening-cli` | Local text chat | LLM providers only. No Twilio. |
 | `screening-admin` | Keys and recruiter accounts | nothing |
 
@@ -407,7 +413,7 @@ sequenceDiagram
 - **Tool gating is enforced twice.** The model only sees the tools for fields still missing from the current stage onward, and a call to any other tool is rejected when applied. Allowed tools are recomputed after each accepted call, so one message can answer several questions. Model misuse of a tool re-asks the current question and is never counted against the candidate.
 - **Candidate-local dates.** "Today" for start dates and the prompt is the calendar day in the candidate's service-area timezone, not the server's.
 - **One document per candidate.** Chosen so a turn is one atomic write with no replica set or transaction. Mechanism in Architecture, containers.
-- **Fail-closed API.** Recruiter routes and the webhook return 503 until their secrets are configured, unless `SCREENING_DEV_MODE` is on. Dev mode opens the recruiter routes only while `SCREENING_SESSION_SECRET` is unset, and skips the webhook signature only while `SCREENING_TWILIO_AUTH_TOKEN` is unset. A stray dev-mode flag on a deployment with real secrets opens neither. The summary LLM call runs as a background task after the reply.
+- **Fail-closed API.** Recruiter routes and the webhook return 503 until their secrets are configured, unless `SCREENING_DEV_MODE` is on. Dev mode opens the recruiter routes only while `SCREENING_SESSION_SECRET` is unset, and skips the webhook signature only while `SCREENING_TWILIO_AUTH_TOKEN` is unset. A stray dev-mode flag on a deployment with real secrets opens neither. The login-mail redirect follows the same rule: honoured in dev mode only, 503 from the login form otherwise. The summary LLM call runs as a background task after the reply.
 - **People log in by email, machines by key.** The recruiter pages are plain HTML forms on the API app. Login is a one-time emailed link. The cookie is a signed, expiring session, not a secret, and deactivating a recruiter ends it on the next request. JSON routes accept that cookie, with a CSRF header on writes, or a per-client `X-API-Key` whose hash lives in MongoDB. Nothing is pasted or shared.
 - **Every turn explains itself.** The inbound transcript entry carries a turn record: stage before and after, guardrail category, tools exposed and called, why each call was accepted or rejected, where the reply came from, the model text a template replaced, tokens, latency and the trace id. It is written in the same update as the turn, so a turn that is not saved leaves no record. The recruiter candidate page shows it under every answered message. Traces in Logfire carry metadata only: no message text, phone numbers or emails.
 - **Model replies are checked before sending.** One question, one emoji, a length limit, no markdown or links, the candidate's language. A reply that breaks a rule is replaced by the fixed question for the current stage, with no second AI call. The guardrail call also reads the candidate's tone, and a confused or frustrated candidate gets a calmer instruction for that turn.
@@ -434,7 +440,7 @@ What would change the choice: a policy fallback rate above a few percent on Sonn
 
 ## Deployment and scaling
 
-Today: `compose.yaml` runs `api`, `sweep` and `mongo` on one host. Secrets come from `.env`. The API fails closed on every route whose secret is missing. Tracing is on when `SCREENING_LOGFIRE_TOKEN` is set and carries metadata only.
+Today: `compose.yaml` runs `api`, `sweep` and `mongo` on one host, plus `ngrok` under the `tunnel` profile for a public URL. Secrets come from `.env`. Behind the tunnel the login throttle sees the `ngrok` container's address unless `FORWARDED_ALLOW_IPS` names it. The API fails closed on every route whose secret is missing. Tracing is on when `SCREENING_LOGFIRE_TOKEN` is set and carries metadata only.
 
 Monitoring. Logfire holds the spans: `handle`, `guardrail`, `turn`, `summary`, `sweep`, `nudge`, with model, token counts and latency on each. The alerts worth setting first, all from attributes already exported:
 
@@ -446,7 +452,7 @@ Monitoring. Logfire holds the spans: `handle`, `guardrail`, `turn`, `summary`, `
 Scaling to 10K candidates a week. 10K a week is about one candidate a minute on average and a few a second at peak, with roughly 10 messages each. The limits, in the order they are hit:
 
 1. The per-candidate lock is process-local. Two API processes can run the same candidate's turn at once; the version check on the document turns the loser into a retry, so it is correct but wasteful. The next step is a lease per candidate in MongoDB, the same single-write pattern the login throttle uses, so any number of API replicas serialise one candidate.
-2. The silence sweep is one process over every open conversation. At 10K a week with a 24 h abandon window that is tens of thousands of documents per tick, fine for Mongo with the existing indexes, but one sweep must not run beside another. The design in `docs/STATUS.md` moves the sweep into the API process behind a lease, with a claim per nudge so a nudge is sent at most once across replicas and restarts.
+2. The silence sweep is one process over every open conversation. At 10K a week with a 24 h abandon window that is tens of thousands of documents per tick, fine for Mongo with the existing indexes, but one sweep must not run beside another. The deferred design in `docs/STATUS.md` moves the sweep into the API process behind a lease, with a claim per nudge so a nudge is sent at most once across replicas and restarts.
 3. LLM rate limits. Two calls per message at peak is a few calls a second, inside provider limits, but a provider incident stalls every conversation at once. The model id is a setting, so the first mitigation is a second provider configured and tested in the bake-off, switched by redeploy.
 4. MongoDB. One document per candidate with the transcript embedded stays under the 16 MB limit by a wide margin for a 10-message screening. Reads on the recruiter list are paged and indexed on `status` and `updated_at`. The next index is on events `(kind, created_at)` when the analytics series land.
 
@@ -457,7 +463,7 @@ Deployment shape at that scale: the API as a stateless replica set behind a load
 In order of value for the client:
 
 1. **Run the bake-off to completion** with the workspace header fixed, then set the model defaults from the result instead of from design. The harness, the gates and the report exist.
-2. **Silence scheduler inside the API** with a sweep lease and per-nudge claims, so the compose `sweep` service and its one-process limit go away. Designed in `docs/STATUS.md`, not built.
+2. **Silence scheduler inside the API** with a sweep lease and per-nudge claims, so the compose `sweep` service and its one-process limit go away. Designed under "Deferred past the deadline" in `docs/STATUS.md`, not built.
 3. **Realistic personas and the real 45 locations.** The eval personas are clean scripted turns. Candidates write with typos, slang and one-word answers, and the service-area list is a 16-city sample.
 4. **Web chat for recruiters** to run a screening from the console without a phone, and a demo reset for a phone that has already been screened.
 5. **Analytics series**: completion rate, drop-off stage and average duration, from timestamps the documents already carry. The funnel today counts by status and stage only.

@@ -39,5 +39,19 @@ services:
       retries: 5
       start_period: 10s
 
+  # Public URL for the stack. Opt in with `docker compose --profile tunnel up`.
+  # ngrok's free plan gives each account one fixed dev domain; NGROK_URL is that domain.
+  ngrok:
+    image: ngrok/ngrok:3
+    profiles: ["tunnel"]
+    command: ["http", "api:8000", "--url", "${NGROK_URL:?set NGROK_URL to the account's dev domain}"]
+    environment:
+      NGROK_AUTHTOKEN: ${NGROK_AUTHTOKEN:?set NGROK_AUTHTOKEN from dashboard.ngrok.com}
+    ports:
+      - "127.0.0.1:4040:4040"
+    depends_on:
+      api:
+        condition: service_healthy
+
 volumes:
   mongo-data:

@@ -8,11 +8,13 @@ from pymongo import MongoClient
 
 from evals import run_evals
 from evals.graders import Expectation, GradeResult, grade, style_failures
-from evals.guardrail_cases import GuardrailCase, score_cases, score_guardrail
+from evals.guardrail_cases import GuardrailCase, GuardrailScore, score_cases, score_guardrail
+from evals.html_report import render_html
 from evals.judge import Verdict
 from evals.personas.text_personas import PERSONAS, Persona
 from evals.pricing import cost_usd
-from evals.report import ModelResult, render
+from evals.report import render
+from evals.results import BakeoffResults, Gates
 from evals.run_evals import _parse, eval_database_url
 from evals.runner import PersonaRun, Turn, run_persona
 from screening_agent.domain.enums import Language
@@ -81,21 +83,100 @@ def test_cost_known_and_unknown_models():
     assert cost_usd("unknown:model", 10, 10) is None
 
 
-def test_render_lists_models_and_failures():
+GATES = Gates(guardrail_min_accuracy=0.9, guardrail_max_latency_seconds=2.5)
+
+
+def failing_run() -> PersonaRun:
     persona = Persona("p", ("hola",), Expectation(status="qualified"))
-    run = PersonaRun(
+    return PersonaRun(
         persona,
         (Turn("hola", "¿Nombre? ¿Edad?", 0.5, ("more than one question",)),),
-        None,
+        candidate(status="in_progress", summary="Sin datos."),
         GradeResult(False, ("status in_progress != qualified",)),
         100,
         20,
         judge={"tone": Verdict(score=4, reason="warm")},
     )
-    text = render([ModelResult("anthropic:claude-haiku-5-5", (run,))], [])
-    assert "| anthropic:claude-haiku-5-5 | 0/1 | 1 | 4.0 | 0.5s | $0.0000 |" in text
+
+
+def results_with(runs, guardrails=()) -> BakeoffResults:
+    return BakeoffResults.from_runs(
+        {"anthropic:claude-haiku-5-5": runs},
+        list(guardrails),
+        summary_model="s",
+        guardrail_model="g",
+        judge_model=None,
+        gates=GATES,
+    )
+
+
+def test_render_lists_models_and_failures():
+    text = render(results_with([failing_run()]))
+    assert "| anthropic:claude-haiku-5-5 | 0/1 | 1 | 4.0 | n/a | 0.5s | $0.0000 |" in text
     assert "FAIL status in_progress != qualified" in text
     assert "style: more than one question" in text
+
+
+def test_results_round_trip_through_json(tmp_path):
+    results = results_with([failing_run()], [GuardrailScore("g", 18, 18, (), (0.3, 0.4))])
+    results.save(tmp_path / "bakeoff.json")
+    assert BakeoffResults.load(tmp_path / "bakeoff.json") == results
+    assert results.models[0].personas[0].expected_status == "qualified"
+
+
+def test_guardrail_gate_fails_on_accuracy_latency_or_unavailable_model():
+    slow = GuardrailScore("slow", 18, 18, (), tuple([0.5] * 18 + [9.0]))
+    weak = GuardrailScore("weak", 15, 18, ("miss",), tuple([0.5] * 18))
+    gone = GuardrailScore("gone", 0, 18, ("unavailable: ProviderKeyMissingError",))
+    good = GuardrailScore("good", 17, 18, ("miss",), tuple([0.5] * 18))
+    results = results_with([], [slow, weak, gone, good])
+    failures = results.guardrail_failures
+    assert [f.split(":")[0] for f in failures] == ["slow", "weak", "gone"]
+    assert "p95 latency 9.0s > 2.5s" in failures[0]
+    assert "accuracy 83% < 90%" in failures[1]
+    assert results.guardrail_passed(results.guardrails[3])
+    assert not results.passed
+
+
+def test_score_cases_records_a_latency_per_case():
+    always_on = Guardrail(
+        RunnableLambda(lambda m: Classification(category=GuardrailCategory.ON_TOPIC))
+    )
+    cases = (GuardrailCase("sí", GuardrailCategory.ON_TOPIC),) * 3
+    score = score_cases(always_on, "fake", cases)
+    assert len(score.latencies) == 3 and score.latency_p95 >= score.latency_p50 >= 0
+
+
+def test_html_report_shows_gates_matrix_and_transcripts():
+    results = results_with([failing_run()], [GuardrailScore("weak", 15, 18, ("miss",), (0.5,))])
+    html = render_html(results)
+    assert "✗ FAIL" in html
+    assert 'href="#persona-p"' in html and '<details id="persona-p">' in html
+    assert "¿Nombre? ¿Edad?" in html and "more than one question" in html
+    assert "gate &gt;= 90%" in html and "accuracy 83% &lt; 90%" in html
+
+
+def errored_run(name: str, request_id: str) -> PersonaRun:
+    persona = Persona(name, ("hola",), Expectation(status="qualified"))
+    error = f"Error code: 400 - {{'message': 'bad key', 'request_id': '{request_id}'}}"
+    return PersonaRun(persona, (), None, GradeResult(False, (error,)), 0, 0, error=error)
+
+
+def test_html_report_folds_identical_provider_errors_into_one_line():
+    results = BakeoffResults.from_runs(
+        {"anthropic:claude-sonnet-5-5": [errored_run("a", "req_1"), errored_run("b", "req_2")]},
+        [GuardrailScore("g", 0, 2, ("'sí': classifier error boom", "'no': classifier error boom"))],
+        summary_model="s",
+        guardrail_model="g",
+        judge_model=None,
+        gates=GATES,
+    )
+    html = render_html(results)
+    assert html.count("×2") == 2
+    overview = html.partition("Outcome per persona")[0]
+    assert "did not run" in overview
+    assert "req_1" not in overview and "req_2" not in overview
+    assert html.count('<a class="error"') == 2
 
 
 def test_eval_database_url_keeps_query_string():

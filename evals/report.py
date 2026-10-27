@@ -1,75 +1,50 @@
-from dataclasses import dataclass
-from statistics import mean, median
-
-from evals.guardrail_cases import GuardrailScore
-from evals.pricing import cost_usd
-from evals.runner import PersonaRun
+from evals.results import BakeoffResults
 
 
-@dataclass(frozen=True)
-class ModelResult:
-    live_model: str
-    runs: tuple[PersonaRun, ...]
-
-    @property
-    def passed(self) -> int:
-        return sum(run.grade.passed for run in self.runs)
-
-    @property
-    def style_failures(self) -> int:
-        return sum(run.style_failure_count for run in self.runs)
-
-    @property
-    def latency_p50(self) -> float:
-        latencies = [turn.latency_seconds for run in self.runs for turn in run.turns]
-        return median(latencies) if latencies else 0.0
-
-    @property
-    def tone(self) -> float | None:
-        scores = [run.judge["tone"].score for run in self.runs if "tone" in run.judge]
-        return mean(scores) if scores else None
-
-    @property
-    def cost_per_screening(self) -> float | None:
-        costs = [
-            cost_usd(self.live_model, run.input_tokens, run.output_tokens) for run in self.runs
-        ]
-        return None if not costs or any(c is None for c in costs) else mean(costs)
-
-
-def render(results: list[ModelResult], guardrails: list[GuardrailScore]) -> str:
-    lines = ["# Model bake-off", "", "## Turn model", ""]
-    lines.append(
-        "| Model | Personas passed | Style failures | Tone (1-5) | p50 latency | Turn-model cost per screening |"
-    )
-    lines.append("| --- | --- | --- | --- | --- | --- |")
-    for result in results:
+def render(results: BakeoffResults) -> str:
+    lines = ["# Model bake-off", "", f"Result: {'PASS' if results.passed else 'FAIL'}", ""]
+    lines += [
+        "## Turn model",
+        "",
+        "| Model | Personas passed | Style failures | Tone (1-5) | Summary (1-5) | p50 latency | Turn-model cost per screening |",
+        "| --- | --- | --- | --- | --- | --- | --- |",
+    ]
+    for model in results.models:
         lines.append(
-            f"| {result.live_model} | {result.passed}/{len(result.runs)} | {result.style_failures} "
-            f"| {_fmt(result.tone, '{:.1f}')} | {result.latency_p50:.1f}s "
-            f"| {_fmt(result.cost_per_screening, '${:.4f}')} |"
+            f"| {model.live_model} | {model.passed}/{len(model.personas)} | {model.style_failures} "
+            f"| {_fmt(model.tone, '{:.1f}')} | {_fmt(model.summary_score, '{:.1f}')} "
+            f"| {model.latency_p50:.1f}s | {_fmt(model.cost_per_screening, '${:.4f}')} |"
         )
-    for result in results:
-        lines += ["", f"### {result.live_model}", ""]
-        for run in result.runs:
-            status = "PASS" if run.grade.passed else "FAIL " + "; ".join(run.grade.failures)
-            lines.append(f"- {run.persona.name}: {status}")
-            for turn in run.turns:
+    for model in results.models:
+        lines += ["", f"### {model.live_model}", ""]
+        for persona in model.personas:
+            status = "PASS" if persona.passed else "FAIL " + "; ".join(persona.failures)
+            lines.append(f"- {persona.name}: {status}")
+            for turn in persona.turns:
                 if turn.style:
                     lines.append(f"  - style: {', '.join(turn.style)}: {turn.reply!r}")
-            if "tone" in run.judge:
-                lines.append(f"  - tone {run.judge['tone'].score}: {run.judge['tone'].reason}")
-            if "summary" in run.judge:
-                lines.append(
-                    f"  - summary {run.judge['summary'].score}: {run.judge['summary'].reason}"
-                )
-    if guardrails:
-        lines += ["", "## Guardrail classifier", "", "| Model | Accuracy |", "| --- | --- |"]
-        for score in guardrails:
+            for key in ("tone", "summary"):
+                if key in persona.judge:
+                    verdict = persona.judge[key]
+                    lines.append(f"  - {key} {verdict.score}: {verdict.reason}")
+    if results.guardrails:
+        gates = results.gates
+        lines += [
+            "",
+            "## Guardrail classifier",
+            "",
+            f"Gate: accuracy >= {gates.guardrail_min_accuracy:.0%} and p95 latency <= {gates.guardrail_max_latency_seconds:.1f}s.",
+            "",
+            "| Model | Accuracy | p50 latency | p95 latency | Gate |",
+            "| --- | --- | --- | --- | --- |",
+        ]
+        for score in results.guardrails:
             lines.append(
-                f"| {score.model} | {score.correct}/{score.total} ({score.accuracy:.0%}) |"
+                f"| {score.model} | {score.correct}/{score.total} ({score.accuracy:.0%}) "
+                f"| {score.latency_p50:.2f}s | {score.latency_p95:.2f}s "
+                f"| {'PASS' if results.guardrail_passed(score) else 'FAIL'} |"
             )
-        for score in guardrails:
+        for score in results.guardrails:
             for miss in score.misses:
                 lines.append(f"- {score.model}: {miss}")
     return "\n".join(lines) + "\n"

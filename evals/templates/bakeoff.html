@@ -1,0 +1,363 @@
+{% macro verdict(passed, big=false) -%}
+<span class="stamp {{ 'pass' if passed else 'fail' }}{{ ' big' if big }}">{{ '✓ PASS' if passed else '✗ FAIL' }}</span>
+{%- endmacro %}
+{% macro swatch(slot) %}<i class="swatch" style="--c: var(--series-{{ slot + 1 }})"></i>{% endmacro %}
+{% macro gate_meter(meter, gate_text) -%}
+<div class="gate" title="{{ gate_text }}">
+  <div class="gate-track"><div class="gate-fill {{ 'ok' if meter.passed else 'bad' }}" style="width: {{ meter.share }}%"></div><i class="gate-line" style="left: {{ meter.gate_share }}%"></i></div>
+  <span class="num">{{ meter.value_text }}</span>
+</div>
+{%- endmacro %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Model bake-off · Grupo Sazón screening agent</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Young+Serif&family=Atkinson+Hyperlegible+Next:ital,wght@0,400;0,500;0,700;1,400&family=Sometype+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root {
+  color-scheme: light;
+  --paper: #f4ecdf; --paper-2: #ece2d1; --surface: #fbf7f0; --ink: #221b16; --ink-2: #5b4f45; --muted: #8c7f72;
+  --rule: #d9cdbb; --rule-2: #c4b6a1; --border: rgba(34,27,22,0.12);
+  --chili: #b8321f; --chili-ink: #8f2415; --saffron: #d58d12;
+  --good: #1f7a46; --good-bg: #d9eedd; --critical: #c23b2a; --critical-bg: #f6d9d3; --neutral-bg: #e7ddcc;
+  --series-1: #2a78d6; --series-2: #eb6834; --series-3: #1baf7a; --series-4: #eda100;
+  --series-5: #e87ba4; --series-6: #008300; --series-7: #6250d6; --series-8: #e34948;
+  --bubble-agent: #efe7d9; --bubble-candidate: #dbe8d2;
+  --display: "Young Serif", "Iowan Old Style", Georgia, serif;
+  --body: "Atkinson Hyperlegible Next", "Trebuchet MS", Verdana, sans-serif;
+  --mono: "Sometype Mono", "SF Mono", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --paper: #17120f; --paper-2: #1f1915; --surface: #241d18; --ink: #f1e8da; --ink-2: #c7b9a6; --muted: #8c7f72;
+    --rule: #3a302a; --rule-2: #4a3e36; --border: rgba(241,232,218,0.12);
+    --chili: #e0583f; --chili-ink: #f08a74; --saffron: #e9a73a;
+    --good: #4fbf7a; --good-bg: #1d3a28; --critical: #ef6f5c; --critical-bg: #4a2420; --neutral-bg: #2f2822;
+    --series-1: #3987e5; --series-2: #d95926; --series-3: #199e70; --series-4: #c98500;
+    --series-5: #d55181; --series-6: #008300; --series-7: #9085e9; --series-8: #e66767;
+    --bubble-agent: #2e261f; --bubble-candidate: #22331f;
+  }
+}
+* { box-sizing: border-box; }
+html { background: var(--paper); }
+body {
+  margin: 0; color: var(--ink); font: 15px/1.5 var(--body);
+  background:
+    radial-gradient(60rem 30rem at 110% -10%, color-mix(in oklab, var(--saffron) 18%, transparent), transparent 70%),
+    radial-gradient(40rem 24rem at -10% 10%, color-mix(in oklab, var(--chili) 12%, transparent), transparent 70%),
+    radial-gradient(circle at 1px 1px, var(--rule) 1px, transparent 1.5px) 0 0 / 22px 22px,
+    var(--paper);
+  background-attachment: fixed;
+}
+main { max-width: 1240px; margin: 0 auto; padding: 48px 28px 96px; }
+/* accordion sections: summary is the heading, the body slides open */
+.panel { margin-top: 28px; border-top: 1px solid var(--rule-2); padding-top: 8px; interpolate-size: allow-keywords; }
+.panel > summary { list-style: none; cursor: pointer; display: flex; align-items: baseline; gap: 14px; padding: 14px 0; background: none; border: 0; border-radius: 0; }
+.panel > summary::-webkit-details-marker { display: none; }
+.panel > summary h2 { margin: 0; }
+.panel > summary .chev { margin-left: auto; width: 12px; height: 12px; border-right: 2px solid var(--chili); border-bottom: 2px solid var(--chili); transform: rotate(-45deg); transition: transform .3s ease; align-self: center; }
+.panel[open] > summary .chev { transform: rotate(45deg); }
+.panel::details-content { block-size: 0; overflow: hidden; transition: block-size .35s cubic-bezier(.2,.7,.2,1), content-visibility .35s allow-discrete; }
+.panel[open]::details-content { block-size: auto; }
+.panel .body { padding-bottom: 12px; }
+@media (prefers-reduced-motion: no-preference) {
+  .panel[open] .body { animation: slide .35s cubic-bezier(.2,.7,.2,1); }
+  @keyframes slide { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
+}
+
+h1, h2 { font-family: var(--display); font-weight: 400; letter-spacing: -0.01em; }
+h1 { font-size: clamp(40px, 6vw, 64px); line-height: 1; margin: 0; }
+h2 { font-size: 26px; margin: 0 0 6px; }
+.lede { margin: 0 0 18px; color: var(--ink-2); max-width: 70ch; }
+.eyebrow { font-family: var(--mono); font-size: 12px; letter-spacing: .14em; text-transform: uppercase; color: var(--chili-ink); margin: 0 0 14px; }
+.num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+/* masthead */
+.masthead { margin-bottom: 20px; display: grid; grid-template-columns: 1fr auto; gap: 24px 40px; align-items: end; padding-bottom: 28px; border-bottom: 2px solid var(--ink); }
+.ticket { display: grid; grid-template-columns: max-content 1fr; gap: 4px 18px; margin: 22px 0 0; font-size: 13px; }
+.ticket dt { color: var(--muted); font-family: var(--mono); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; align-self: center; }
+.ticket dd { margin: 0; font-family: var(--mono); }
+.stamp { display: inline-block; font-family: var(--mono); font-weight: 600; font-size: 12px; letter-spacing: .12em; padding: 3px 10px; border: 2px solid currentColor; border-radius: 4px; }
+.stamp.pass { color: var(--good); } .stamp.fail { color: var(--critical); }
+.stamp.big { font-size: 28px; padding: 10px 22px; border-width: 3px; transform: rotate(-4deg); box-shadow: 0 0 0 4px var(--paper), 0 0 0 5px currentColor; opacity: .92; }
+
+/* issues */
+.issues { margin: 0; padding: 0; list-style: none; display: grid; gap: 10px; }
+.issues li { display: grid; grid-template-columns: 220px 1fr; gap: 14px; padding: 12px 16px; background: var(--surface); border-left: 4px solid var(--critical); border-radius: 0 8px 8px 0; font-size: 14px; }
+.issues .scope { font-family: var(--mono); font-size: 13px; color: var(--ink-2); word-break: break-word; }
+.issues .count { display: inline-block; margin-right: 8px; padding: 1px 8px; border-radius: 999px; background: var(--critical-bg); color: var(--critical); font-family: var(--mono); font-size: 12px; font-weight: 600; }
+.issues code { font-family: var(--mono); font-size: 12.5px; word-break: break-word; }
+
+/* scoreboard */
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 18px 20px; box-shadow: 0 1px 0 var(--border), 0 12px 30px -24px rgba(0,0,0,.4); }
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--rule); vertical-align: middle; }
+th { color: var(--ink-2); font-weight: 500; font-size: 13px; }
+th small { display: block; color: var(--muted); font-weight: 400; font-size: 11px; font-family: var(--mono); letter-spacing: .02em; }
+tbody tr:last-child td { border-bottom: 0; }
+.model { font-family: var(--mono); font-size: 13px; white-space: nowrap; }
+.swatch { display: inline-block; width: 10px; height: 10px; border-radius: 3px; background: var(--c); margin-right: 8px; vertical-align: -1px; }
+.cell { display: grid; grid-template-columns: 1fr; gap: 4px; min-width: 110px; }
+.cell .num { font-size: 15px; }
+.cell .num.na { color: var(--muted); }
+.meter { height: 6px; background: var(--paper-2); border-radius: 3px; overflow: hidden; }
+.meter i { display: block; height: 100%; width: var(--w); background: var(--ink-2); border-radius: 0 3px 3px 0; min-width: 2px; }
+tr.best-row .meter i { background: var(--c); }
+.best { color: var(--saffron); font-size: 11px; font-family: var(--mono); letter-spacing: .08em; text-transform: uppercase; margin-left: 6px; }
+td.unavailable { color: var(--ink-2); font-size: 13px; }
+td.unavailable code { font-family: var(--mono); font-size: 12px; color: var(--critical); word-break: break-word; }
+
+/* matrix */
+.matrix { display: grid; gap: 4px; font-size: 13px; align-items: center; }
+.matrix .head { font-family: var(--mono); font-size: 12px; color: var(--ink-2); padding: 0 0 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.matrix .persona { padding-right: 12px; }
+.matrix .persona small { display: block; color: var(--muted); font-family: var(--mono); font-size: 11px; }
+.matrix a { display: flex; align-items: center; justify-content: center; height: 34px; border-radius: 6px; text-decoration: none; font-family: var(--mono); font-size: 12px; font-weight: 600; transition: transform .12s ease; }
+.matrix a:hover { transform: scale(1.04); }
+.matrix a.pass { background: var(--good-bg); color: var(--good); }
+.matrix a.fail { background: var(--critical-bg); color: var(--critical); }
+.matrix a.error { background: repeating-linear-gradient(135deg, var(--neutral-bg) 0 6px, transparent 6px 10px); color: var(--muted); border: 1px dashed var(--rule-2); }
+.matrix a.none { background: transparent; color: var(--muted); border: 1px dashed var(--rule); }
+.key { display: flex; gap: 18px; flex-wrap: wrap; margin: 14px 0 0; font-size: 12px; color: var(--ink-2); font-family: var(--mono); }
+.key span::before { content: ""; display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 6px; vertical-align: -2px; background: var(--k); border: 1px solid var(--kb, transparent); }
+
+/* latency strips */
+.strips { display: grid; gap: 14px; }
+.strip { display: grid; grid-template-columns: 200px 1fr 90px; align-items: center; gap: 14px; }
+.strip .label { font-family: var(--mono); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.track { position: relative; height: 28px; border-bottom: 1px solid var(--rule-2); }
+.dot { position: absolute; top: 50%; width: 9px; height: 9px; margin: -4.5px 0 0 -4.5px; border-radius: 50%; background: var(--c); opacity: .55; box-shadow: 0 0 0 2px var(--surface); transition: transform .12s ease, opacity .12s ease; }
+.dot:hover { opacity: 1; transform: scale(1.5); z-index: 1; }
+.p50 { position: absolute; top: 2px; bottom: -1px; width: 2px; margin-left: -1px; background: var(--ink); }
+.strip .num { color: var(--ink-2); font-size: 13px; text-align: right; }
+.axis { display: grid; grid-template-columns: 200px 1fr 90px; gap: 14px; margin-top: 4px; }
+.axis .ticks { position: relative; height: 16px; }
+.axis .ticks span { position: absolute; transform: translateX(-50%); font-family: var(--mono); font-size: 11px; color: var(--muted); }
+
+/* guardrail */
+.gate { display: grid; grid-template-columns: 1fr 64px; align-items: center; gap: 10px; min-width: 180px; }
+.gate-track { position: relative; height: 10px; background: var(--paper-2); border-radius: 4px; }
+.gate-fill { height: 100%; border-radius: 4px; }
+.gate-fill.ok { background: var(--good); } .gate-fill.bad { background: var(--critical); }
+.gate-line { position: absolute; top: -5px; bottom: -5px; border-left: 2px dashed var(--ink); }
+.misses { margin: 12px 0 0; padding: 0; list-style: none; font-size: 13px; color: var(--ink-2); display: grid; gap: 6px; }
+.misses li { display: grid; grid-template-columns: 220px 1fr; gap: 14px; }
+.misses .count { color: var(--critical); font-family: var(--mono); font-weight: 600; margin-right: 6px; }
+
+/* transcripts */
+details { margin: 10px 0; }
+summary { cursor: pointer; padding: 12px 16px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; display: flex; align-items: center; gap: 14px; }
+summary .name { font-family: var(--mono); font-weight: 600; }
+summary .expected { color: var(--muted); font-size: 13px; }
+summary .counts { margin-left: auto; font-family: var(--mono); font-size: 12px; color: var(--ink-2); }
+.compare { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 14px; margin-top: 10px; }
+.column h4 { margin: 0 0 12px; font-size: 13px; font-family: var(--mono); font-weight: 400; display: flex; align-items: center; gap: 10px; }
+.chat { display: flex; flex-direction: column; gap: 6px; }
+.msg { max-width: 92%; padding: 8px 12px; border-radius: 14px; font-size: 14px; white-space: pre-wrap; }
+.msg.candidate { align-self: flex-end; background: var(--bubble-candidate); border-bottom-right-radius: 4px; }
+.msg.agent { align-self: flex-start; background: var(--bubble-agent); border-bottom-left-radius: 4px; }
+.msg .latency { display: block; color: var(--muted); font-size: 11px; margin-top: 3px; font-family: var(--mono); }
+.tags { align-self: flex-start; display: flex; gap: 4px; flex-wrap: wrap; }
+.tag { font-size: 11px; padding: 1px 7px; border-radius: 999px; background: var(--critical-bg); color: var(--critical); font-family: var(--mono); }
+.judge { margin-top: 10px; font-size: 13px; color: var(--ink-2); }
+.judge b { color: var(--ink); }
+.summary-text { margin-top: 8px; padding: 10px; border-left: 3px solid var(--saffron); font-size: 13px; white-space: pre-wrap; }
+.failures { margin: 0 0 10px; padding-left: 18px; color: var(--critical); font-size: 13px; }
+.error-note { color: var(--ink-2); font-size: 13px; }
+.error-note code { font-family: var(--mono); font-size: 12px; color: var(--critical); word-break: break-word; }
+pre { font-family: var(--mono); font-size: 12px; background: var(--paper); padding: 10px; border-radius: 6px; overflow: auto; }
+.note { color: var(--muted); font-size: 12px; }
+@media (max-width: 760px) {
+  .masthead { grid-template-columns: 1fr; }
+  .issues li, .misses li { grid-template-columns: 1fr; }
+  .strip, .axis { grid-template-columns: 1fr; }
+  .axis .ticks { display: none; }
+}
+</style>
+</head>
+<body>
+<main>
+<header class="masthead">
+  <div>
+    <p class="eyebrow">Grupo Sazón · screening agent · model bake-off</p>
+    <h1>Which model takes the turn?</h1>
+    <dl class="ticket">
+      <dt>run</dt><dd>{{ results.generated_at.strftime('%Y-%m-%d %H:%M UTC') }}</dd>
+      <dt>turn models</dt><dd>{{ results.models | length }} · {{ results.models[0].personas | length if results.models else 0 }} personas each</dd>
+      <dt>summary</dt><dd>{{ results.summary_model }}</dd>
+      <dt>guardrail in runs</dt><dd>{{ results.guardrail_model }}</dd>
+      <dt>judge</dt><dd>{{ results.judge_model or 'off' }}</dd>
+    </dl>
+  </div>
+  {{ verdict(results.passed, big=true) }}
+</header>
+
+{% if issues %}
+<details class="panel" open>
+  <summary><h2>Why the run fails</h2><i class="chev"></i></summary>
+  <div class="body">
+  <p class="lede">Identical errors are folded into one line. A count shows how many personas or cases hit it.</p>
+  <ul class="issues">
+    {% for issue in issues %}
+    <li><span class="scope">{{ issue.scope }}</span><span>{% if issue.count > 1 %}<span class="count">×{{ issue.count }}</span>{% endif %}<code>{{ issue.text }}</code></span></li>
+    {% endfor %}
+  </ul>
+  </div>
+</details>
+{% endif %}
+
+<details class="panel" open>
+  <summary><h2>Scoreboard</h2><i class="chev"></i></summary>
+  <div class="body">
+  <p class="lede">One row per turn model. Each bar is scaled to the column, the best value in a column is marked. A model that never answered shows its error instead of zeros.</p>
+  <div class="card">
+  <table>
+    <thead><tr><th>Model</th>{% for metric in metrics %}<th>{{ metric.title }}<small>{{ metric.scale_text ~ ' · ' if metric.scale_text }}{{ metric.direction }}</small></th>{% endfor %}</tr></thead>
+    <tbody>
+    {% for row in score_rows %}
+    <tr style="--c: var(--series-{{ row.slot + 1 }})">
+      <td class="model">{{ swatch(row.slot) }}{{ row.label }}</td>
+      {% if row.unavailable %}
+      <td class="unavailable" colspan="{{ metrics | length }}">did not run · <code>{{ row.unavailable }}</code></td>
+      {% else %}
+      {% for cell in row.cells %}
+      <td><div class="cell"><span class="num{{ ' na' if cell.text == 'n/a' }}">{{ cell.text }}{% if cell.best %}<span class="best">best</span>{% endif %}</span><div class="meter"><i style="--w: {{ cell.share }}%; {% if cell.best %}background: var(--c){% endif %}"></i></div></div></td>
+      {% endfor %}
+      {% endif %}
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  </div>
+</details>
+
+<details class="panel" open>
+  <summary><h2>Outcome per persona</h2><i class="chev"></i></summary>
+  <div class="body">
+  <p class="lede">Each cell is one scripted conversation. Hover for the grading reason, click to open the transcript.</p>
+  <div class="card">
+  <div class="matrix" style="grid-template-columns: minmax(180px, 1.2fr) repeat({{ results.models | length }}, 1fr)">
+    <div class="head">persona · expected</div>
+    {% for row in score_rows %}<div class="head">{{ swatch(row.slot) }}{{ row.label | short }}</div>{% endfor %}
+    {% for row in persona_rows %}
+    <div class="persona">{{ row.name }}<small>{{ row.expected_status }}</small></div>
+    {% for cell in row.cells %}
+      <div><a class="{{ cell.kind }}" href="#persona-{{ row.name }}" title="{{ cell.title }}">{{ {'pass': '✓', 'fail': '✗', 'error': 'err', 'none': '–'}[cell.kind] }}</a></div>
+    {% endfor %}
+    {% endfor %}
+  </div>
+  <p class="key">
+    <span style="--k: var(--good-bg)">pass</span>
+    <span style="--k: var(--critical-bg)">fail on grading</span>
+    <span style="--k: var(--neutral-bg); --kb: var(--rule-2)">provider error, no conversation</span>
+    <span style="--k: transparent; --kb: var(--rule)">not run</span>
+  </p>
+  </div>
+  </div>
+</details>
+
+<details class="panel" open>
+  <summary><h2>Reply latency</h2><i class="chev"></i></summary>
+  <div class="body">
+  <p class="lede">Every reply as a dot, the median as a bar. A wide spread matters as much as the median: the candidate waits for the slow tail.</p>
+  <div class="card">
+  <div class="strips">
+    {% for strip in strips %}
+    <div class="strip" style="--c: var(--series-{{ strip.slot + 1 }})">
+      <span class="label">{{ swatch(strip.slot) }}{{ strip.label | short }}</span>
+      <div class="track">
+        {% for share, seconds in strip.dots %}<i class="dot" style="left: {{ share }}%" title="{{ '%.2f' | format(seconds) }}s"></i>{% endfor %}
+        {% if strip.p50_share is not none %}<i class="p50" style="left: {{ strip.p50_share }}%"></i>{% endif %}
+      </div>
+      <span class="num">{{ strip.p50_text }}</span>
+    </div>
+    {% endfor %}
+  </div>
+  <div class="axis"><span></span><div class="ticks">{% for share, text in latency_ticks %}<span style="left: {{ share }}%">{{ text }}</span>{% endfor %}</div><span></span></div>
+  </div>
+  </div>
+</details>
+
+{% if guardrail_rows %}
+<details class="panel" open>
+  <summary><h2>Guardrail classifier</h2><i class="chev"></i></summary>
+  <div class="body">
+  <p class="lede">Gate: accuracy at least {{ '%.0f' | format(results.gates.guardrail_min_accuracy * 100) }}% and p95 latency at most {{ '%.1f' | format(results.gates.guardrail_max_latency_seconds) }}s. The dashed line on each bar is the gate.</p>
+  <div class="card">
+  <table>
+    <thead><tr><th>Model</th><th>Correct</th><th>Accuracy<small>gate >= {{ '%.0f' | format(results.gates.guardrail_min_accuracy * 100) }}%</small></th><th>p95 latency<small>gate <= {{ '%.1f' | format(results.gates.guardrail_max_latency_seconds) }}s</small></th><th>p50</th><th>Gate</th></tr></thead>
+    <tbody>
+    {% for g in guardrail_rows %}
+    <tr>
+      <td class="model">{{ swatch(g.slot) }}{{ g.label }}</td>
+      <td class="num">{{ g.correct_text }}</td>
+      <td>{{ gate_meter(g.accuracy, 'gate >= ' ~ ('%.0f' | format(results.gates.guardrail_min_accuracy * 100)) ~ '%') }}</td>
+      <td>{% if g.latency %}{{ gate_meter(g.latency, 'gate <= ' ~ ('%.1f' | format(results.gates.guardrail_max_latency_seconds)) ~ 's') }}{% else %}<span class="num note">n/a</span>{% endif %}</td>
+      <td class="num">{{ g.p50_text }}</td>
+      <td>{{ verdict(g.passed) }}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% set misses = guardrail_rows | map(attribute='misses') | sum(start=[]) %}
+  {% if misses %}
+  <ul class="misses">{% for miss in misses %}<li><span class="model">{{ miss.scope }}</span><span>{% if miss.count > 1 %}<span class="count">×{{ miss.count }}</span>{% endif %}{{ miss.text }}</span></li>{% endfor %}</ul>
+  {% endif %}
+  </div>
+  </div>
+</details>
+{% endif %}
+
+<details class="panel" open>
+  <summary><h2>Transcripts, side by side</h2><i class="chev"></i></summary>
+  <div class="body">
+  <p class="lede">Open a persona to read every model's conversation. Red tags under a reply name the style rule it broke.</p>
+  {% for row in persona_rows %}
+  <details id="persona-{{ row.name }}">
+    <summary><span class="name">{{ row.name }}</span><span class="expected">expects {{ row.expected_status }}</span>
+      <span class="counts">{{ row.passes }}/{{ results.models | length }} pass</span>
+    </summary>
+    <div class="compare">
+    {% for run in row.runs %}
+      {% set model = results.models[loop.index0] %}
+      <div class="card column">
+        <h4>{{ swatch(loop.index0 % 8) }}{{ model.live_model | short }}
+          {% if run %}{{ verdict(run.passed) }}{% endif %}</h4>
+        {% if run %}
+        {% if run.error and not run.turns %}
+        <p class="error-note">No conversation. <code>{{ run.error }}</code></p>
+        {% else %}
+        {% if run.failures %}<ul class="failures">{% for f in run.failures %}<li>{{ f }}</li>{% endfor %}</ul>{% endif %}
+        <div class="chat">
+        {% for turn in run.turns %}
+          <div class="msg candidate">{{ turn.candidate }}</div>
+          <div class="msg agent">{{ turn.reply }}<span class="latency">{{ '%.1f' | format(turn.latency_seconds) }}s</span></div>
+          {% if turn.style %}<div class="tags">{% for s in turn.style %}<span class="tag">{{ s }}</span>{% endfor %}</div>{% endif %}
+        {% endfor %}
+        </div>
+        {% if run.error %}<p class="error-note">Stopped early. <code>{{ run.error }}</code></p>{% endif %}
+        {% if 'tone' in run.judge %}<p class="judge"><b>Tone {{ run.judge['tone'].score }}/5.</b> {{ run.judge['tone'].reason }}</p>{% endif %}
+        {% if run.summary %}
+        <div class="summary-text">{{ run.summary }}</div>
+        {% if 'summary' in run.judge %}<p class="judge"><b>Summary {{ run.judge['summary'].score }}/5.</b> {{ run.judge['summary'].reason }}</p>{% endif %}
+        {% endif %}
+        <details><summary class="note" style="border: 0; padding: 6px 0; background: none">Final status {{ run.status }} · {{ run.input_tokens }} in / {{ run.output_tokens }} out tokens</summary>
+          <pre>{{ run.profile | tojson(indent=2) }}</pre>
+        </details>
+        {% endif %}
+        {% else %}<p class="note">not run</p>{% endif %}
+      </div>
+    {% endfor %}
+    </div>
+  </details>
+  {% endfor %}
+  </div>
+</details>
+</main>
+</body>
+</html>

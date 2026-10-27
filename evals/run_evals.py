@@ -8,7 +8,9 @@ from urllib.parse import urlsplit
 from evals.guardrail_cases import score_guardrail
 from evals.judge import JUDGE_MODEL, Judge
 from evals.personas.text_personas import PERSONAS
-from evals.report import ModelResult, render
+from evals.render_report import write_reports
+from evals.report import render
+from evals.results import BakeoffResults, Gates
 from evals.runner import ModelSet, PersonaRun, build_engine, run_persona
 from screening_agent.config import settings
 from screening_agent.flow.engine import ScreeningEngine
@@ -18,7 +20,7 @@ from screening_agent.storage.repository import Repository
 def main() -> int:
     args = _parse()
     judge = Judge(args.judge_model) if args.judge else None
-    results: list[ModelResult] = []
+    runs_by_model: dict[str, list[PersonaRun]] = {}
     for live_model in args.models:
         models = ModelSet(live_model, args.summary_model, args.guardrail_model)
         repository = Repository(eval_database_url(args.db, uuid.uuid4().hex[:8]))
@@ -30,17 +32,32 @@ def main() -> int:
             else:
                 repository.client.drop_database(repository.db.name)
             repository.client.close()
-        results.append(ModelResult(live_model, tuple(runs)))
+        runs_by_model[live_model] = runs
     guardrails = [score_guardrail(model_id) for model_id in args.guardrail_models]
     for score in guardrails:
-        print(f"guardrail {score.model} {score.correct}/{score.total}", file=sys.stderr)
-    report = render(results, guardrails)
-    if args.report:
-        Path(args.report).write_text(report)
-        print(f"report written to {args.report}", file=sys.stderr)
+        print(
+            f"guardrail {score.model} {score.correct}/{score.total} p95 {score.latency_p95:.2f}s",
+            file=sys.stderr,
+        )
+    results = BakeoffResults.from_runs(
+        runs_by_model,
+        guardrails,
+        summary_model=args.summary_model,
+        guardrail_model=args.guardrail_model,
+        judge_model=args.judge_model if args.judge else None,
+        gates=Gates(
+            guardrail_min_accuracy=args.guardrail_min_accuracy,
+            guardrail_max_latency_seconds=args.guardrail_max_latency_seconds,
+        ),
+    )
+    for failure in results.guardrail_failures:
+        print(f"guardrail gate failed: {failure}", file=sys.stderr)
+    if args.out:
+        for path in write_reports(results, Path(args.out)):
+            print(f"written {path}", file=sys.stderr)
     else:
-        print(report)
-    return 0 if all(run.grade.passed for result in results for run in result.runs) else 1
+        print(render(results))
+    return 0 if results.passed else 1
 
 
 def _run_personas(
@@ -94,7 +111,21 @@ def _parse() -> argparse.Namespace:
     )
     parser.add_argument("--judge-model", default=JUDGE_MODEL)
     parser.add_argument(
-        "--report", default=None, help="write the markdown report here instead of stdout"
+        "--guardrail-min-accuracy",
+        type=float,
+        default=0.9,
+        help="a scored classifier below this accuracy fails the run",
+    )
+    parser.add_argument(
+        "--guardrail-max-latency-seconds",
+        type=float,
+        default=2.5,
+        help="a scored classifier with p95 latency above this fails the run",
+    )
+    parser.add_argument(
+        "--out",
+        default=None,
+        help="directory for bakeoff.json, bakeoff.md and bakeoff.html; without it the markdown goes to stdout",
     )
     parser.add_argument("--db", default=settings.database_url)
     parser.add_argument(

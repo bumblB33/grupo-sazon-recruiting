@@ -16,12 +16,18 @@ class Settings(BaseSettings):
     anthropic_api_key: SecretStr | None = Field(
         default=None, validation_alias="PROJECT_ANTHROPIC_API_KEY"
     )
+    # An org-level Anthropic key is not scoped to a workspace; the API then requires this id on every request.
+    anthropic_workspace_id: str | None = Field(
+        default=None, validation_alias="PROJECT_ANTHROPIC_WORKSPACE_ID"
+    )
     openai_api_key: SecretStr | None = Field(default=None, validation_alias="OPENAI_API_KEY")
     mistral_api_key: SecretStr | None = Field(default=None, validation_alias="MISTRAL_API_KEY")
     llm_timeout_seconds: float = 15.0
     llm_max_retries: int = 2
     reask_limit: int = 2
     database_url: str = "mongodb://localhost:27017/screening"
+    # Separate from database_url so evals never write to, or drop databases on, the app's cluster.
+    eval_database_url: str = "mongodb://localhost:27017/screening"
     assistant_name: str = "Sazón"
     # Candidate-facing dates use the service area's zone once known; this covers the stages before it.
     default_timezone: str = "Europe/Madrid"
@@ -29,7 +35,7 @@ class Settings(BaseSettings):
     session_secret: SecretStr | None = None
     session_hours: float = 12.0
     login_link_minutes: float = 15.0
-    # Any address at one of these domains enrolls itself on first login. Empty means nobody can.
+    # Second gate after the invite: a recruiter must be invited and at one of these domains.
     recruiter_email_domains: list[str] = []
     # Base URL the login link points at. Required outside dev mode: the Host header is attacker-controlled.
     public_url: str | None = None

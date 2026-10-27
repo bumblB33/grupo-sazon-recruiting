@@ -14,11 +14,12 @@ class Provider:
 
 
 # pydantic-settings reads .env without exporting it, so LangChain only sees these keys if we pass them.
-# Anthropic rejects sampling parameters on current Claude models. Providers absent here (bedrock,
-# vertex) authenticate with cloud credentials and get no key or sampling parameters.
+# Anthropic and OpenAI reject sampling parameters on current models (GPT-6 accepts only the default
+# temperature). Providers absent here (bedrock, vertex) authenticate with cloud credentials and get
+# no key or sampling parameters.
 PROVIDERS = {
     "anthropic": Provider("anthropic_api_key", "PROJECT_ANTHROPIC_API_KEY", None),
-    "openai": Provider("openai_api_key", "OPENAI_API_KEY", 0),
+    "openai": Provider("openai_api_key", "OPENAI_API_KEY", None),
     "mistralai": Provider("mistral_api_key", "MISTRAL_API_KEY", 0),
 }
 BARE_ID_PROVIDERS = (("claude", "anthropic"), ("gpt-", "openai"), ("mistral", "mistralai"))
@@ -42,6 +43,8 @@ def chat_model(model_id: str) -> BaseChatModel:
         options["api_key"] = key
         if provider.temperature is not None:
             options["temperature"] = provider.temperature
+    if provider is PROVIDERS["anthropic"] and settings.anthropic_workspace_id:
+        options["default_headers"] = {"anthropic-workspace-id": settings.anthropic_workspace_id}
     return init_chat_model(model_id, **options)
 
 

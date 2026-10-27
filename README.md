@@ -37,13 +37,21 @@ Configuration is read from `SCREENING_*` environment variables or `.env`. See `s
 
 ### Recruiter login
 
-Recruiters do not get a password or a key. They type their work email at `/recruiter/login` and click the link that arrives. Any address at a domain in `SCREENING_RECRUITER_EMAIL_DOMAINS` enrolls itself on first login. The recruiter row is created when the link is used. The link works once and expires after `SCREENING_LOGIN_LINK_MINUTES` (default 15). It always points at `SCREENING_PUBLIC_URL`, never at the request's `Host` header, which a caller can forge. Only dev mode falls back to the request URL. Each address gets one email per `SCREENING_LOGIN_EMAIL_COOLDOWN_SECONDS` (60) and each client IP at most `SCREENING_LOGIN_REQUESTS_PER_IP` (30) per `SCREENING_LOGIN_IP_WINDOW_MINUTES` (60). Behind a proxy, set uvicorn's `FORWARDED_ALLOW_IPS` so the limit sees the caller and not the proxy. A throttled request and a mail-provider failure both answer "check your inbox". The session cookie lasts `SCREENING_SESSION_HOURS` (default 12) and is signed with `SCREENING_SESSION_SECRET`, which is the one secret this app owns. Generate it once:
+Recruiters do not get a password or a key. An admin invites each work address with `screening-admin invite <email>`. The address must be at a domain in `SCREENING_RECRUITER_EMAIL_DOMAINS`; the domain list is a second gate, not the grant. The recruiter types that email at `/recruiter/login`, opens the link that arrives and presses a button. The GET only shows the button, so a mail scanner that prefetches the link does not burn it; the POST consumes it. The link works once and expires after `SCREENING_LOGIN_LINK_MINUTES` (default 15). It always points at `SCREENING_PUBLIC_URL`, never at the request's `Host` header, which a caller can forge. Only dev mode falls back to the request URL. An uninvited address, an unknown domain, a deactivated recruiter, a throttled request and a mail-provider failure all answer the same "check your inbox" page and send nothing. Each address gets one email per `SCREENING_LOGIN_EMAIL_COOLDOWN_SECONDS` (60) and each client IP at most `SCREENING_LOGIN_REQUESTS_PER_IP` (30) per `SCREENING_LOGIN_IP_WINDOW_MINUTES` (60). Behind a proxy, set `FORWARDED_ALLOW_IPS` to the proxy's address so uvicorn trusts its forwarded headers and the limit sees the caller. The session cookie lasts `SCREENING_SESSION_HOURS` (default 12), is signed with `SCREENING_SESSION_SECRET`, and is marked `Secure` when `SCREENING_PUBLIC_URL` is https. `screening-admin deactivate <email>` blocks new links, ends every session issued before it, and works before the address has ever been invited. `reactivate` lifts the block without reviving those sessions. Removing a domain from the allowlist also ends its recruiters' sessions. The override form carries a CSRF token bound to the session cookie. The session secret is the one secret this app owns. Generate it once:
 
 ```bash
 python -c "import secrets; print(secrets.token_urlsafe(32))"
 ```
 
 Without SendGrid credentials in dev mode, the login link is printed to the server log.
+
+Upgrading from a deployment where any address at an allowed domain could log in: existing recruiter rows survive unchanged and keep working. A recruiter who has never logged in needs `screening-admin invite <email>` before their first link is sent.
+
+Three mechanisms behind the login are worth knowing when changing it:
+
+- The CSRF token on the override form is an HMAC of the session cookie, not a stored value. The server keeps no extra state, and a stolen token is useless without the exact cookie it was minted from.
+- Session revocation is a timestamp on the recruiter row (`sessions_valid_after`), not a token blocklist. One write invalidates every outstanding cookie. The JWT `iat` is stored as a float timestamp so a deactivation in the same second as a login still wins.
+- The login link separates GET (show a button) from POST (consume the token). Mail scanners follow GET links but never submit forms, so a prefetch cannot burn the link or log the scanner in.
 
 ### Machine clients and admin
 
@@ -70,9 +78,11 @@ screening-cli                        # text chat against the screening flow
 uvicorn screening_agent.api.app:app  # webhook, candidates, analytics, recruiter pages at /recruiter/
 screening-nudge                      # silence sweep for cron: nudges, then abandons
 pytest                               # unit and flow tests, no LLM calls
-python -m evals.run_evals            # persona evals against the configured models, PASS/FAIL per persona
-python -m evals.run_evals --models anthropic:claude-sonnet-5-5,openai:gpt-6.1-sol,mistralai:mistral-medium-latest \
-    --guardrail-models anthropic:claude-haiku-5-5,openai:gpt-6-luna --judge --report docs/bakeoff.md
+python -m evals.run_evals            # persona evals against the configured models, PASS/FAIL per persona on stderr
+python -m evals.run_evals --models anthropic:claude-sonnet-5-5,openai:gpt-6.1-sol,mistralai:mistral-medium-3-5 \
+    --guardrail-models anthropic:claude-haiku-5-5,openai:gpt-6-luna,mistralai:mistral-small-2603 \
+    --judge --out docs            # bake-off: writes docs/bakeoff.json and bakeoff.html
+python -m evals.render_report docs/bakeoff.json   # rebuild bakeoff.html from saved results, no LLM calls
 ruff check . && ruff format .
 ```
 
@@ -390,5 +400,6 @@ sequenceDiagram
 - **People log in by email, machines by key.** The recruiter pages are plain HTML forms on the API app. Login is a one-time emailed link. The cookie is a signed, expiring session, not a secret, and deactivating a recruiter ends it on the next request. JSON routes accept that cookie or a per-client `X-API-Key` whose hash lives in MongoDB. Nothing is pasted or shared.
 - **Guardrail fails open.** One structured-output classification before each turn. A classifier outage allows the message and logs an event. It never blocks a candidate.
 - **Silence is a cron sweep.** No long-lived timers, so a restart loses nothing and the policy is a pure function over stored timestamps. Mechanism in Architecture, runtime view.
-- **Provider is configuration.** `SCREENING_LIVE_MODEL`, `SCREENING_SUMMARY_MODEL` and `SCREENING_GUARDRAIL_MODEL` take any `provider:model` id supported by LangChain. `llm/models.py` is the single constructor. Provider keys come from settings, so `.env` works outside Docker too: `PROJECT_ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `MISTRAL_API_KEY`. A missing key fails closed, so a shell `ANTHROPIC_API_KEY` is never billed by accident. Anthropic ids get no sampling parameters, OpenAI and Mistral run at temperature 0, Bedrock and Vertex use their cloud credentials.
+- **Provider is configuration.** `SCREENING_LIVE_MODEL`, `SCREENING_SUMMARY_MODEL` and `SCREENING_GUARDRAIL_MODEL` take any `provider:model` id supported by LangChain. `llm/models.py` is the single constructor. Provider keys come from settings, so `.env` works outside Docker too: `PROJECT_ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `MISTRAL_API_KEY`. A missing key fails closed, so a shell `ANTHROPIC_API_KEY` is never billed by accident. Anthropic and OpenAI ids get no sampling parameters, Mistral runs at temperature 0, Bedrock and Vertex use their cloud credentials.
 - **Evals grade outputs, the judge grades words.** Personas are scripted turns because the stage order is fixed. Code graders check the final JSON, outcome, turn count and reply style (one question, one emoji, length, language). A fixed Haiku judge scores tone and summary usefulness so the bake-off compares models on the same yardstick.
+- **The bake-off fails loudly.** The run exits 1 when any persona fails or any scored guardrail classifier is below `--guardrail-min-accuracy` (default 0.9) or above `--guardrail-max-latency-seconds` at p95 (default 2.5). An unavailable classifier scores zero and fails. Every turn, summary, guardrail and judge model id is constructed before the first paid call, so a missing key or unknown provider is a usage error, not a lost run. Eval databases live on `SCREENING_EVAL_DATABASE_URL` (default local Mongo), never on the app's `SCREENING_DATABASE_URL`. `--out` writes `bakeoff.json` (the results contract, with a `schema_version`) and `bakeoff.html`. The HTML report is self-contained, no JavaScript: per-model bar charts, a persona pass matrix, guardrail gates with threshold markers, and side-by-side transcripts with style flags, judge scores and summaries. Rebuild the report from the JSON with `python -m evals.render_report`. Cost per screening averages only personas that finished without an error, and a model with no replies shows n/a. p95 is the inclusive percentile over answered classifier calls, so failed calls never flatter the latency gate.

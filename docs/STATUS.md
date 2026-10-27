@@ -122,28 +122,34 @@ Built. `screening_agent/observability.py` owns it.
 - One sweep per interval across workers: a `sweep` lease in a `leases` collection, taken with the same single-write upsert as the login cooldown, with a TTL index on `expires_at`. `screening-nudge` and "Run sweep now" take the same lease, so a manual sweep never runs beside the scheduled one.
 - At most one send per nudge: a claim is written before the send. The key is per silence episode, `nudge:{candidate}:{last_inbound_at or opened_at}:{n}`, because `nudge_count` resets to 0 on every inbound and a key on the count alone would block every nudge after the first episode. Claims carry a TTL index.
 - A definite failure before Twilio accepts the message (a 4xx answer, a refused connection) releases the claim, and the next tick retries. A timeout or a lost response keeps the claim and records `nudge_unknown`, because Twilio may have sent it. A crash mid-send keeps the claim.
+- Design refinements from the first implementation pass, not built yet:
+  - The lease record holds two times. `held_until` stops two sweeps from overlapping. `expires_at`, the TTL field, is the later of `held_until` and the last start plus the interval, so a scheduled sweep runs at most once per interval. "Run sweep now" and `screening-nudge` check `held_until` only. Release filters on the owner and sets `held_until` to now.
+  - Any 4xx (429 included) and a refused or timed-out connection release the claim. A 5xx, a read timeout, a lost response or any unclassified exception keeps it and records `nudge_unknown`. Twilio documents only 429 as not processed; the other 4xx cases are an inference. `TwilioWhatsAppSender` raises `DeliveryRefusedError` or `DeliveryUnknownError` for the engine to tell them apart.
+  - A claim expires at the episode's abandon time plus a margin. The episode is closed by then.
+  - The scheduler gets `get_engine()` on its first tick, not at startup, so the API still starts without a model key. A failed tick is logged without candidate data and the loop continues.
+  - On shutdown the lifespan sets a stop flag, which the sweep checks between candidates, then awaits the task. A worker thread cannot be cancelled.
+  - The existing failed-send test needs its fake sender to raise `DeliveryRefusedError`; a plain exception will count as unknown.
 - Silence thresholds are wall-clock hours. A laptop that sleeps between the dry run and the call abandons in-progress candidates on the first tick after it wakes. The preflight sets short demo thresholds or runs the dry run inside the window.
 
 ## Remaining work, in order
 
-1. Service areas: author the 45 locations and their aliases. See "Names and data".
-2. Persona review: rewrite the eval personas as realistic candidates. See "Names and data".
-3. Run the live bake-off with `--out docs`. It needs the three provider keys and a Mongo on `localhost:27017` (the compose `mongo` service does not publish a host port). It writes `docs/bakeoff.json` and `bakeoff.html`. The current files are from a failed run: both Anthropic models hit the missing `anthropic-workspace-id` header, and every OpenAI call errored. Only Mistral produced results, so they do not support a model choice. The bake-off grades raw model text and reports the policy fallback rate per model. It runs before the console work, because it closes a core requirement and the reply policy and personas change its inputs.
-4. Set the `Settings` defaults for `live_model`, `summary_model` and `guardrail_model` in `screening_agent/config.py` to the winners. The current defaults are placeholders.
-5. Seed the demo database with the persona run on the chosen models. See "Names and data".
-6. Silence scheduler, lease and nudge claims, test first. See "Silence scheduler".
-7. Console shell restyle with the Orbio tokens across every existing page.
-8. Web chat and turn inspector. Delete `screening-cli`.
-9. How-it-works page, ops panel, start-screening form and demo reset. Add completion rate, drop-off stage and average duration to the funnel, from `opened_at`, `updated_at` and the outcome event.
-10. Live preflight on the laptop: provider keys and workspace id in `.env`, `docker compose up --build` before the call, seeded personas plus one hand-typed conversation per outcome through the web chat, Logfire token set and one trace opened from the inspector link. The `mongo-data` volume keeps these conversations between runs. Never run `docker compose down -v` before the call. Short silence thresholds or a dry run inside the window. WhatsApp leg: Twilio account and API key in `.env`, presenter's phone joined to the sandbox and in `SCREENING_DEMO_PHONES`, tunnel up, Twilio console webhook and `SCREENING_TWILIO_WEBHOOK_URL` set to `<tunnel>/webhook/whatsapp`, one full screening from the phone, then a demo reset. Read every live reply in the inspector and log each prose or tone fault as a persona or policy case before the call.
-11. README deliverable sections that are missing: "Sample conversations" from live transcripts, "LLM choice" justified from `bakeoff.html`, "Potential improvements", and "Deployment and scaling" (monitoring and alerts through Logfire, the path to 10K candidates a week, the process-local lock as the first limit). Update README and CLAUDE.md for the console, tracing, reply policy and scheduler. Move the as-built parts of "Demo design" out of this file into the README.
-12. Multi-lens adversarial review of the branch. Gates: pytest, ruff, pyright with no new errors.
-13. Record the 5-10 minute demo video from the console: one WhatsApp screening from the phone, the turn inspector, a trace, the how-it-works page, an override.
-14. Voice channel, only if time remains after the video.
+Decided 27 Oct: the case study is due today with a 5 to 10 minute video. Scope is cut to what the video needs. The plan is `PLAN-demo-console-and-scheduler.md`.
+
+1. Turn inspector on the recruiter candidate page, with a meta refresh while the conversation is in progress. See "Surfaces".
+2. WhatsApp preflight on the laptop: provider keys and workspace id in `.env`, `docker compose up --build`, short silence thresholds in a compose override outside the repo, tunnel up, Twilio sandbox joined, console webhook and `SCREENING_TWILIO_WEBHOOK_URL` set to `<tunnel>/webhook/whatsapp`, one full screening from the phone. Read every reply in the inspector and log each prose or tone fault as a persona or policy case.
+3. README deliverable sections: "LLM choice" justified from design with the failed bake-off named, "Sample conversations" from the preflight transcripts, "Potential improvements", "Deployment and scaling". Update README and CLAUDE.md for tracing, reply policy and the inspector.
+4. Record the video: phone screening beside the candidate page, the inspector, the summary, one override.
+5. Demo reset (archive and re-key, `SCREENING_DEMO_PHONES`), only if time remains after the video. Then reword "append-only" in `docs/process-design.md` and the README to allow the re-key.
+6. Multi-lens adversarial review of the branch. Gates: pytest, ruff, pyright with no new errors.
+
+Deferred past the deadline, designs kept in this file: service areas and persona rewrite, the live bake-off and model defaults, demo seed data, the in-API silence scheduler with lease and nudge claims, web chat, how-it-works page, ops panel, start form, rules table, analytics series, shell restyle, `screening-cli` deletion, voice. The compose `sweep` service stays and covers re-engagement.
 
 ## Known gaps
 
 - Login links appear in access and proxy logs until used or expired. The token is still single use and short lived.
+- No trace has been sent to a real Logfire project. The no-PII test uses an in-memory exporter.
+- The Docker image has not been rebuilt since `logfire[fastapi,pymongo,httpx]` was added to the dependencies.
+- The guardrail tone prompt and the tone cases are untested on a live model. Category accuracy after the tone change is unverified until the bake-off runs.
 - Every recruiter and API key has the same rights. There are no roles or scopes.
 - The bake-off cost column counts the turn model only. Guardrail, summary and judge tokens are not included.
 - The guardrail latency gate default (p95 at most 2.5s) is a first guess set before any live run. Adjust from the first `bakeoff.json`.
@@ -152,7 +158,7 @@ Built. `screening_agent/observability.py` owns it.
 
 ## Open questions
 
-- Demo reset: hard delete or archive and re-key. A delete breaks the append-only event log that `docs/process-design.md` promises. Archive and re-key keeps the history under a new id and frees the phone for a new run.
+- Demo reset: decided 27 Oct, archive and re-key. The re-key edits `candidate_id` on the candidate's events, so the append-only wording in `docs/process-design.md` and the README gains that one exception when reset ships.
 - Which Pylance `typeCheckingMode` the IDE uses. `.vscode/settings.json` sets none. The plan assumes `standard`.
 - Which model wins the bake-off for the live turn, the summary and the guardrail. Decided by `docs/bakeoff.html` from a valid run. The current file is from a failed run.
 - Logfire trace link format and project URL for the inspector. Needs the Logfire project to exist. Until then the inspector shows the trace id only.

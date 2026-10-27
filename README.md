@@ -28,6 +28,8 @@ export SCREENING_TWILIO_API_KEY_SID=SK...  # outbound REST auth (API key, not th
 export SCREENING_TWILIO_API_KEY_SECRET=...
 export SCREENING_TWILIO_WHATSAPP_FROM=+14155238886
 export SCREENING_TWILIO_OPENER_CONTENT_SID=HX...   # approved opener template; plain text fallback in sandbox
+export SCREENING_LOGFIRE_TOKEN=...          # tracing; unset means no tracing and nothing sent
+export SCREENING_CANDIDATE_HASH_SECRET=... # keys the candidate id in traces; unset, traces carry none
 export SCREENING_DATABASE_URL=mongodb://localhost:27017/screening
 ```
 
@@ -84,6 +86,7 @@ python -m evals.run_evals --models anthropic:claude-sonnet-5-5,openai:gpt-6.1-so
     --judge --out docs            # bake-off: writes docs/bakeoff.json and bakeoff.html
 python -m evals.render_report docs/bakeoff.json   # rebuild bakeoff.html from saved results, no LLM calls
 ruff check . && ruff format .
+pyright                              # standard mode, config in pyproject.toml
 ```
 
 ## HTTP surface
@@ -155,11 +158,11 @@ Only two facts cause an automatic no. Everything that needs judgement goes to a 
 1. The candidate sends a WhatsApp message. Twilio, the messaging provider, forwards it to the system.
 2. The system checks the message really came from Twilio. A forged message is rejected. This check is active in the production configuration; the local development mode can run without it.
 3. The system checks it has not already handled this exact message. Twilio delivers a message again when it gets no answer. A repeat is ignored.
-4. A small, fast AI check asks: is this message about the application? Off-topic or abusive messages get one polite redirect. A second one closes the chat for a recruiter to review. If this check itself fails for a technical reason, the message goes through instead of being blocked.
-5. The main AI model reads the message with the open questions in front of it. It fills in the matching box and writes a reply.
+4. A small, fast AI check asks: is this message about the application? Off-topic or abusive messages get one polite redirect. A second one closes the chat for a recruiter to review. The same check also reads the candidate's tone: neutral, confused or frustrated. If this check itself fails for a technical reason, the message goes through instead of being blocked and the tone counts as neutral.
+5. The main AI model reads the message with the open questions in front of it. It fills in the matching box and writes a reply. A confused or frustrated candidate gets a calmer, simpler instruction for this turn.
 6. The code checks the answer against the rules. A valid answer is recorded and the next question is prepared. An invalid answer is asked again with a fixed example message. Two invalid answers to the same question send the candidate to a recruiter instead of looping.
-7. The code picks the reply. Important messages come from fixed text, not from the AI: the re-asks, the city confirmation, the qualified message and every closing message. The AI's own words are used only for ordinary turns.
-8. The message, the updated form and the reply are saved together as one unit. Either all of it is saved or none of it. If the system crashes halfway, nothing is recorded, and the copy Twilio sends again is handled as new. The save happens before the reply is delivered. If delivery then fails, the form has moved on and the candidate hears nothing until the two-hour nudge repeats the open question.
+7. The code picks the reply. Important messages come from fixed text, not from the AI: the re-asks, the city confirmation, the qualified message and every closing message. The AI's own words are used only for ordinary turns, and only when they pass the reply rules: one question, at most one emoji, short, no formatting or links, in the candidate's language. A reply that breaks a rule is replaced by the fixed question for the current step.
+8. The message, the updated form, the reply and a record of why the system replied as it did are saved together as one unit. Either all of it is saved or none of it. If the system crashes halfway, nothing is recorded, and the copy Twilio sends again is handled as new. The save happens before the reply is delivered. If delivery then fails, the form has moved on and the candidate hears nothing until the two-hour nudge repeats the open question.
 9. The reply goes back through Twilio to the candidate.
 10. When the result is final, the system writes a short summary for the recruiter. This happens after the reply is sent, so the candidate never waits for it.
 
@@ -176,13 +179,13 @@ The nudge repeats the open question. If the candidate replies while the sweep is
 
 ### Where the information lives and who can see it
 
-Each candidate is one record in the database: their answers, the result, the full chat and the timing. Every result, override, blocked message and failed nudge or summary is also written to a separate log that is only ever added to, never edited. A failure of the main AI call is not logged there; it shows up as an error and the message is handled again when Twilio resends it.
+Each candidate is one record in the database: their answers, the result, the full chat and the timing. Every result, override, blocked message and failed nudge or summary is also written to a separate log that is only ever added to, never edited. Each answered message also carries a decision record: the step before and after, what the checks decided, which answers were accepted or rejected and why, where the reply came from, and the AI text a fixed message replaced. When tracing is on, timing and cost data goes to Logfire, a monitoring service. No message text, phone number or email goes there. A failure of the main AI call is not logged there; it shows up as an error and the message is handled again when Twilio resends it.
 
 Recruiters open a web page. There is no password. They type their work email and click the link that arrives. The link works once and expires in minutes. Other software, for example the company's hiring system, uses its own access key instead. Every change to a result records who made it.
 
 ### What a reviewer can rely on
 
-- The AI cannot skip the licence or city check. The code does not show it those boxes until it is their turn.
+- The AI cannot skip the licence or city check. The conversation stays on the first unanswered question until it is answered, and a no on either check closes the conversation at once, whatever else the candidate said.
 - A candidate is never rejected automatically for a judgement call. Only the two objective checks disqualify.
 - A rejected candidate always hears the true reason from fixed text, in Spanish or English. The system detects which of the two the candidate writes in and defaults to Spanish for anything else.
 - Every result and every override has a logged reason and a named actor.
@@ -191,7 +194,7 @@ Recruiters open a web page. There is no password. They type their work email and
 
 ### What is not built yet
 
-The voice-call channel is not built. The list of restaurant cities is sample data, not the client's real list of 45 locations. The test that compares AI models to pick the best one has not been run yet. The current state is tracked in the file `docs/STATUS.md` in this repository.
+The voice-call channel is not built. The list of restaurant cities is sample data, not the client's real list of 45 locations. The test that compares AI models has not produced a valid run yet (see LLM choice). The current state is tracked in the file `docs/STATUS.md` in this repository.
 
 ## Architecture
 
@@ -255,6 +258,7 @@ flowchart TB
     twilio[Twilio]
     sendgrid[SendGrid]
     llm[LLM providers]
+    logfire[Logfire]
 
     api --> mongo
     sweep --> mongo
@@ -266,12 +270,14 @@ flowchart TB
     api --> llm
     sweep --> twilio
     cli --> llm
+    api -.-> logfire
+    sweep -.-> logfire
 ```
 
 | Process | Serves | Calls out to |
 | --- | --- | --- |
-| `api` | Webhook, JSON routes, recruiter pages | Twilio (TwiML, Messages API), SendGrid (login email), LLM providers (turn, guardrail, summary) |
-| `sweep` | Silence policy every `SWEEP_INTERVAL_SECONDS` | Twilio only. Nudge text is a fixed template and `abandoned` gets no summary call. |
+| `api` | Webhook, JSON routes, recruiter pages | Twilio (TwiML, Messages API), SendGrid (login email), LLM providers (turn, guardrail, summary), Logfire when `SCREENING_LOGFIRE_TOKEN` is set |
+| `sweep` | Silence policy every `SWEEP_INTERVAL_SECONDS` | Twilio, and Logfire when the token is set. Nudge text is a fixed template and `abandoned` gets no summary call. |
 | `mongo` | Collections `candidates`, `events`, `recruiters`, `api_keys`, `login_tokens`, `login_throttles` | nothing |
 | `screening-cli` | Local text chat | LLM providers only. No Twilio. |
 | `screening-admin` | Keys and recruiter accounts | nothing |
@@ -319,7 +325,7 @@ sequenceDiagram
     participant L as Turn LLM
     participant M as MongoDB
 
-    E->>G: classify(text)
+    E->>G: classify(text): category and tone
     alt blocked
         E->>M: guardrail_blocked event
         E->>E: strike 1: fixed redirect, strike 2: needs_recruiter_review
@@ -327,9 +333,9 @@ sequenceDiagram
         opt classifier error
             E->>M: guardrail_failed event
         end
-        E->>L: one call, tools = fields still missing
+        E->>L: one call, tools = fields still missing, tone guidance
         L-->>E: tool calls and reply text
-        E->>E: apply_tools: validate, transition, pick reply
+        E->>E: apply_tools: validate, transition, pick reply, check reply policy
     end
     opt new status is terminal
         E->>M: outcome event
@@ -340,8 +346,9 @@ What the diagrams fix in place:
 
 - One LLM turn per message. The guardrail is a second, cheaper call that runs first and fails open.
 - The graph is two nodes, `turn` and `apply_tools`, invoked once per message with no checkpointer. State lives in the candidate document, not in LangGraph.
-- Inbound message, new state and reply are written together. A crash before the write leaves no transcript entry, so Twilio's retry is processed as new. Guardrail events written earlier stay in `events`.
+- Inbound message, turn record, new state and reply are written together. A turn that is not saved leaves no record. A crash before the write leaves no transcript entry, so Twilio's retry is processed as new. Guardrail events written earlier stay in `events`.
 - The summary never delays the reply. It runs after the response is sent and outside the lock.
+- Each step is a span (`handle`, `guardrail`, `turn`, `summary`, `sweep`, `nudge`) with metadata only. Candidate ids are removed from URLs, and exception messages never name the candidate, because Logfire does not scrub exception text or URL attributes.
 
 ### Runtime view: silence sweep
 
@@ -395,7 +402,7 @@ sequenceDiagram
 - **Code-owned closing messages.** Re-asks, confirmations, disqualifications and the qualified message are fixed text per language, so compliance wording never depends on the model.
 - **Two automated stops only.** No licence and out of service area. Everything ambiguous goes to `needs_recruiter_review`.
 - **Idempotent inbound.** A redelivered webhook returns `duplicate` and a failed turn is retried as new, so Twilio retries are safe. Mechanism in Architecture, runtime view.
-- **Tool gating is enforced twice.** Only the current stage's tools are bound to the model, and a call to any other tool is rejected when applied. Allowed tools are recomputed after each accepted call, so one message can answer several questions. Model misuse of a tool re-asks the current question and is never counted against the candidate.
+- **Tool gating is enforced twice.** The model only sees the tools for fields still missing from the current stage onward, and a call to any other tool is rejected when applied. Allowed tools are recomputed after each accepted call, so one message can answer several questions. Model misuse of a tool re-asks the current question and is never counted against the candidate.
 - **Candidate-local dates.** "Today" for start dates and the prompt is the calendar day in the candidate's service-area timezone, not the server's.
 - **One document per candidate.** Chosen so a turn is one atomic write with no replica set or transaction. Mechanism in Architecture, containers.
 - **Fail-closed API.** Recruiter routes and the webhook return 503 until their secrets are configured, unless `SCREENING_DEV_MODE` is on. Dev mode opens the recruiter routes only while `SCREENING_SESSION_SECRET` is unset, and skips the webhook signature only while `SCREENING_TWILIO_AUTH_TOKEN` is unset. A stray dev-mode flag on a deployment with real secrets opens neither. The summary LLM call runs as a background task after the reply.
@@ -405,5 +412,54 @@ sequenceDiagram
 - **Guardrail fails open.** One structured-output classification before each turn. A classifier outage allows the message and logs an event. It never blocks a candidate.
 - **Silence is a cron sweep.** No long-lived timers, so a restart loses nothing and the policy is a pure function over stored timestamps. Mechanism in Architecture, runtime view.
 - **Provider is configuration.** `SCREENING_LIVE_MODEL`, `SCREENING_SUMMARY_MODEL` and `SCREENING_GUARDRAIL_MODEL` take any `provider:model` id supported by LangChain. `llm/models.py` is the single constructor. Provider keys come from settings, so `.env` works outside Docker too: `PROJECT_ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `MISTRAL_API_KEY`. A missing key fails closed, so a shell `ANTHROPIC_API_KEY` is never billed by accident. Anthropic and OpenAI ids get no sampling parameters, Mistral runs at temperature 0, Bedrock and Vertex use their cloud credentials.
-- **Evals grade outputs, the judge grades words.** Personas are scripted turns because the stage order is fixed. Code graders check the final JSON, outcome, turn count and reply style (one question, one emoji, length, language). A fixed Haiku judge scores tone and summary usefulness so the bake-off compares models on the same yardstick.
-- **The bake-off fails loudly.** The run exits 1 when any persona fails or any scored guardrail classifier is below `--guardrail-min-accuracy` (default 0.9) or above `--guardrail-max-latency-seconds` at p95 (default 2.5). An unavailable classifier scores zero and fails. Every turn, summary, guardrail and judge model id is constructed before the first paid call, so a missing key or unknown provider is a usage error, not a lost run. Eval databases live on `SCREENING_EVAL_DATABASE_URL` (default local Mongo), never on the app's `SCREENING_DATABASE_URL`. `--out` writes `bakeoff.json` (the results contract, with a `schema_version`) and `bakeoff.html`. The HTML report is self-contained, no JavaScript: per-model bar charts, a persona pass matrix, guardrail gates with threshold markers, and side-by-side transcripts with style flags, judge scores and summaries. Rebuild the report from the JSON with `python -m evals.render_report`. Cost per screening averages only personas that finished without an error, and a model with no replies shows n/a. p95 is the inclusive percentile over answered classifier calls, so failed calls never flatter the latency gate.
+- **Evals grade outputs, the judge grades words.** Personas are scripted turns because the stage order is fixed. Code graders check the final JSON, outcome and turn count. Reply style uses the same rules as the live reply policy (`flow/reply_policy.py`), applied to the raw model text, not to the fixed question that replaced it. The report shows the policy fallback rate per model. A fixed Haiku judge scores tone and summary usefulness so the bake-off compares models on the same yardstick.
+- **The bake-off fails loudly.** The run exits 1 when any persona fails or any scored guardrail classifier is below `--guardrail-min-accuracy` (default 0.9) or above `--guardrail-max-latency-seconds` at p95 (default 2.5), or below `--tone-min-accuracy` on the candidate-tone cases (default 0.8). An unavailable classifier scores zero and fails. Every turn, summary, guardrail and judge model id is constructed before the first paid call, so a missing key or unknown provider is a usage error, not a lost run. Eval databases live on `SCREENING_EVAL_DATABASE_URL` (default local Mongo), never on the app's `SCREENING_DATABASE_URL`. `--out` writes `bakeoff.json` (the results contract, with a `schema_version`) and `bakeoff.html`. The HTML report is self-contained, no JavaScript: per-model bar charts, a persona pass matrix, guardrail gates with threshold markers, and side-by-side transcripts with style flags, judge scores and summaries. Rebuild the report from the JSON with `python -m evals.render_report`. Cost per screening averages only personas that finished without an error, and a model with no replies shows n/a. p95 is the inclusive percentile over answered classifier calls, so failed calls never flatter the latency gate.
+
+## LLM choice
+
+Defaults in `screening_agent/config.py`: `anthropic:claude-sonnet-5-5` for the candidate turn, `anthropic:claude-haiku-5-5` for the guardrail classifier and the summary. Any `provider:model` id can replace them by setting.
+
+Why this pair, from design rather than measurement:
+
+- The turn is tool use under constraint. One call must pick the right recording tool, give valid arguments and write a short reply in the candidate's language. Current Claude models follow a bound tool set and a strict reply format reliably, which matters more here than raw reasoning.
+- Spanish from Spain and Mexico with slang, typos and code-switching. The judge personas in `evals/` exercise this, and the live reply policy catches a language mismatch, but the base model still has to read "no tengo carnet" and "ps si" correctly.
+- Latency is in the chat loop. Haiku runs before every turn as the guardrail and after the last one as the summary. A fast small model keeps the per-message cost at two calls without a visible pause.
+- One provider for all three roles keeps the key handling, the usage metadata and the error shapes the same.
+
+What the scripted bake-off showed. The run saved in `docs/bakeoff.json` on 27 Oct compared Sonnet, `openai:gpt-6.1-sol` and `mistralai:mistral-medium-3-5` on the persona set. Every Anthropic call answered 400 because the org-level key was sent without the workspace header, and every OpenAI call answered 400 as well. Only Mistral completed. That run does not support a model choice, and the report says so (`docs/bakeoff.html`). The workspace header is now sent from `PROJECT_ANTHROPIC_WORKSPACE_ID`. Re-running the bake-off is the first item under Potential improvements, and the defaults change to the winner when it runs.
+
+What would change the choice: a policy fallback rate above a few percent on Sonnet (the model keeps writing two questions or an emoji), a guardrail accuracy below 0.9 or p95 latency above 2.5 s on Haiku, or a cost per screening that the per-screening budget cannot carry at 1000 applications a week.
+
+## Deployment and scaling
+
+Today: `compose.yaml` runs `api`, `sweep` and `mongo` on one host. Secrets come from `.env`. The API fails closed on every route whose secret is missing. Tracing is on when `SCREENING_LOGFIRE_TOKEN` is set and carries metadata only.
+
+Monitoring. Logfire holds the spans: `handle`, `guardrail`, `turn`, `summary`, `sweep`, `nudge`, with model, token counts and latency on each. The alerts worth setting first, all from attributes already exported:
+
+- Guardrail failure rate (`guardrail_failed` events). The guardrail fails open, so a provider outage shows here before it shows anywhere else.
+- Policy fallback rate per model. A rise means the prompt or the model drifted and candidates are getting fixed questions instead of replies.
+- Failed nudges (`nudge_failed` events) and sweep lag. Both mean silent candidates are not being followed up.
+- Turn latency p95 over the webhook. Twilio retries a webhook that takes too long, which the dedupe absorbs but the candidate still waits.
+
+Scaling to 10K candidates a week. 10K a week is about one candidate a minute on average and a few a second at peak, with roughly 10 messages each. The limits, in the order they are hit:
+
+1. The per-candidate lock is process-local. Two API processes can run the same candidate's turn at once; the version check on the document turns the loser into a retry, so it is correct but wasteful. The next step is a lease per candidate in MongoDB, the same single-write pattern the login throttle uses, so any number of API replicas serialise one candidate.
+2. The silence sweep is one process over every open conversation. At 10K a week with a 24 h abandon window that is tens of thousands of documents per tick, fine for Mongo with the existing indexes, but one sweep must not run beside another. The design in `docs/STATUS.md` moves the sweep into the API process behind a lease, with a claim per nudge so a nudge is sent at most once across replicas and restarts.
+3. LLM rate limits. Two calls per message at peak is a few calls a second, inside provider limits, but a provider incident stalls every conversation at once. The model id is a setting, so the first mitigation is a second provider configured and tested in the bake-off, switched by redeploy.
+4. MongoDB. One document per candidate with the transcript embedded stays under the 16 MB limit by a wide margin for a 10-message screening. Reads on the recruiter list are paged and indexed on `status` and `updated_at`. The next index is on events `(kind, created_at)` when the analytics series land.
+
+Deployment shape at that scale: the API as a stateless replica set behind a load balancer, MongoDB as a managed replica set, the sweep inside the API behind the lease, Logfire for traces and alerts, secrets from the platform's secret store instead of `.env`. The webhook signature check and the dedupe already make the API safe to run more than once.
+
+## Potential improvements
+
+In order of value for the client:
+
+1. **Run the bake-off to completion** with the workspace header fixed, then set the model defaults from the result instead of from design. The harness, the gates and the report exist.
+2. **Silence scheduler inside the API** with a sweep lease and per-nudge claims, so the compose `sweep` service and its one-process limit go away. Designed in `docs/STATUS.md`, not built.
+3. **Realistic personas and the real 45 locations.** The eval personas are clean scripted turns. Candidates write with typos, slang and one-word answers, and the service-area list is a 16-city sample.
+4. **Web chat for recruiters** to run a screening from the console without a phone, and a demo reset for a phone that has already been screened.
+5. **Analytics series**: completion rate, drop-off stage and average duration, from timestamps the documents already carry. The funnel today counts by status and stage only.
+6. **Interview scheduling** as the step after `qualified`, as one more tool at the outcome stage.
+7. **ATS integration**: the JSON API already exposes `GET /candidates` and `GET /candidates/{id}` with the full profile, transcript and events, so the remaining design is an outbound webhook on the `outcome` event.
+8. **Voice channel** on the same engine through Pipecat, with speech-to-text and text-to-speech as adapters. The engine takes text and returns text, so no screening logic changes.
+9. **Roles for recruiters.** Every recruiter and API key has the same rights today.

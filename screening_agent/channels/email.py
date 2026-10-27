@@ -59,6 +59,17 @@ class SendGridEmailSender:
             raise EmailSendError(f"SendGrid send failed: {exc}") from exc
 
 
+class RedirectingEmailSender:
+    """Delivers every email to one fixed address. The original recipient is named in the body."""
+
+    def __init__(self, inner: EmailSender, redirect_to: str) -> None:
+        self.inner = inner
+        self.redirect_to = redirect_to
+
+    def send(self, to: str, subject: str, text: str) -> None:
+        self.inner.send(self.redirect_to, subject, f"Requested for {to}.\n\n{text}")
+
+
 class LoggingEmailSender:
     """Dev mode without SendGrid: the login link goes to stderr, never to a log record that tracing exports."""
 

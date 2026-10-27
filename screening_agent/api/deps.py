@@ -9,12 +9,14 @@ from screening_agent.api.auth import (
     client_from_api_key,
     csrf_matches,
     csrf_token,
+    is_valid_email,
     recruiter_from_session,
 )
 from screening_agent.channels.email import (
     EmailNotConfiguredError,
     EmailSender,
     LoggingEmailSender,
+    RedirectingEmailSender,
     SendGridEmailSender,
 )
 from screening_agent.channels.whatsapp import OutboundNotConfiguredError, TwilioWhatsAppSender
@@ -56,11 +58,26 @@ def get_whatsapp_outbound() -> OutboundChannel:
 @cache
 def email_sender() -> EmailSender:
     try:
-        return SendGridEmailSender.from_settings()
+        sender: EmailSender = SendGridEmailSender.from_settings()
     except EmailNotConfiguredError:
-        if settings.dev_mode:
-            return LoggingEmailSender()
-        raise
+        if not settings.dev_mode:
+            raise
+        sender = LoggingEmailSender()
+    return redirect_login_email(sender)
+
+
+def redirect_login_email(sender: EmailSender) -> EmailSender:
+    """A redirect outside dev mode would send every recruiter's link to one mailbox, so it fails closed."""
+    redirect_to = settings.login_email_redirect_to
+    if redirect_to is None:
+        return sender
+    if not settings.dev_mode:
+        raise EmailNotConfiguredError(
+            "SCREENING_LOGIN_EMAIL_REDIRECT_TO is allowed in dev mode only"
+        )
+    if not is_valid_email(redirect_to):
+        raise EmailNotConfiguredError("SCREENING_LOGIN_EMAIL_REDIRECT_TO is not an email address")
+    return RedirectingEmailSender(sender, redirect_to)
 
 
 def get_email_sender() -> EmailSender:

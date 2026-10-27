@@ -2,6 +2,7 @@ import json
 import logging
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Literal
 
 from fastapi import APIRouter, Cookie, Depends, Form, HTTPException, Request, Response
 from fastapi.responses import RedirectResponse
@@ -29,6 +30,14 @@ from screening_agent.api.deps import (
 from screening_agent.channels.email import EmailSender, EmailSendError
 from screening_agent.config import settings
 from screening_agent.domain.enums import Stage, Status
+from screening_agent.recruiter.i18n import (
+    LOCALE_COOKIE,
+    LOCALE_COOKIE_MAX_AGE,
+    STRINGS,
+    Locale,
+    parse_locale,
+    resolve_locale,
+)
 from screening_agent.recruiter.views import transcript_views
 from screening_agent.storage.repository import Repository
 
@@ -39,11 +48,7 @@ LOGIN_PATH = f"{RECRUITER_PREFIX}/login"
 CSRF_FIELD = "csrf_token"
 STATUSES = list(Status)
 STAGES = list(Stage)
-LOGIN_SUBJECT = "Your Grupo Sazón recruiter login link"
-LOGIN_BODY = (
-    "Open this link to sign in to the recruiter console. It works once and expires in "
-    "{minutes:g} minutes.\n\n{link}\n\nIf you did not ask for it, ignore this email."
-)
+LOCALES = list(Locale)
 
 templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
 
@@ -63,16 +68,54 @@ recruiter_router = APIRouter(prefix=RECRUITER_PREFIX, tags=["recruiter"])
 authenticated_pages = APIRouter()
 
 
-def login_page(request: Request, error: str | None = None, status_code: int = 200) -> Response:
+def current_locale(request: Request) -> Locale:
+    return resolve_locale(
+        request.query_params.get("lang"),
+        request.cookies.get(LOCALE_COOKIE),
+        request.headers.get("accept-language"),
+    )
+
+
+def locale_context(locale: Locale) -> dict[str, object]:
+    return {
+        "t": STRINGS[locale],
+        "strings": STRINGS,
+        "locale": locale,
+        "locales": LOCALES,
+        "lang": locale.value,
+    }
+
+
+LoginErrorKey = Literal["error_link_used", "error_inactive"]
+
+
+def login_page(
+    request: Request,
+    locale: Locale,
+    error_key: LoginErrorKey | None = None,
+    status_code: int = 200,
+) -> Response:
+    error = STRINGS[locale][error_key] if error_key else None
     return templates.TemplateResponse(
-        request, "login.html", {"error": error}, status_code=status_code
+        request, "login.html", {"error": error, **locale_context(locale)}, status_code=status_code
     )
 
 
 @recruiter_router.get("/login")
 def login_form(request: Request) -> Response:
+    """A valid ?lang= choice is remembered in a cookie so the whole login flow keeps it."""
     session_secret()
-    return login_page(request)
+    locale = current_locale(request)
+    response = login_page(request, locale)
+    if parse_locale(request.query_params.get("lang")) is not None:
+        response.set_cookie(
+            LOCALE_COOKIE,
+            locale.value,
+            max_age=LOCALE_COOKIE_MAX_AGE,
+            samesite="lax",
+            secure=secure_cookies(request),
+        )
+    return response
 
 
 @recruiter_router.post("/login")
@@ -86,18 +129,26 @@ def request_login_link(
     domain allowlist. Only an invited, active address at an allowed domain gets a link."""
     session_secret()
     base_url = login_base_url(request)
+    locale = current_locale(request)
     email = email.strip().lower()
     valid = is_valid_email(email)
     if valid and email_domain_allowed(email, settings.recruiter_email_domains):
         client_ip = request.client.host if request.client else "unknown"
-        send_login_link(email, client_ip, base_url, repository, sender)
+        send_login_link(email, client_ip, base_url, locale, repository, sender)
     return templates.TemplateResponse(
-        request, "check_inbox.html", {"email": email if valid else None}
+        request,
+        "check_inbox.html",
+        {"email": email if valid else None, **locale_context(locale)},
     )
 
 
 def send_login_link(
-    email: str, client_ip: str, base_url: str, repository: Repository, sender: EmailSender
+    email: str,
+    client_ip: str,
+    base_url: str,
+    locale: Locale,
+    repository: Repository,
+    sender: EmailSender,
 ) -> None:
     recruiter = repository.get_recruiter(email)
     if recruiter is None or not recruiter.active:
@@ -116,16 +167,14 @@ def send_login_link(
     token = new_login_token()
     expires_at = now + timedelta(minutes=settings.login_link_minutes)
     repository.save_login_token(hash_secret(token), email, expires_at)
-    body = LOGIN_BODY.format(
+    strings = STRINGS[locale]
+    body = strings["email_body"].format(
         minutes=settings.login_link_minutes, link=f"{base_url}{LOGIN_PATH}/{token}"
     )
     try:
-        sender.send(email, LOGIN_SUBJECT, body)
+        sender.send(email, strings["email_subject"], body)
     except EmailSendError:
         logger.exception("login email failed")
-
-
-LINK_USED = "That link has expired or was already used"
 
 
 @recruiter_router.get("/login/{token}")
@@ -134,10 +183,13 @@ def confirm_login_page(
 ) -> Response:
     """Mail scanners prefetch links; the GET only shows a button and the POST consumes the token."""
     session_secret()
+    locale = current_locale(request)
     if not repository.login_token_is_live(hash_secret(token), datetime.now(UTC)):
-        return login_page(request, LINK_USED, 401)
+        return login_page(request, locale, "error_link_used", 401)
     return templates.TemplateResponse(
-        request, "confirm_login.html", {"action": f"{LOGIN_PATH}/{token}"}
+        request,
+        "confirm_login.html",
+        {"action": f"{LOGIN_PATH}/{token}", **locale_context(locale)},
     )
 
 
@@ -146,12 +198,13 @@ def login_with_link(
     request: Request, token: str, repository: Repository = Depends(get_repository)
 ) -> Response:
     secret = session_secret()
+    locale = current_locale(request)
     email = repository.consume_login_token(hash_secret(token), datetime.now(UTC))
     if email is None:
-        return login_page(request, LINK_USED, 401)
+        return login_page(request, locale, "error_link_used", 401)
     recruiter = repository.get_recruiter(email)
     if recruiter is None or not recruiter.active:
-        return login_page(request, "This account is not active", 401)
+        return login_page(request, locale, "error_inactive", 401)
     repository.mark_recruiter_login(email)
     response = RedirectResponse(f"{RECRUITER_PREFIX}/", status_code=303)
     # Dev mode without a secret has no sessions to issue; the pages are open anyway.

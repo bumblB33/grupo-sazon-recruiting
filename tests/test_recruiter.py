@@ -1,13 +1,21 @@
+from collections.abc import Iterator
 from datetime import timedelta
+from string import Formatter
 
 import pytest
 from pydantic import SecretStr
 
 from screening_agent.api import app as api
+from screening_agent.api import deps
 from screening_agent.api.auth import issue_session
 from screening_agent.api.deps import RECRUITER_COOKIE, get_email_sender
-from screening_agent.channels.email import EmailSendError
+from screening_agent.channels.email import (
+    EmailSendError,
+    LoggingEmailSender,
+    RedirectingEmailSender,
+)
 from screening_agent.config import settings
+from screening_agent.recruiter.i18n import DEFAULT_LOCALE, LOCALE_COOKIE, STRINGS
 from screening_agent.recruiter.router import CSRF_FIELD, LOGIN_PATH, RECRUITER_PREFIX
 from tests.conftest import RECRUITER_EMAIL, invite, log_in, screen_no_licence, twilio_form
 
@@ -31,7 +39,7 @@ def test_login_link_sets_cookie_and_is_single_use(client, email, signed):
     invite()
     asked = client.post(LOGIN_PATH, data={"email": "Ana@GrupoSazon.com "})
     assert asked.status_code == 200
-    assert "Check your inbox" in asked.text
+    assert "Revisa tu correo" in asked.text
     to, _, body = email.sent[-1]
     assert to == RECRUITER_EMAIL
     link = email.last_link()
@@ -49,7 +57,7 @@ def test_login_link_sets_cookie_and_is_single_use(client, email, signed):
     assert repository.get_recruiter(RECRUITER_EMAIL).last_login_at is not None
     reused = client.post(link, follow_redirects=False)
     assert reused.status_code == 401
-    assert "already used" in reused.text
+    assert "ya se usó" in reused.text
     assert client.get(link, follow_redirects=False).status_code == 401
     client.post(f"{RECRUITER_PREFIX}/logout", follow_redirects=False)
     assert client.get(LIST, follow_redirects=False).status_code == 303
@@ -71,7 +79,7 @@ def test_opening_the_link_shows_a_confirm_button_and_does_not_consume_it(client,
 def test_uninvited_address_at_an_allowed_domain_gets_no_email_and_no_row(client, email, signed):
     response = client.post(LOGIN_PATH, data={"email": "intern@gruposazon.com"})
     assert response.status_code == 200
-    assert "Check your inbox" in response.text
+    assert "Revisa tu correo" in response.text
     assert email.sent == []
     repository = api.app.dependency_overrides[api.get_repository]()
     assert repository.get_recruiter("intern@gruposazon.com") is None
@@ -86,7 +94,7 @@ def test_invite_outside_the_domain_allowlist_cannot_log_in(client, email, signed
 def test_unknown_domain_gets_the_same_page_but_no_email(client, email, signed):
     response = client.post(LOGIN_PATH, data={"email": "mallory@example.com"})
     assert response.status_code == 200
-    assert "Check your inbox" in response.text
+    assert "Revisa tu correo" in response.text
     assert email.sent == []
     repository = api.app.dependency_overrides[api.get_repository]()
     assert repository.get_recruiter("mallory@example.com") is None
@@ -140,7 +148,7 @@ def test_deactivation_between_request_and_click_refuses_the_link(client, email, 
     repository.deactivate_recruiter(RECRUITER_EMAIL)
     refused = client.post(email.last_link(), follow_redirects=False)
     assert refused.status_code == 401
-    assert "not active" in refused.text
+    assert "no está activa" in refused.text
     assert "set-cookie" not in refused.headers
 
 
@@ -183,7 +191,7 @@ def test_invalid_address_is_not_echoed_on_the_inbox_page(client, signed):
     response = client.post(LOGIN_PATH, data={"email": "<b>mallory</b>@evil.com@gruposazon.com"})
     assert response.status_code == 200
     assert "mallory" not in response.text
-    assert "that address" in response.text
+    assert "esa dirección" in response.text
 
 
 def test_bad_login_links_and_cookies_are_rejected(client, signed):
@@ -221,6 +229,41 @@ def test_login_fails_closed_without_public_url_outside_dev_mode(client, email, s
     assert email.sent == []
 
 
+@pytest.fixture
+def real_email_sender(monkeypatch) -> Iterator[None]:
+    """Routes the login form through the configured sender instead of the FakeEmail override."""
+    api.app.dependency_overrides.pop(get_email_sender, None)
+    deps.email_sender.cache_clear()
+    monkeypatch.setattr(settings, "login_email_redirect_to", "demo-inbox@example.com")
+    yield
+    deps.email_sender.cache_clear()
+
+
+def test_redirect_delivers_every_login_email_to_one_address_in_dev_mode(
+    client, signed, real_email_sender, capsys
+):
+    invite()
+    sender = deps.email_sender()
+    assert isinstance(sender, RedirectingEmailSender)
+    assert isinstance(sender.inner, LoggingEmailSender)
+    client.post(LOGIN_PATH, data={"email": RECRUITER_EMAIL})
+    printed = capsys.readouterr().err
+    assert printed.startswith("email to demo-inbox@example.com:")
+    assert f"Requested for {RECRUITER_EMAIL}." in printed
+    assert f"{LOGIN_PATH}/" in printed
+
+
+def test_redirect_fails_closed_outside_dev_mode(client, signed, real_email_sender, monkeypatch):
+    invite()
+    monkeypatch.setattr(settings, "dev_mode", False)
+    monkeypatch.setattr(settings, "public_url", "https://recruit.gruposazon.com")
+    monkeypatch.setattr(settings, "sendgrid_api_key", SecretStr("SG.x"))
+    monkeypatch.setattr(settings, "login_email_from", "login@gruposazon.com")
+    response = client.post(LOGIN_PATH, data={"email": RECRUITER_EMAIL})
+    assert response.status_code == 503
+    assert "REDIRECT" not in response.text
+
+
 def test_repeat_request_inside_cooldown_sends_nothing_and_looks_identical(client, email, signed):
     invite()
     first = client.post(LOGIN_PATH, data={"email": RECRUITER_EMAIL})
@@ -253,7 +296,7 @@ def test_mail_provider_failure_still_answers_check_your_inbox(client, signed):
     api.app.dependency_overrides[get_email_sender] = DownEmail
     response = client.post(LOGIN_PATH, data={"email": RECRUITER_EMAIL})
     assert response.status_code == 200
-    assert "Check your inbox" in response.text
+    assert "Revisa tu correo" in response.text
 
 
 def test_list_filters_and_shows_funnel(client):
@@ -326,3 +369,52 @@ def test_detail_shows_the_turn_inspector_and_refreshes_only_while_in_progress(cl
     open_page = client.get(f"{RECRUITER_PREFIX}/candidates/+34601").text
     assert '<meta http-equiv="refresh" content="5">' in open_page
     assert "consent &rarr; full_name" in open_page
+
+
+def placeholders(template: str) -> set[str]:
+    return {field for _, field, _, _ in Formatter().parse(template) if field}
+
+
+def test_locale_catalogs_share_one_key_set_and_placeholders():
+    reference = STRINGS[DEFAULT_LOCALE]
+    for strings in STRINGS.values():
+        assert set(strings) == set(reference)
+        for key, template in strings.items():
+            assert placeholders(template) == placeholders(reference[key]), key
+    assert placeholders(reference["email_body"]) == {"link", "minutes"}
+    assert placeholders(reference["check_inbox_body_named"]) == {"email"}
+
+
+def test_lang_query_sets_cookie_and_carries_through_the_login_flow(client, email, signed):
+    invite()
+    chosen = client.get(LOGIN_PATH, params={"lang": "es-ES"})
+    assert chosen.status_code == 200
+    assert f"{LOCALE_COOKIE}=es-ES" in chosen.headers["set-cookie"]
+    assert '<html lang="es-ES">' in chosen.text
+    assert "Correo electrónico de trabajo" in chosen.text
+    assert 'aria-current="true">Español (ES)' in chosen.text
+    asked = client.post(LOGIN_PATH, data={"email": RECRUITER_EMAIL})
+    assert "tu enlace de acceso está en camino" in asked.text
+    assert f"<strong>{RECRUITER_EMAIL}</strong>" in asked.text
+    _, subject, _ = email.sent[-1]
+    assert subject.startswith("Tu enlace de acceso")
+    confirm = client.get(email.last_link())
+    assert "Haz clic en el botón" in confirm.text
+    switched = client.get(LOGIN_PATH, params={"lang": "en-US"})
+    assert "Recruiter login" in switched.text and "Work email" in switched.text
+    assert "recruiting · delivery drivers" in switched.text
+
+
+def test_unknown_lang_falls_back_and_sets_no_cookie(client, signed):
+    response = client.get(LOGIN_PATH, params={"lang": "fr-FR"})
+    assert response.status_code == 200
+    assert "set-cookie" not in response.headers
+    assert '<html lang="es-MX">' in response.text
+
+
+def test_accept_language_picks_the_locale_without_a_cookie(client, signed):
+    english = client.get(LOGIN_PATH, headers={"Accept-Language": "en-GB,en;q=0.8"})
+    assert "Recruiter login" in english.text
+    assert "set-cookie" not in english.headers
+    spanish = client.get(LOGIN_PATH, headers={"Accept-Language": "fr-FR, es-ES;q=0.5"})
+    assert "Correo electrónico de trabajo" in spanish.text

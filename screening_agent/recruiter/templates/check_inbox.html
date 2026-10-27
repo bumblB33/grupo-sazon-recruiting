@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Check your inbox{% endblock %}
+{% block title %}{{ t.title_check_inbox }}{% endblock %}
 {% block header %}{% endblock %}
 {% block styles %}
     .login { max-width: 380px; margin: 8vh auto 0; }
@@ -7,9 +7,9 @@
 {% endblock %}
 {% block content %}
 <div class="login card ticket reveal">
-  <p class="kicker">Pase de cocina</p>
-  <h1>Check your inbox</h1>
-  <p>If {% if email %}<strong>{{ email }}</strong>{% else %}that address{% endif %} belongs to an invited recruiter, a login link is on its way. It works once and expires soon.</p>
-  <p><a href="/recruiter/login">Use a different address</a></p>
+  <p class="kicker">{{ t.kicker }}</p>
+  <h1>{{ t.check_inbox_heading }}</h1>
+  <p>{% if email %}{{ (t.check_inbox_body_named | safe).format(email=("<strong>%s</strong>" | safe) % email) }}{% else %}{{ t.check_inbox_body_anon }}{% endif %}</p>
+  <p><a href="/recruiter/login">{{ t.use_other_address }}</a></p>
 </div>
 {% endblock %}

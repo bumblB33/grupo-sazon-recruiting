@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="{{ lang | default("en") }}">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -169,7 +169,7 @@
 </head>
 <body>
   <header>
-    <a class="brand" href="/recruiter/">Sazón<small>reclutamiento · repartidores</small></a>
+    <a class="brand" href="/recruiter/">Sazón<small>{{ t.brand_subtitle if t else "reclutamiento · repartidores" }}</small></a>
     {% block header %}
     <nav><a href="/recruiter/">Candidates</a></nav>
     <form method="post" action="/recruiter/logout">{% if principal %}<span class="who">{{ principal.id }}</span> {% endif %}<button type="submit">Log out</button></form>

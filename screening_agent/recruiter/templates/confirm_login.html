@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Sign in{% endblock %}
+{% block title %}{{ t.title_confirm }}{% endblock %}
 {% block header %}{% endblock %}
 {% block styles %}
     .login { max-width: 380px; margin: 8vh auto 0; }
@@ -8,11 +8,11 @@
 {% endblock %}
 {% block content %}
 <div class="login card ticket reveal">
-  <p class="kicker">Pase de cocina</p>
-  <h1>Recruiter login</h1>
-  <p>Press the button to finish signing in. The link works once.</p>
+  <p class="kicker">{{ t.kicker }}</p>
+  <h1>{{ t.heading_login }}</h1>
+  <p>{{ t.confirm_body }}</p>
   <form method="post" action="{{ action }}">
-    <button type="submit">Sign in</button>
+    <button type="submit">{{ t.button_sign_in }}</button>
   </form>
 </div>
 {% endblock %}

@@ -18,8 +18,9 @@ Moving state for the screening agent. The README describes the system as built. 
 - Pyright in `standard` mode with no errors.
 - Logfire tracing with a no-PII test, and the per-turn decision record on the inbound transcript entry.
 - Live reply policy with a fixed-question fallback, and candidate tone from the guardrail call.
+- Login flow in es-MX, es-ES and en-US (`recruiter/i18n.py`), toggled with `?lang=` links and kept in a cookie; the login email follows the same locale.
 - Per-turn inspector on the recruiter candidate page (`recruiter/views.py`, `_turn.html`), with a meta refresh while the conversation is open.
-- Demo tooling outside the repo (`~/sazon-demo/`): launcher, login-link helper and stop script. Runbook in `TROUBLESHOOTING.md`.
+- Public URL: `ngrok` compose service behind the `tunnel` profile, bound to the account's fixed dev domain. Demo tooling outside the repo (`~/sazon-demo/`): launcher, login-link helper and stop script. Runbook in `TROUBLESHOOTING.md`.
 - Tests with fakes for all of the above. The full suite, including the Mongo-backed tests, passes with no LLM calls.
 
 ## Not built
@@ -35,10 +36,10 @@ Against `docs/Orbio-Assignment.md`. Rubric weights: technical build 40%, process
 | Requirement | State | Closed by |
 |---|---|---|
 | Phase 1 process design | `docs/process-design.md` | none |
-| Screening agent, validation, JSON output, history, storage, summary, error handling | built and tested with fakes. Stack up through a tunnel, API reachable from the internet, signature check confirmed live. No live LLM turn yet | Live preflight |
+| Screening agent, validation, JSON output, history, storage, summary, error handling | built and tested with fakes. Stack up on the fixed ngrok domain, API reachable from the internet, signature check confirmed live. No live LLM turn yet | Live preflight |
 | Recruiter tool | built: list, funnel, detail with per-turn inspector, override | none for the video; console pages deferred |
 | LLM choice justified | README "LLM choice": justified from design, failed bake-off named | none; re-run is the first improvement |
-| Live demo ("show, don't tell") | stack and tunnel up, Twilio webhook paste and sandbox join pending | Live preflight |
+| Live demo ("show, don't tell") | stack up on the fixed domain, Twilio webhook paste and sandbox join pending | Live preflight |
 | README: setup, architecture, key decisions | present | README |
 | README: potential improvements, sample conversations | improvements and deployment written; sample conversations wait for the live run | Live preflight |
 | Demo video, 5-10 minutes | missing | Demo video |
@@ -88,6 +89,7 @@ Goal: a live demo on a call. Every feature is reachable in the browser. Every ag
 - Pages stay server-rendered. Each action is a form post followed by a redirect. The candidate page refreshes itself with `<meta http-equiv="refresh">` while the conversation is in progress, so WhatsApp turns appear in the inspector without a manual reload. The web chat page never auto-refreshes, because a refresh would wipe the message being typed. A web chat turn blocks the form post for the LLM call, with no progress indicator.
 - Self-hosted fonts and any other static files need a `StaticFiles` mount and a package-data glob in `pyproject.toml`. Today package data covers only `templates/*.html`, and the Docker image installs with `pip install .`.
 - The demo runs on the presenter's laptop with `docker compose`, presented over screen share. No public hosting.
+- Recruiter login in the demo, decided 27 Oct: the recruiter types `demo@gruposazon.com` and the mail is delivered to the presenter's inbox through `SCREENING_LOGIN_EMAIL_REDIRECT_TO`, so the on-screen path is the real one (form, inbox, link, confirm). Rationale: the "check your inbox" page shows nothing by design, and a link rendered on the page or a dev-only listing route would be a demo-only surface that the README's fail-closed story then has to explain. The redirect is a sender decorator (`RedirectingEmailSender`) applied in `deps.email_sender`, honoured in dev mode only; set outside dev mode it fails closed with 503, because it would send every recruiter's link to one mailbox. The stderr fallback is unchanged and `demo-login.sh` stays as the path when `.env` has no SendGrid keys. Which path runs depends on the SendGrid settings alone, not on dev mode, and the runbook says so.
 - WhatsApp is shown live with the presenter's own phone as the candidate, through the Twilio sandbox and a tunnel to the laptop. Decided 27 Oct: web chat is dropped for the deadline, so there is no browser fallback. A failed take is re-recorded.
 
 ### Surfaces
@@ -137,9 +139,9 @@ Built. `screening_agent/observability.py` owns it.
 
 Decided 27 Oct: the case study is due today with a 5 to 10 minute video. Scope is cut to what the video needs. The plan is `PLAN-demo-console-and-scheduler.md`.
 
-1. Turn inspector on the recruiter candidate page, with a meta refresh while the conversation is in progress. See "Surfaces".
-2. WhatsApp preflight on the laptop. Done: image rebuilt, override written, `demo-up.sh` brings tunnel and stack up, `GET /docs` through the tunnel answers 200 and an unsigned webhook POST answers 401, dev-mode login link printed by `demo-login.sh`. Pending, maintainer actions: install ngrok and add the authtoken so the webhook URL is fixed (cloudflared quick tunnel is the fallback and changes URL on restart), paste the webhook URL into the Twilio sandbox, join from the phone, send one message. Then one full screening, read every reply in the inspector, log each prose or tone fault as a persona or policy case. Commands in `TROUBLESHOOTING.md`.
-3. README deliverable sections: "LLM choice" justified from design with the failed bake-off named, "Sample conversations" from the preflight transcripts, "Potential improvements", "Deployment and scaling". Update README and CLAUDE.md for tracing, reply policy and the inspector.
+1. Done (`53c0e0d`): turn inspector on the recruiter candidate page, with a meta refresh while the conversation is in progress.
+2. WhatsApp preflight on the laptop. Done: image rebuilt, override written, `ngrok` compose service behind the `tunnel` profile binds the account's fixed dev domain, `demo-up.sh` brings the stack up, `GET /docs` through the domain answers 200 and an unsigned webhook POST answers 401, login mail redirected to the demo inbox (`SCREENING_LOGIN_EMAIL_REDIRECT_TO`, dev mode only), `demo-login.sh` prints the link with the public domain while `.env` has no SendGrid keys. Pending, maintainer actions: paste the webhook URL into the Twilio sandbox, join from the phone, send one message. Then one full screening, read every reply in the inspector, log each prose or tone fault as a persona or policy case. Commands in `TROUBLESHOOTING.md`.
+3. README deliverable sections. Done: "LLM choice" justified from design with the failed bake-off named, "Potential improvements", "Deployment and scaling", tracing, reply policy, inspector and the tunnel. Pending: "Sample conversations" from the preflight transcripts, after the live run.
 4. Record the video: phone screening beside the candidate page, the inspector, the summary, one override.
 5. Demo reset (archive and re-key, `SCREENING_DEMO_PHONES`), only if time remains after the video. Then reword "append-only" in `docs/process-design.md` and the README to allow the re-key.
 6. Multi-lens adversarial review of the branch. Gates: pytest, ruff, pyright with no new errors.
@@ -149,10 +151,9 @@ Deferred past the deadline, designs kept in this file: service areas and persona
 ## Known gaps
 
 - Login links appear in access and proxy logs until used or expired. The token is still single use and short lived.
+- The mailbox login path is unverified end to end. `.env` has no `SCREENING_SENDGRID_API_KEY` or `SCREENING_LOGIN_EMAIL_FROM`, so the 27 Oct control proved the redirect only on the stderr fallback ("email to bwalker77@proton.me", "Requested for demo@gruposazon.com."). A SendGrid key and a verified sender are maintainer actions before the recording; until then the terminal path is the demo path.
 - No trace has been sent to a real Logfire project. The no-PII test uses an in-memory exporter.
-- The launcher's ngrok branch is untested until ngrok is installed. `ngrok config check` as the "authtoken present" probe is from the CLI's `config` family, not confirmed in docs; fix the probe on the first run if it is wrong.
 - Tool exposure: `tools_for` exposes every tool for a missing field from the current stage onward, not only the current stage's. README and CLAUDE.md said the latter and were corrected on 27 Oct. The stage order and the hard stops are still code-enforced. The inspector shows the full exposed list, so the demo narration must say this.
-- `demo-status.md` in the repo root is a pasted copy of a chat table with an ephemeral tunnel URL. Not a doc. Delete it.
 - The guardrail tone prompt and the tone cases are untested on a live model. Category accuracy after the tone change is unverified until the bake-off runs.
 - Every recruiter and API key has the same rights. There are no roles or scopes.
 - The bake-off cost column counts the turn model only. Guardrail, summary and judge tokens are not included.
@@ -163,7 +164,7 @@ Deferred past the deadline, designs kept in this file: service areas and persona
 ## Open questions
 
 - Demo reset: decided 27 Oct, archive and re-key. The re-key edits `candidate_id` on the candidate's events, so the append-only wording in `docs/process-design.md` and the README gains that one exception when reset ships.
-- Which Pylance `typeCheckingMode` the IDE uses. `.vscode/settings.json` sets none. The plan assumes `standard`.
+- Which Pylance `typeCheckingMode` the IDE uses. `.vscode/settings.json` sets only `python.terminal.useEnvFile`. The plan assumes `standard`, which `pyright` runs from `pyproject.toml`.
 - Which model wins the bake-off for the live turn, the summary and the guardrail. Decided by `docs/bakeoff.html` from a valid run. The current file is from a failed run.
 - Logfire trace link format and project URL for the inspector. Needs the Logfire project to exist. Until then the inspector shows the trace id only.
 - Fonts: self-host Geist, Inter and IBM Plex Mono, or load them from a CDN. A CDN fails on a call with poor network and sends visitor IPs to a third party. Self-hosting needs each font licence checked first.

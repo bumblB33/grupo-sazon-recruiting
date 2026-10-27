@@ -46,6 +46,9 @@ class Settings(BaseSettings):
     # Login links go out through Twilio SendGrid.
     sendgrid_api_key: SecretStr | None = None
     login_email_from: str | None = None
+    # Dev mode only: every login email is delivered to this address instead of the recruiter's,
+    # so a demo can type a company address and still receive the link.
+    login_email_redirect_to: str | None = None
     twilio_auth_token: SecretStr | None = None
     # Twilio signs the URL configured in its console; set this when a proxy rewrites the request URL.
     twilio_webhook_url: str | None = None

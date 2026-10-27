@@ -90,6 +90,98 @@ ruff check . && ruff format .
 
 "recruiter" means a session cookie or an `X-API-Key`. Routes answer 503 until their secrets are configured, unless `SCREENING_DEV_MODE` is on. Page routes answer 303 to login instead of 401.
 
+## How it works, in plain language
+
+This section is for reviewers and readers who do not write code. It describes what the system does and who decides what. The Architecture section after it gives the same system in technical diagrams.
+
+### What the system does
+
+A candidate applies for a delivery-driver job. A recruiter, or the company's hiring software, registers the candidate's phone number with the system. The candidate then gets a WhatsApp message from an assistant called Sazón. This first message is called the opener. The link from the application form to this system is not built, so today the registration is a manual or external step. The assistant says it is an AI, asks for permission to continue, then asks seven short questions one at a time. The conversation ends in one of four results. A recruiter sees the result, a short summary, the full chat and every decision the system made.
+
+The goal is simple. Recruiters today spend most of their phone time on people who cannot be hired. The assistant does the first pass and hands recruiters only the candidates who passed the two objective checks: a valid driving licence and a home city where Grupo Sazón has a restaurant.
+
+### Two parts: the AI that talks and the code that decides
+
+The system has two parts with different jobs.
+
+- **The AI model talks.** It reads the candidate's message, understands it in Spanish or English, and writes a friendly one-line reply. It also fills in the boxes of a form that the message answers, usually one, for example "has licence: yes". A second, smaller AI check runs before it and only decides whether the message is about the application.
+- **The code decides.** The code owns the form, the order of the questions, the rules for a valid answer, the four results and every message that matters legally.
+
+A useful picture is an interviewer with a clipboard. The AI is the interviewer. The code is the clipboard. The clipboard shows only the question that comes next. The interviewer cannot write in a box that is not on the page. So the AI cannot ask about experience before the licence question, because that box does not exist yet. The code adds it only after the licence answer is recorded.
+
+This is the single most important design choice. The rules about consent, question order and rejection do not depend on the AI following instructions. They depend on which boxes the code shows it.
+
+### The questions, in order
+
+The questions run cheapest disqualifier first. The two hard stops come before any detail a recruiter would read.
+
+| Step | Question | What can happen |
+| --- | --- | --- |
+| 1 | May we continue? (consent) | No: the chat stops and a recruiter follows up. |
+| 2 | Full name | Unclear: asked again once, with an example. |
+| 3 | Valid driving licence? | No: not qualified. The candidate hears the real reason. |
+| 4 | Which city? | No restaurant there: not qualified. Close match: the assistant asks "Do you mean X?" first. |
+| 5 | Availability (full-time, part-time, weekends) | Unclear: asked again once. |
+| 6 | Preferred shift | Unclear: asked again once. |
+| 7 | Delivery experience | Zero is a valid answer. |
+| 8 | Start date | A past date: asked again once. |
+
+A candidate who answers several questions in one message skips ahead. The code accepts every answer it can match and moves to the first question still open.
+
+### The four results
+
+| Result | Who decides | What the candidate hears |
+| --- | --- | --- |
+| Qualified | Code, when every answer is valid | A recruiter will book a short interview. |
+| Not qualified | Code, only for no licence or no restaurant nearby | The real reason, and that the application stays on file. |
+| Needs a recruiter | Code, when the candidate says no to consent or anything is unclear | A recruiter will follow up. |
+| Abandoned | Code, after a long silence | Nothing further. |
+
+Only two facts cause an automatic no. Everything that needs judgement goes to a person. A recruiter can change any result from the recruiter web page, and the change is logged with their name.
+
+### What happens to one message
+
+1. The candidate sends a WhatsApp message. Twilio, the messaging provider, forwards it to the system.
+2. The system checks the message really came from Twilio. A forged message is rejected. This check is active in the production configuration; the local development mode can run without it.
+3. The system checks it has not already handled this exact message. Twilio delivers a message again when it gets no answer. A repeat is ignored.
+4. A small, fast AI check asks: is this message about the application? Off-topic or abusive messages get one polite redirect. A second one closes the chat for a recruiter to review. If this check itself fails for a technical reason, the message goes through instead of being blocked.
+5. The main AI model reads the message with the open questions in front of it. It fills in the matching box and writes a reply.
+6. The code checks the answer against the rules. A valid answer is recorded and the next question is prepared. An invalid answer is asked again with a fixed example message. Two invalid answers to the same question send the candidate to a recruiter instead of looping.
+7. The code picks the reply. Important messages come from fixed text, not from the AI: the re-asks, the city confirmation, the qualified message and every closing message. The AI's own words are used only for ordinary turns.
+8. The message, the updated form and the reply are saved together as one unit. Either all of it is saved or none of it. If the system crashes halfway, nothing is recorded, and the copy Twilio sends again is handled as new. The save happens before the reply is delivered. If delivery then fails, the form has moved on and the candidate hears nothing until the two-hour nudge repeats the open question.
+9. The reply goes back through Twilio to the candidate.
+10. When the result is final, the system writes a short summary for the recruiter. This happens after the reply is sent, so the candidate never waits for it.
+
+The whole exchange costs one main AI call per candidate message, plus the small check in step 4.
+
+### When a candidate goes quiet
+
+No timer runs inside the system. A separate task, called the sweep, wakes every few minutes and looks at the saved times of the last messages.
+
+- No answer to the first message: the opener is sent again after about one day. After two days the candidate is marked abandoned.
+- Silence after the chat has started: a nudge after about two hours and a last nudge after about twenty-three hours. After a day the candidate is marked abandoned, and the recruiter sees which question they stopped at.
+
+The nudge repeats the open question. If the candidate replies while the sweep is sending a nudge, the candidate may still receive that nudge, but the saved record keeps the candidate's reply and drops the nudge.
+
+### Where the information lives and who can see it
+
+Each candidate is one record in the database: their answers, the result, the full chat and the timing. Every result, override, blocked message and failed nudge or summary is also written to a separate log that is only ever added to, never edited. A failure of the main AI call is not logged there; it shows up as an error and the message is handled again when Twilio resends it.
+
+Recruiters open a web page. There is no password. They type their work email and click the link that arrives. The link works once and expires in minutes. Other software, for example the company's hiring system, uses its own access key instead. Every change to a result records who made it.
+
+### What a reviewer can rely on
+
+- The AI cannot skip the licence or city check. The code does not show it those boxes until it is their turn.
+- A candidate is never rejected automatically for a judgement call. Only the two objective checks disqualify.
+- A rejected candidate always hears the true reason from fixed text, in Spanish or English. The system detects which of the two the candidate writes in and defaults to Spanish for anything else.
+- Every result and every override has a logged reason and a named actor.
+- A repeated or retried message is never processed twice.
+- The AI model can be swapped by a setting. The rules stay in the code and do not move with the model.
+
+### What is not built yet
+
+The voice-call channel is not built. Tracing, a record of each AI call for debugging, is not built. The list of restaurant cities is sample data, not the client's real list of 45 locations. The test that compares AI models to pick the best one has not been run yet. The current state is tracked in the file `docs/STATUS.md` in this repository.
+
 ## Architecture
 
 The section follows the [C4 model](https://c4model.com): system context, then containers, then two runtime views. Stage order, validation rules and outcomes are design, owned by `docs/process-design.md`.

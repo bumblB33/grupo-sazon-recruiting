@@ -14,9 +14,9 @@ Scaffold stage. Decisions taken 23 Oct that override the outline where they diff
 - Layout is `screening_agent/` per the outline. The old `src/` tree is deleted.
 - The design outline is private prep material and lives outside the repo. The shippable Phase 1 deliverable is `docs/process-design.md`.
 
-Working: domain, flow, CLI, storage, API with magic-link sessions, per-client API keys and webhook signature check, recruiter pages (`screening_agent/recruiter/`), summary, guardrail classifier, WhatsApp opener and outbound via Twilio REST, silence sweep (`screening-nudge`) that nudges and sets `abandoned`, evals and bake-off runner (`evals/`), tests for all of it with fakes. Not started: voice channel, Logfire. Service areas in `domain/service_areas.py` are fixture data keyed by bare city name, not the client's 45 locations.
+Working: domain, flow, CLI, storage, API with magic-link sessions, per-client API keys and webhook signature check, recruiter pages (`screening_agent/recruiter/`), summary, guardrail classifier, WhatsApp opener and outbound via Twilio REST, silence sweep (`screening-nudge`) that nudges and sets `abandoned`, evals and bake-off runner (`evals/`), tests for all of it with fakes. Not started: voice channel, Logfire.
 
-Remaining work and open findings are tracked in the README "Status" section.
+Remaining work and open findings are tracked in `docs/STATUS.md`.
 
 ## Commands
 

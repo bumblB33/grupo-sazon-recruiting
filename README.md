@@ -199,7 +199,7 @@ Recruiters open a web page. There is no password. They type their work email and
 
 ### What is not built yet
 
-The voice-call channel, the silence scheduler inside the API, the web chat and the demo reset are not built. The list of restaurant cities is sample data, not the client's real list of 45 locations. The test that compares AI models has not produced a valid run yet (see LLM choice). Remaining work is tracked in `docs/STATUS.md`.
+The voice-call channel, the silence scheduler inside the API and the demo reset are not built. The list of restaurant cities is sample data, not the client's real list of 45 locations. The test that compares AI models has not produced a valid run yet (see LLM choice). Remaining work is tracked in `docs/STATUS.md`.
 
 ## Architecture
 
@@ -465,7 +465,7 @@ In order of value for the client:
 1. **Run the bake-off to completion** with the workspace header fixed, then set the model defaults from the result instead of from design. The harness, the gates and the report exist.
 2. **Silence scheduler inside the API** with a sweep lease and per-nudge claims, so the compose `sweep` service and its one-process limit go away. Designed under "Deferred past the deadline" in `docs/STATUS.md`, not built.
 3. **Realistic personas and the real 45 locations.** The eval personas are clean scripted turns. Candidates write with typos, slang and one-word answers, and the service-area list is a 16-city sample.
-4. **Web chat for recruiters** to run a screening from the console without a phone, and a demo reset for a phone that has already been screened.
+4. **Demo reset** for a phone that has already been screened, so one number can run the flow again.
 5. **Analytics series**: completion rate, drop-off stage and average duration, from timestamps the documents already carry. The funnel today counts by status and stage only.
 6. **Interview scheduling** as the step after `qualified`, as one more tool at the outcome stage.
 7. **ATS integration**: the JSON API already exposes `GET /candidates` and `GET /candidates/{id}` with the full profile, transcript and events, so the remaining design is an outbound webhook on the `outcome` event.

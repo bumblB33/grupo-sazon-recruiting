@@ -8,9 +8,9 @@ The case study is due 27 Oct 2026 with a 5 to 10 minute video. Scope is cut to w
 
 Decisions taken on 27 Oct, binding:
 
-- Web chat is dropped. There is no browser fallback if the tunnel or Twilio fails during the take. The fallback is a second take.
+- WhatsApp is the only candidate channel. There is no browser fallback if the tunnel or Twilio fails during the take. The fallback is a second take.
 - The compose `sweep` service stays and covers re-engagement. The in-API scheduler is deferred.
-- `screening-cli` stays. Its deletion is deferred with the console work.
+- `screening-cli` stays.
 - LLM choice is justified from design in the README. The failed scripted bake-off is named as is, with the provider errors, and listed first under improvements.
 - Recruiter login on screen uses the real path. The login mail for the demo address is redirected to the presenter's inbox with `SCREENING_LOGIN_EMAIL_REDIRECT_TO` (dev mode only, 503 otherwise). No link on the "check your inbox" page and no dev-only listing route, because either would be a demo-only surface that the fail-closed story then has to explain. Which path runs depends on the SendGrid settings alone, not on dev mode. Runbook in `TROUBLESHOOTING.md`.
 - Tunnel is the `ngrok` compose service behind the `tunnel` profile, bound to the account's fixed dev domain, so the Twilio webhook URL is pasted once. cloudflared is dropped.
@@ -100,13 +100,12 @@ Without the reset, `POST /candidates` answers 409 on the second run for the same
 
 Goal: every feature reachable in the browser, every agent decision on screen with a reason, every trace and architectural rule checkable against the running code.
 
-- Web chat (`/recruiter/chat`, enabled by `SCREENING_DEMO_CHAT`). Start a new web candidate through `start_conversation` with the fixed opener, or resume one. A web candidate id is `web-` plus a random id, because there is no phone. The web outbound sender sends nothing: the page reads the opener and replies from the transcript. The sweep gets no sender for `web`, so a silent web candidate is only abandoned. Each form carries a CSRF token and a fresh `external_id`, so a resubmit dedupes through `handle`. A terminal turn queues `summarize_outcome`. Candidates whose channel is not `web` are refused, so a recruiter cannot type into a WhatsApp conversation. Web candidates appear in the candidate list with a `web` tag. The chat page never auto-refreshes, because a refresh would wipe the message being typed. A turn blocks the form post for the LLM call, with no progress indicator.
 - Start a WhatsApp screening from the console: a form over the same path as `POST /candidates` (E.164 phone, language), with the CSRF check of `require_recruiter_write`, so the opener goes out from the browser, not curl.
 - How-it-works page. It shows only facts the code can list at request time: stage order from `Stage`, tools exposed per stage, `reask_limit`, `OFF_TOPIC_STRIKE_LIMIT`, silence thresholds, configured models, the reply-policy rules and the guardrail fail-open rule. Validation rules appear only if the validators read them from a declared table the page also reads. No hand-written rule text in the template. Links to the README for the prose.
 - Ops panel. Scheduler state (enabled or not, lease holder, last run, nudged, abandoned, failed), "Run sweep now" through the same lease, which secrets and integrations are configured (names only, never values), Logfire on or off. Recruiters and API keys show as counts only, because every recruiter has the same rights and could otherwise read every email and key id.
 - Visual identity: Orbio product chrome, Grupo Sazón shown as the tenant. Tokens from the `--ui-*` set on orbioai.co/platform: background `#edefe8`, panel `#fcfdf9`, surface `#fff`, text `#1e2418` / `#555c4a` / `#858c78`, border `#dde0d4` / `#b8bda8`, agent accent `#b8e636` on `#f0f7d8`, brand `#2f3f22`, status success `#3d7254`, warning `#7a5f17`, error `#b83232`, info `#316692`. Fonts: Geist (display), Inter (body), IBM Plex Mono (data). The layout is original; only the tokens are shared. Tokens live in one CSS block in `base.html`, no page sets a raw colour. Status mapping: qualified to success, disqualified to error, needs_recruiter_review to warning, abandoned to text-3, in_progress to info. Self-hosted fonts and any other static files need a `StaticFiles` mount and a package-data glob in `pyproject.toml`; today package data covers only `templates/*.html`.
 - Pages stay server-rendered. Each action is a form post followed by a redirect.
-- `screening-cli` is deleted once the web chat exists. `screening-admin` stays for invites and API keys. `screening-nudge` stays as a manual one-shot trigger.
+- `screening-cli`, `screening-admin` and `screening-nudge` stay as they are.
 - Analytics series: completion rate, drop-off stage and average duration, from timestamps the documents already carry. Needs an index on events `(kind, created_at)`.
 
 ### Names and data
@@ -116,7 +115,7 @@ Grupo Sazón is fictional, so every name, location and persona is ours to define
 - Author the 45 service areas across Spain and Mexico, with local aliases and IANA timezones, in `domain/service_areas.py`. This replaces the 16-city fixture.
 - The assistant name (`SCREENING_ASSISTANT_NAME`, now `Sazón`) can be changed for the demo.
 - Rewrite the eval personas as realistic candidates: typos, slang from both countries, one-word answers, voice-note style run-ons, questions back to the agent, code-switching, a frustrated candidate and a confused one.
-- Demo dataset: run the personas live through the engine into the demo database as `web` candidates with a `seed-` id prefix. The command takes the database URL as a required argument with no default. It does not reuse `SCREENING_EVAL_DATABASE_URL`, and evals still never write to the app database. Seeded conversations finish in seconds, so analytics exclude the `seed-` prefix from duration and drop-off, or show it as a separate series. Before the live seed, inventory what is in the demo database and where it came from. Delete only after approval.
+- Demo dataset: run the personas live through the engine into the demo database as `cli` candidates with a `seed-` id prefix. The command takes the database URL as a required argument with no default. It does not reuse `SCREENING_EVAL_DATABASE_URL`, and evals still never write to the app database. Seeded conversations finish in seconds, so analytics exclude the `seed-` prefix from duration and drop-off, or show it as a separate series. Before the live seed, inventory what is in the demo database and where it came from. Delete only after approval.
 
 ### Live bake-off
 

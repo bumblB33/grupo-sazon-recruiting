@@ -6,7 +6,7 @@ Grupo Sazón receives about 1,000 delivery-driver applications a week across 45 
 
 ## Channel policy
 
-WhatsApp carries the whole screening. First contact is a WhatsApp template sent minutes after the application. It names the assistant, says it is an AI, says the conversation is recorded, and asks for a good moment. The reply is the opt-in and opens the 24-hour WhatsApp service window. The engine takes text and returns text, so other channels (a web chat in the recruiter console, a browser voice call) are adapters on the same flow. Neither is built; both are listed under improvements in the README. A channel switch never restarts the flow.
+WhatsApp carries the whole screening. First contact is a WhatsApp template sent minutes after the application. It names the assistant, says it is an AI, says the conversation is recorded, and asks for a good moment. The reply is the opt-in and opens the 24-hour WhatsApp service window. The engine takes text and returns text, so another channel (a browser voice call) is an adapter on the same flow. It is not built and is listed under improvements in the README. A channel switch never restarts the flow.
 
 ## Conversation stages
 

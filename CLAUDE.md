@@ -21,7 +21,7 @@ When the README and the code disagree, the README is stale. When `docs/process-d
 
 ## Current state
 
-Working: domain, flow, CLI, storage, API with magic-link sessions, per-client API keys and webhook signature check, recruiter pages with a per-turn inspector, summary, guardrail classifier, WhatsApp opener and outbound via Twilio REST, silence sweep (`screening-nudge`), evals and bake-off runner, tests for all of it with fakes. Not built: voice channel, in-API scheduler, web chat, demo reset. LangGraph owns the node graph; channels are adapters. Voice is optional and comes last.
+Working: domain, flow, CLI, storage, API with magic-link sessions, per-client API keys and webhook signature check, recruiter pages with a per-turn inspector, summary, guardrail classifier, WhatsApp opener and outbound via Twilio REST, silence sweep (`screening-nudge`), evals and bake-off runner, tests for all of it with fakes. Not built: voice channel, in-API scheduler, demo reset. LangGraph owns the node graph; channels are adapters. Voice is optional and comes last.
 
 ## Commands
 

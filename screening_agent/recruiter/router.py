@@ -110,7 +110,7 @@ def send_login_link(
         settings.login_requests_per_ip,
         timedelta(minutes=settings.login_ip_window_minutes),
     ):
-        logger.warning("login link throttled for %s from %s", email, client_ip)
+        logger.warning("login link throttled")
         return
     token = new_login_token()
     expires_at = now + timedelta(minutes=settings.login_link_minutes)
@@ -121,7 +121,7 @@ def send_login_link(
     try:
         sender.send(email, LOGIN_SUBJECT, body)
     except EmailSendError:
-        logger.exception("login email to %s failed", email)
+        logger.exception("login email failed")
 
 
 LINK_USED = "That link has expired or was already used"

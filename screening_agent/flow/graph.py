@@ -1,3 +1,4 @@
+import time
 from collections.abc import Callable, Mapping
 from typing import Any
 
@@ -13,6 +14,8 @@ from screening_agent.flow import replies
 from screening_agent.flow.state import ScreeningState, is_closed, stage_of
 from screening_agent.flow.tools import ALL_TOOLS, TOOL_STAGE, tools_for
 from screening_agent.flow.transitions import Transition, apply_patch, qualify_if_complete
+from screening_agent.flow.turn_record import ReplySource, ToolCallRecord
+from screening_agent.llm.usage import elapsed_ms, usage_of
 
 PromptBuilder = Callable[[ScreeningState, Stage], str]
 
@@ -26,7 +29,7 @@ def exposed_tools(state: Mapping[str, Any]):
     return tools_for(stage_of(state), profile.missing_fields(), bool(state.get("pending_zone")))
 
 
-def build_graph(llm: BaseChatModel, build_prompt: PromptBuilder):
+def build_graph(llm: BaseChatModel, build_prompt: PromptBuilder, model_id: str = ""):
     def turn(state: ScreeningState) -> dict[str, Any]:
         language = _language_of_last_human(state)
         tools = exposed_tools(state)
@@ -35,10 +38,16 @@ def build_graph(llm: BaseChatModel, build_prompt: PromptBuilder):
             SystemMessage(content=build_prompt(state, stage_of(state))),
             *state["messages"],
         ]
+        started = time.perf_counter()
         response = bound.invoke(messages)
+        latency_ms = elapsed_ms(started, time.perf_counter())
         return {
             "messages": [response],
             "language": language,
+            "turn": {
+                "tools_exposed": [tool.name for tool in tools],
+                "usage": [usage_of(response, "turn", model_id, latency_ms)],
+            },
         }
 
     def apply_tools(state: ScreeningState) -> dict[str, Any]:
@@ -50,6 +59,7 @@ def build_graph(llm: BaseChatModel, build_prompt: PromptBuilder):
         language = state.get("language", Language.ES)
         turn_state = TurnState(state)
         tool_messages: list[ToolMessage | AIMessage] = []
+        call_records: list[ToolCallRecord] = []
         reask_stages: list[Stage] = []
         strike_stages: list[Stage] = []
         confirm_area: str | None = None
@@ -59,6 +69,9 @@ def build_graph(llm: BaseChatModel, build_prompt: PromptBuilder):
                 tool_messages.append(
                     ToolMessage(content="ignored: conversation closed", tool_call_id=call["id"])
                 )
+                call_records.append(
+                    ToolCallRecord(name=call["name"], accepted=False, message="conversation closed")
+                )
                 continue
             # Allowed tools are recomputed per call so consent plus name in one message both land.
             transition = _run_tool(call, turn_state.working)
@@ -66,11 +79,15 @@ def build_graph(llm: BaseChatModel, build_prompt: PromptBuilder):
                 tool_messages.append(
                     ToolMessage(content=f"rejected: {transition.error}", tool_call_id=call["id"])
                 )
+                call_records.append(
+                    ToolCallRecord(name=call["name"], accepted=False, message=transition.error)
+                )
                 reask_stages.append(transition.failed_stage or Stage.FULL_NAME)
                 if transition.candidate_fault:
                     strike_stages.append(transition.failed_stage or Stage.FULL_NAME)
                 continue
             tool_messages.append(ToolMessage(content="recorded", tool_call_id=call["id"]))
+            call_records.append(ToolCallRecord(name=call["name"], accepted=True))
             turn_state.apply(transition.updates)
             confirm_area = transition.confirm_area or confirm_area
 
@@ -78,10 +95,19 @@ def build_graph(llm: BaseChatModel, build_prompt: PromptBuilder):
             turn_state.apply(_count_rejection(turn_state.working, stage))
         turn_state.apply(qualify_if_complete(turn_state.working))
 
-        reply = _choose_reply(turn_state.working, language, reask_stages, confirm_area, last.text)
-        if reply != last.text:
+        reply, source = _choose_reply(
+            turn_state.working, language, reask_stages, confirm_area, last.text
+        )
+        replaced = reply != last.text
+        if replaced:
             tool_messages.append(AIMessage(content=reply))
-        return {**turn_state.updates, "messages": tool_messages, "reply": reply}
+        turn = {
+            **state.get("turn", {}),
+            "tool_calls": call_records,
+            "reply_source": source,
+            "model_text": last.text if replaced and last.text else None,
+        }
+        return {**turn_state.updates, "messages": tool_messages, "reply": reply, "turn": turn}
 
     graph = StateGraph(ScreeningState)
     graph.add_node("turn", turn)
@@ -139,17 +165,17 @@ def _choose_reply(
     reask_stages: list[Stage],
     confirm_area: str | None,
     model_text: str,
-) -> str:
+) -> tuple[str, ReplySource]:
     terminal = _terminal_reply(state, language)
     if terminal:
-        return terminal
+        return terminal, ReplySource.TERMINAL
     if reask_stages:
-        return replies.REASK[min(reask_stages, key=_stage_index)][language]
+        return replies.REASK[min(reask_stages, key=_stage_index)][language], ReplySource.REASK
     if confirm_area:
-        return replies.ZONE_CONFIRM[language].format(area=confirm_area)
+        return replies.ZONE_CONFIRM[language].format(area=confirm_area), ReplySource.ZONE_CONFIRM
     if model_text:
-        return model_text
-    return replies.REASK[stage_of(state)][language]
+        return model_text, ReplySource.MODEL_TEXT
+    return replies.REASK[stage_of(state)][language], ReplySource.NEXT_QUESTION
 
 
 def _stage_index(stage: Stage) -> int:

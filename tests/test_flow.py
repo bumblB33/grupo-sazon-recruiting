@@ -302,3 +302,100 @@ def test_consent_prompt_after_opener_does_not_reintroduce():
     opened = initial_state("c")
     opened["messages"] = [AIMessage(content="opener"), HumanMessage(content="sí")]
     assert "Do not introduce yourself again" in build_prompt(opened, Stage.CONSENT)
+
+
+def inbound_turns(repository, candidate_id: str = "cand"):
+    detail = repository.get_candidate_detail(candidate_id)
+    return [entry.turn for entry in detail.transcript if entry.direction == "in"]
+
+
+def test_turn_record_is_saved_on_the_inbound_entry(make_engine):
+    engine, repository, _ = make_engine([CONSENT, NAME])
+    drive(engine, ["sí", "Ana García"])
+    first, second = inbound_turns(repository)
+    assert (first.stage_before, first.stage_after) == ("consent", "full_name")
+    assert first.tools_exposed == ["record_consent"]
+    assert [(c.name, c.accepted) for c in first.tool_calls] == [("record_consent", True)]
+    assert first.reply_source == "model_text" and first.model_text is None
+    assert second.stage_before == "full_name"
+    assert all(
+        entry.turn is None
+        for entry in repository.get_candidate_detail("cand").transcript
+        if entry.direction == "out"
+    )
+
+
+def test_turn_record_keeps_model_text_and_validator_message_when_a_template_replies(make_engine):
+    engine, repository, _ = make_engine(
+        [CONSENT, ai("Genial", "record_full_name", {"full_name": "A"})]
+    )
+    drive(engine, ["sí", "A"])
+    record = inbound_turns(repository)[1]
+    assert record.reply_source == "reask"
+    assert record.model_text == "Genial"
+    call = record.tool_calls[0]
+    assert not call.accepted and call.message
+
+
+def test_turn_record_carries_usage_for_the_turn_and_the_guardrail(make_engine):
+    from langchain_core.messages import AIMessage
+
+    from screening_agent.llm.guardrail import GuardrailCategory, GuardrailVerdict
+    from screening_agent.llm.usage import ModelUsage
+
+    usage = ModelUsage(
+        call="guardrail", model="guard", input_tokens=7, output_tokens=1, latency_ms=3.0
+    )
+    scripted = AIMessage(
+        content="Hola",
+        tool_calls=[
+            {"name": "record_consent", "args": {"accepted": True}, "id": "c1", "type": "tool_call"}
+        ],
+        usage_metadata={"input_tokens": 120, "output_tokens": 15, "total_tokens": 135},
+    )
+    engine, repository, _ = make_engine(
+        [scripted],
+        guardrail=lambda text: GuardrailVerdict(
+            allowed=True, category=GuardrailCategory.ON_TOPIC, usage=usage
+        ),
+    )
+    drive(engine, ["sí"])
+    record = inbound_turns(repository)[0]
+    assert record.guardrail_category == "on_topic"
+    by_call = {u.call: u for u in record.usage}
+    assert (by_call["turn"].input_tokens, by_call["turn"].output_tokens) == (120, 15)
+    assert by_call["guardrail"].input_tokens == 7
+    assert record.latency_ms >= 0
+
+
+def test_blocked_message_records_the_guardrail_and_no_model_call(make_engine):
+    from screening_agent.llm.guardrail import GuardrailCategory, GuardrailVerdict
+
+    engine, repository, _ = make_engine(
+        [],
+        guardrail=lambda text: GuardrailVerdict(
+            allowed=False, reason="off_topic", category=GuardrailCategory.OFF_TOPIC
+        ),
+    )
+    drive(engine, ["¿me vendes un coche?"])
+    record = inbound_turns(repository)[0]
+    assert record.guardrail_category == "off_topic"
+    assert record.reply_source == "guardrail_redirect"
+    assert record.tools_exposed == [] and record.tool_calls == []
+    assert "turn" not in repository.load_state("cand")
+
+
+def test_exhausted_stale_retries_raise_without_the_candidate_id(make_engine, monkeypatch):
+    import pytest
+
+    from screening_agent.storage.repository import StaleStateError
+
+    engine, repository, _ = make_engine([CONSENT, CONSENT])
+
+    def always_stale(*args, **kwargs):
+        raise StaleStateError("version no longer current")
+
+    monkeypatch.setattr(repository, "save_turn", always_stale)
+    with pytest.raises(StaleStateError) as raised:
+        engine.handle("+34600111222", "sí", "whatsapp", external_id="m0")
+    assert "34600111222" not in str(raised.value)

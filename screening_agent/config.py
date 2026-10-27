@@ -62,6 +62,10 @@ class Settings(BaseSettings):
     opener_abandon_hours: float = 48.0
     silence_nudge_hours: list[float] = [2.0, 23.0]
     silence_abandon_hours: float = 24.0
+    # Logfire reads LOGFIRE_TOKEN from the process env only, and pydantic-settings does not export .env.
+    logfire_token: SecretStr | None = None
+    # Keys the candidate hash in traces; a plain hash of a phone number is reversible by enumeration.
+    candidate_hash_secret: SecretStr | None = None
     # Only dev mode lets the API run without a recruiter key or webhook secret.
     dev_mode: bool = False
 

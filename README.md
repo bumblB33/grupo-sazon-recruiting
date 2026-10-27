@@ -191,7 +191,7 @@ Recruiters open a web page. There is no password. They type their work email and
 
 ### What is not built yet
 
-The voice-call channel is not built. Tracing, a record of each AI call for debugging, is not built. The list of restaurant cities is sample data, not the client's real list of 45 locations. The test that compares AI models to pick the best one has not been run yet. The current state is tracked in the file `docs/STATUS.md` in this repository.
+The voice-call channel is not built. The list of restaurant cities is sample data, not the client's real list of 45 locations. The test that compares AI models to pick the best one has not been run yet. The current state is tracked in the file `docs/STATUS.md` in this repository.
 
 ## Architecture
 
@@ -379,9 +379,10 @@ sequenceDiagram
 | `domain/` | `CandidateProfile` with every validation rule, enums, service-area matching, language detection, candidate-local clock. No I/O. | nothing |
 | `flow/` | `ScreeningEngine` (entry point for all channels), the two-node LangGraph, tool gating, transitions, fixed replies, silence policy. | `domain`, `llm`, `storage` |
 | `llm/` | `chat_model` constructor and provider table, turn prompt, guardrail classifier, summary. The only place a provider is constructed (`init_chat_model` in `llm/models.py`). | `domain`, `flow.state` |
-| `storage/` | `Repository` over pymongo: candidate document, events, recruiters, API keys, login tokens and throttles. All atomic writes live here. | `domain`, `flow.state`, `flow.silence` |
+| `storage/` | `Repository` over pymongo: candidate document, events, recruiters, API keys, login tokens and throttles. All atomic writes live here. | `domain`, `flow.state`, `flow.silence`, `flow.turn_record` |
 | `channels/` | Adapters: Twilio WhatsApp inbound parsing and outbound REST, SendGrid email, the three CLIs. | `flow`, `storage`, `api.auth` |
 | `api/` | FastAPI app, auth (`Principal` from session JWT or API key), fail-closed dependencies, webhook signature check. | `flow`, `storage`, `channels` |
+| `observability.py` | Logfire configuration, URL and contact redaction, keyed candidate hash. Engine spans use the OpenTelemetry API, so nothing is traced until the API or `screening-nudge` configures Logfire. | `config` |
 | `recruiter/` | Jinja2 pages mounted at `/recruiter`, no JavaScript. Login form, table, detail, override form. | `api`, `storage`, `channels.email` |
 | `evals/` | Scripted personas, code graders, LLM judge, guardrail set, bake-off report. Not shipped in the image. | `flow`, `llm` |
 
@@ -399,6 +400,7 @@ sequenceDiagram
 - **One document per candidate.** Chosen so a turn is one atomic write with no replica set or transaction. Mechanism in Architecture, containers.
 - **Fail-closed API.** Recruiter routes and the webhook return 503 until their secrets are configured, unless `SCREENING_DEV_MODE` is on. Dev mode opens the recruiter routes only while `SCREENING_SESSION_SECRET` is unset, and skips the webhook signature only while `SCREENING_TWILIO_AUTH_TOKEN` is unset. A stray dev-mode flag on a deployment with real secrets opens neither. The summary LLM call runs as a background task after the reply.
 - **People log in by email, machines by key.** The recruiter pages are plain HTML forms on the API app. Login is a one-time emailed link. The cookie is a signed, expiring session, not a secret, and deactivating a recruiter ends it on the next request. JSON routes accept that cookie, with a CSRF header on writes, or a per-client `X-API-Key` whose hash lives in MongoDB. Nothing is pasted or shared.
+- **Every turn explains itself.** The inbound transcript entry carries a turn record: stage before and after, guardrail category, tools exposed and called, why each call was accepted or rejected, where the reply came from, the model text a template replaced, tokens, latency and the trace id. It is written in the same update as the turn, so a turn that is not saved leaves no record. Traces in Logfire carry metadata only: no message text, phone numbers or emails.
 - **Guardrail fails open.** One structured-output classification before each turn. A classifier outage allows the message and logs an event. It never blocks a candidate.
 - **Silence is a cron sweep.** No long-lived timers, so a restart loses nothing and the policy is a pure function over stored timestamps. Mechanism in Architecture, runtime view.
 - **Provider is configuration.** `SCREENING_LIVE_MODEL`, `SCREENING_SUMMARY_MODEL` and `SCREENING_GUARDRAIL_MODEL` take any `provider:model` id supported by LangChain. `llm/models.py` is the single constructor. Provider keys come from settings, so `.env` works outside Docker too: `PROJECT_ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `MISTRAL_API_KEY`. A missing key fails closed, so a shell `ANTHROPIC_API_KEY` is never billed by accident. Anthropic and OpenAI ids get no sampling parameters, Mistral runs at temperature 0, Bedrock and Vertex use their cloud credentials.

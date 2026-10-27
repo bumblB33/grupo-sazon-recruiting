@@ -29,6 +29,8 @@ class ScreeningState(TypedDict, total=False):
     reply: str
     # Mirrors Conversation.version at load time; the repository refuses a write from an older version.
     version: int
+    # This turn's decision record; the engine moves it onto the transcript entry, never into saved state.
+    turn: dict[str, Any]
 
 
 def initial_state(candidate_id: str) -> ScreeningState:

@@ -1,11 +1,14 @@
-from dataclasses import dataclass
+import time
+from dataclasses import dataclass, replace
 from enum import StrEnum
+from typing import Any
 
-from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 from langchain_core.runnables import Runnable
 from pydantic import BaseModel
 
 from screening_agent.llm.models import chat_model
+from screening_agent.llm.usage import ModelUsage, elapsed_ms, usage_of
 
 
 class GuardrailCategory(StrEnum):
@@ -25,6 +28,8 @@ class GuardrailVerdict:
     reason: str | None = None
     # Set when the classifier failed; the message is allowed so an outage never blocks a candidate.
     error: str | None = None
+    category: GuardrailCategory | None = None
+    usage: ModelUsage | None = None
 
 
 GUARDRAIL_SYSTEM = (
@@ -44,25 +49,44 @@ GUARDRAIL_SYSTEM = (
 class Guardrail:
     """One structured-output call before the turn. The classifier is injected so tests never call a model."""
 
-    def __init__(self, classifier: Runnable[list[BaseMessage], object]) -> None:
+    def __init__(self, classifier: Runnable[list[BaseMessage], object], model: str = "") -> None:
+        """The classifier is a structured-output model built with include_raw=True."""
         self.classifier = classifier
+        self.model = model
 
     @classmethod
     def for_model(cls, model_id: str) -> "Guardrail":
-        return cls(chat_model(model_id).with_structured_output(Classification))
+        return cls(
+            chat_model(model_id).with_structured_output(Classification, include_raw=True), model_id
+        )
 
     def check(self, message: str) -> GuardrailVerdict:
+        started = time.perf_counter()
         try:
-            result = self.classifier.invoke(
+            output = self.classifier.invoke(
                 [SystemMessage(content=GUARDRAIL_SYSTEM), HumanMessage(content=message)]
             )
         except Exception as exc:  # fail open: a classifier outage must not stall screening
             return GuardrailVerdict(allowed=True, error=str(exc) or type(exc).__name__)
-        if not isinstance(result, Classification):  # None when the model emits no tool call
-            return GuardrailVerdict(allowed=True, error="classifier returned no classification")
-        if result.category == GuardrailCategory.ON_TOPIC:
-            return GuardrailVerdict(allowed=True)
-        return GuardrailVerdict(allowed=False, reason=result.category.value)
+        usage = self._usage(output, elapsed_ms(started, time.perf_counter()))
+        parsed = output.get("parsed") if isinstance(output, dict) else None
+        if not isinstance(parsed, Classification):  # None when the model emits no tool call
+            error = output.get("parsing_error") if isinstance(output, dict) else None
+            return GuardrailVerdict(
+                allowed=True,
+                error=str(error) if error else "classifier returned no classification",
+                usage=usage,
+            )
+        verdict = GuardrailVerdict(allowed=True, category=parsed.category, usage=usage)
+        if parsed.category == GuardrailCategory.ON_TOPIC:
+            return verdict
+        return replace(verdict, allowed=False, reason=parsed.category.value)
+
+    def _usage(self, output: Any, latency_ms: float) -> ModelUsage | None:
+        raw = output.get("raw") if isinstance(output, dict) else None
+        if not isinstance(raw, AIMessage):
+            return None
+        return usage_of(raw, "guardrail", self.model, latency_ms)
 
 
 def permit_all(message: str) -> GuardrailVerdict:

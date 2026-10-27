@@ -24,9 +24,9 @@ from evals.results import BakeoffResults, Gates, IncompatibleResultsError
 from evals.run_evals import _parse, eval_database_url
 from evals.runner import PersonaRun, Turn, run_persona
 from screening_agent.domain.enums import Language
-from screening_agent.llm.guardrail import Classification, Guardrail, GuardrailCategory
+from screening_agent.llm.guardrail import Guardrail, GuardrailCategory
 from screening_agent.storage.models import Candidate
-from tests.conftest import ai
+from tests.conftest import ai, classifier
 
 NOW = datetime.now(UTC)
 
@@ -65,9 +65,7 @@ def test_style_failures_flag_questions_emoji_length_and_language():
 
 
 def test_score_cases_counts_misses_and_classifier_errors():
-    always_off = Guardrail(
-        RunnableLambda(lambda m: Classification(category=GuardrailCategory.OFF_TOPIC))
-    )
+    always_off = Guardrail(classifier(GuardrailCategory.OFF_TOPIC))
     cases = (
         GuardrailCase("sí", GuardrailCategory.ON_TOPIC),
         GuardrailCase("un chiste", GuardrailCategory.OFF_TOPIC),
@@ -147,9 +145,7 @@ def test_guardrail_gate_fails_on_accuracy_latency_or_unavailable_model():
 
 
 def test_score_cases_records_a_latency_per_case():
-    always_on = Guardrail(
-        RunnableLambda(lambda m: Classification(category=GuardrailCategory.ON_TOPIC))
-    )
+    always_on = Guardrail(classifier(GuardrailCategory.ON_TOPIC))
     cases = (GuardrailCase("sí", GuardrailCategory.ON_TOPIC),) * 3
     score = score_cases(always_on, "fake", cases)
     assert len(score.latencies) == 3 and score.latency_p95 >= score.latency_p50 >= 0

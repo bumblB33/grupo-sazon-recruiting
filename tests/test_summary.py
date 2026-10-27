@@ -19,7 +19,7 @@ def test_summarizer_sends_human_and_ai_text_only_with_block_content_flattened(mo
     ]
     result = summary.make_summarizer("fake:model")({"consent": True}, "qualified", transcript)
     body = sent[-1].content
-    assert result == "resumen"
+    assert result.text == "resumen"
     assert "human: sí\nai: ¿Nombre?" in body
     assert "internal prompt" not in body
     assert "Status: qualified" in body

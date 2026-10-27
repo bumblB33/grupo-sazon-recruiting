@@ -16,12 +16,12 @@ Moving state for the screening agent. The README describes the system as built. 
 - Silence sweep (`screening-nudge`) that nudges, then sets `abandoned`.
 - Evals and bake-off runner.
 - Pyright in `standard` mode with no errors.
+- Logfire tracing with a no-PII test, and the per-turn decision record on the inbound transcript entry.
 - Tests with fakes for all of the above. The full suite, including the Mongo-backed tests, passes with no LLM calls.
 
 ## Not built
 
 - Live demo console: web chat, turn inspector, how-it-works page, ops panel, Orbio-styled shell.
-- Logfire tracing and the per-turn decision record.
 - Live reply policy and candidate tone detection.
 - In-API silence scheduler with a sweep lease and per-nudge claims.
 - Voice channel (Pipecat, Deepgram STT, ElevenLabs TTS) on the same engine.
@@ -44,7 +44,7 @@ Against `docs/Orbio-Assignment.md`. Rubric weights: technical build 40%, process
 | Bonus: guardrails | input classifier built. Model replies are unchecked live. | Reply policy |
 | Bonus: sentiment | not built | Reply policy (candidate tone) |
 | Bonus: analytics | partial: counts by status and stage only | Console pages |
-| Bonus: deployment design (deploy, monitor, scale) | partial: compose only | Tracing, scheduler, README |
+| Bonus: deployment design (deploy, monitor, scale) | partial: compose and tracing | Scheduler, README |
 | Bonus: voice agent | not built, optional | Voice |
 | Bonus: scheduling, ATS design, RAG | not built, not planned | none |
 
@@ -102,17 +102,19 @@ Goal: a live demo on a call. Every feature is reachable in the browser. Every ag
 
 ### Tracing
 
-- `configure_observability(service_name)` runs only from the API lifespan and `screening-nudge`. Tests and evals never configure it. `send_to_logfire="if-token-present"`.
-- The Logfire token is a `SecretStr` settings field passed to `configure(token=...)`. Logfire reads `LOGFIRE_TOKEN` from the process environment only, and pydantic-settings does not export `.env`, so without the field a local `uvicorn` run sends nothing and says nothing.
-- Spans: `handle`, `guardrail`, `turn`, `summary`, `sweep`, `nudge`. Plus FastAPI, pymongo and httpx instrumentation with no bodies, headers or endpoint arguments.
-- Metadata only leaves the service: keyed candidate hash, stage, outcome, model, token counts, latency. No message text, prompts, replies, phone numbers or emails.
-- The candidate hash is an HMAC with a dedicated secret setting. A plain hash of a phone number can be reversed by enumerating the number space.
-- HTTP spans carry the candidate id in URL paths (`/candidates/{id}`, `/recruiter/candidates/{id}`, the chat URL). A span processor rewrites URL attributes to the route template, and Logfire scrubbing gets an E.164 pattern. The exact OTel attribute names in the installed instrumentation are unverified. The no-PII test finds them.
-- `/recruiter/login/.*` is excluded from FastAPI tracing, because the path holds a live login token.
-- Existing log lines carry PII and, once a root handler sends them to Logfire, would leak it: the throttle warning logs the email and client IP, the send failure logs the email, and `LoggingEmailSender` logs the full login body with the link. Redact them at the call site in the tracing work. Logfire's default scrubbing patterns do not match emails.
-- `uvicorn.access` does not propagate to the root logger (uvicorn's `LOGGING_CONFIG`), so access-log paths stay on stdout and out of Logfire.
-- Token counts come from LangChain `usage_metadata`. The turn and the summary return an `AIMessage` that carries it. The guardrail's structured output returns a Pydantic object with no usage, so it uses `include_raw=True`.
-- The no-PII test covers every span, including the HTTP, Mongo and httpx ones, and every log record.
+Built. `screening_agent/observability.py` owns it.
+
+- `configure_observability` runs from the API lifespan and `screening-nudge`, and only when `SCREENING_LOGFIRE_TOKEN` is set. Evals never configure it. `send_to_logfire="if-token-present"`, no console output, no metrics: old-semconv HTTP duration metrics carry the raw path.
+- Engine spans use the plain OpenTelemetry API, so they cost nothing and warn nothing when Logfire is not configured. Spans: `handle`, `guardrail`, `turn`, `summary`, `sweep`, `nudge`. Model and tokens use the GenAI semantic convention names. FastAPI, pymongo and httpx are instrumented with no statements, headers, bodies or endpoint arguments (`request_attributes_mapper` returns `None`; the default records argument values).
+- FastAPI instrumentation patches `build_middleware_stack`, and Starlette builds the stack before the lifespan runs. `configure_observability` resets `app.middleware_stack` so the next request rebuilds it with tracing.
+- Candidate ids leave URL attributes twice: a span processor at `on_start`, which covers Logfire's pending span, and the FastAPI `server_request_hook`, because ASGI sets the URL attributes again after start. The processor order relative to Logfire's pending-span processor comes from installed source, not docs. The no-PII test pins it.
+- Scrubbing adds E.164 and email patterns with a callback that returns a fixed `[redacted]`. Logfire's default redaction text quotes the matched value. Scrubbing is a backstop only: Logfire never scrubs `logfire.msg`, `exception.message`, `exception.stacktrace`, `http.url`, `http.target`, `url.*` or `db.statement`, and it keeps a value that matches a pattern in full. Exception messages therefore never name the candidate (`StaleStateError`), and URLs are rewritten before export.
+- `/recruiter/login/.+` is excluded from FastAPI tracing. The throttle and send-failure log lines no longer carry the email or IP. `LoggingEmailSender` prints to stderr instead of logging.
+- The candidate hash is a truncated HMAC-SHA256 keyed by `SCREENING_CANDIDATE_HASH_SECRET`. Without the secret the spans carry no candidate id and the lifespan warns.
+- Turn, guardrail and summary token counts come from `usage_metadata`. The guardrail uses `include_raw=True` and the summarizer returns the `AIMessage`.
+- The turn record (`flow/turn_record.py`) is the `turn` field of the inbound transcript entry, written by the same conditional update as the turn. It holds stage before and after, guardrail category, tools exposed, tool calls with the validator message, reply source, replaced model text, per-call usage, latency, candidate hash and trace id. Reply policy adds violated rules and tone.
+- The no-PII test (`tests/test_observability.py`) drives the API, webhook, login and recruiter pages, and checks every exported span, pending span, log record and span event for the phone, email, login token and message text. It configures Logfire in-process with an in-memory exporter. Trade-off: Logfire stays configured and pymongo, httpx and the app stay instrumented for the rest of the pytest session. Nothing is sent, because no token is set, and the suite passes in that state. A subprocess would isolate it at the cost of speed and debuggability.
+- The Logfire pytest plugin is disabled in `addopts`. It exports test spans whenever `CI` and `LOGFIRE_TOKEN` are both set.
 - Monitoring alerts are not built. The README scaling section names what to alert on: guardrail failure rate, policy fallback rate, failed and unknown nudges, sweep lag.
 
 ### Silence scheduler
@@ -126,22 +128,21 @@ Goal: a live demo on a call. Every feature is reachable in the browser. Every ag
 
 ## Remaining work, in order
 
-1. Tracing and the turn record, test first with `logfire.testing`. See "Tracing".
-2. Reply policy and candidate tone, test first. See "Live reply quality".
-3. Service areas: author the 45 locations and their aliases. See "Names and data".
-4. Persona review: rewrite the eval personas as realistic candidates. See "Names and data".
-5. Run the live bake-off with `--out docs`. It needs the three provider keys and a Mongo on `localhost:27017` (the compose `mongo` service does not publish a host port). It writes `docs/bakeoff.json` and `bakeoff.html`. The current files are from a failed run: both Anthropic models hit the missing `anthropic-workspace-id` header, and every OpenAI call errored. Only Mistral produced results, so they do not support a model choice. The bake-off grades raw model text and reports the policy fallback rate per model. It runs before the console work, because it closes a core requirement and the reply policy and personas change its inputs.
-6. Set the `Settings` defaults for `live_model`, `summary_model` and `guardrail_model` in `screening_agent/config.py` to the winners. The current defaults are placeholders.
-7. Seed the demo database with the persona run on the chosen models. See "Names and data".
-8. Silence scheduler, lease and nudge claims, test first. See "Silence scheduler".
-9. Console shell restyle with the Orbio tokens across every existing page.
-10. Web chat and turn inspector. Delete `screening-cli`.
-11. How-it-works page, ops panel, start-screening form and demo reset. Add completion rate, drop-off stage and average duration to the funnel, from `opened_at`, `updated_at` and the outcome event.
-12. Live preflight on the laptop: provider keys and workspace id in `.env`, `docker compose up --build` before the call, seeded personas plus one hand-typed conversation per outcome through the web chat, Logfire token set and one trace opened from the inspector link. The `mongo-data` volume keeps these conversations between runs. Never run `docker compose down -v` before the call. Short silence thresholds or a dry run inside the window. WhatsApp leg: Twilio account and API key in `.env`, presenter's phone joined to the sandbox and in `SCREENING_DEMO_PHONES`, tunnel up, Twilio console webhook and `SCREENING_TWILIO_WEBHOOK_URL` set to `<tunnel>/webhook/whatsapp`, one full screening from the phone, then a demo reset. Read every live reply in the inspector and log each prose or tone fault as a persona or policy case before the call.
-13. README deliverable sections that are missing: "Sample conversations" from live transcripts, "LLM choice" justified from `bakeoff.html`, "Potential improvements", and "Deployment and scaling" (monitoring and alerts through Logfire, the path to 10K candidates a week, the process-local lock as the first limit). Update README and CLAUDE.md for the console, tracing, reply policy and scheduler. Move the as-built parts of "Demo design" out of this file into the README.
-14. Multi-lens adversarial review of the branch. Gates: pytest, ruff, pyright with no new errors.
-15. Record the 5-10 minute demo video from the console: one WhatsApp screening from the phone, the turn inspector, a trace, the how-it-works page, an override.
-16. Voice channel, only if time remains after the video.
+1. Reply policy and candidate tone, test first. See "Live reply quality".
+2. Service areas: author the 45 locations and their aliases. See "Names and data".
+3. Persona review: rewrite the eval personas as realistic candidates. See "Names and data".
+4. Run the live bake-off with `--out docs`. It needs the three provider keys and a Mongo on `localhost:27017` (the compose `mongo` service does not publish a host port). It writes `docs/bakeoff.json` and `bakeoff.html`. The current files are from a failed run: both Anthropic models hit the missing `anthropic-workspace-id` header, and every OpenAI call errored. Only Mistral produced results, so they do not support a model choice. The bake-off grades raw model text and reports the policy fallback rate per model. It runs before the console work, because it closes a core requirement and the reply policy and personas change its inputs.
+5. Set the `Settings` defaults for `live_model`, `summary_model` and `guardrail_model` in `screening_agent/config.py` to the winners. The current defaults are placeholders.
+6. Seed the demo database with the persona run on the chosen models. See "Names and data".
+7. Silence scheduler, lease and nudge claims, test first. See "Silence scheduler".
+8. Console shell restyle with the Orbio tokens across every existing page.
+9. Web chat and turn inspector. Delete `screening-cli`.
+10. How-it-works page, ops panel, start-screening form and demo reset. Add completion rate, drop-off stage and average duration to the funnel, from `opened_at`, `updated_at` and the outcome event.
+11. Live preflight on the laptop: provider keys and workspace id in `.env`, `docker compose up --build` before the call, seeded personas plus one hand-typed conversation per outcome through the web chat, Logfire token set and one trace opened from the inspector link. The `mongo-data` volume keeps these conversations between runs. Never run `docker compose down -v` before the call. Short silence thresholds or a dry run inside the window. WhatsApp leg: Twilio account and API key in `.env`, presenter's phone joined to the sandbox and in `SCREENING_DEMO_PHONES`, tunnel up, Twilio console webhook and `SCREENING_TWILIO_WEBHOOK_URL` set to `<tunnel>/webhook/whatsapp`, one full screening from the phone, then a demo reset. Read every live reply in the inspector and log each prose or tone fault as a persona or policy case before the call.
+12. README deliverable sections that are missing: "Sample conversations" from live transcripts, "LLM choice" justified from `bakeoff.html`, "Potential improvements", and "Deployment and scaling" (monitoring and alerts through Logfire, the path to 10K candidates a week, the process-local lock as the first limit). Update README and CLAUDE.md for the console, tracing, reply policy and scheduler. Move the as-built parts of "Demo design" out of this file into the README.
+13. Multi-lens adversarial review of the branch. Gates: pytest, ruff, pyright with no new errors.
+14. Record the 5-10 minute demo video from the console: one WhatsApp screening from the phone, the turn inspector, a trace, the how-it-works page, an override.
+15. Voice channel, only if time remains after the video.
 
 ## Known gaps
 

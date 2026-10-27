@@ -6,13 +6,19 @@ import pytest
 from fastapi.testclient import TestClient
 from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
 from langchain_core.messages import AIMessage
+from langchain_core.runnables import RunnableLambda
 
 from screening_agent.api import app as api
 from screening_agent.api.deps import get_email_sender
 from screening_agent.config import settings
 from screening_agent.flow.engine import ScreeningEngine
 from screening_agent.flow.graph import build_graph
-from screening_agent.llm.guardrail import GuardrailVerdict, permit_all
+from screening_agent.llm.guardrail import (
+    Classification,
+    GuardrailCategory,
+    GuardrailVerdict,
+    permit_all,
+)
 from screening_agent.recruiter.router import LOGIN_PATH
 from screening_agent.storage.repository import Repository
 
@@ -95,7 +101,7 @@ def make_engine(repository: Repository):
         engine = ScreeningEngine(
             repository,
             graph,
-            summarizer=lambda profile, status, msgs: "summary",
+            summarizer=lambda profile, status, msgs: AIMessage(content="summary"),
             guardrail=guardrail,
         )
         return engine, repository, model
@@ -115,6 +121,16 @@ class FakeOutbound:
 
     def send_opener(self, candidate_id: str, text: str) -> None:
         self.openers.append((candidate_id, text))
+
+
+def classifier(category: GuardrailCategory, raw: AIMessage | None = None) -> RunnableLambda:
+    """Fakes a structured-output model built with include_raw=True."""
+    output = {
+        "raw": raw or AIMessage(content=""),
+        "parsed": Classification(category=category),
+        "parsing_error": None,
+    }
+    return RunnableLambda(lambda messages: output)
 
 
 NO_LICENCE_TURNS = ["sí", "Ana García", "no tengo carnet"]
@@ -143,6 +159,8 @@ SECRET_SETTINGS = (
     "twilio_api_key_secret",
     "twilio_whatsapp_from",
     "twilio_opener_content_sid",
+    "logfire_token",
+    "candidate_hash_secret",
 )
 
 

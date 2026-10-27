@@ -3,7 +3,9 @@ import sys
 from datetime import UTC, datetime
 
 from screening_agent.channels.whatsapp import OutboundNotConfiguredError, TwilioWhatsAppSender
+from screening_agent.config import settings
 from screening_agent.flow.engine import OutboundChannel, ScreeningEngine
+from screening_agent.observability import configure_observability
 from screening_agent.storage.repository import Repository
 
 
@@ -13,6 +15,8 @@ def main() -> None:
     )
     parser.add_argument("--db", default=None, help="Database URL, default from settings")
     args = parser.parse_args()
+    if settings.logfire_token:
+        configure_observability("screening-sweep")
     engine = ScreeningEngine(Repository(args.db))
     channels: dict[str, OutboundChannel] = {}
     try:

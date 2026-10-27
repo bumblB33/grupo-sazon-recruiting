@@ -32,12 +32,15 @@ def test_list_candidates_filters_by_status_and_stage(repository):
 
 
 def test_stale_version_write_is_refused(repository):
-    saved(repository, "a")
-    stale = repository.load_state("a")
-    repository.save_turn(repository.load_state("a"), "cli", "otra", "r", external_id="a-2")
-    with pytest.raises(StaleStateError):
+    phone = "+34600999888"
+    saved(repository, phone)
+    stale = repository.load_state(phone)
+    repository.save_turn(repository.load_state(phone), "cli", "otra", "r", external_id="a-2")
+    with pytest.raises(StaleStateError) as refused:
         repository.save_state(stale, "cli")
-    assert repository.load_state("a")["version"] == 2
+    assert repository.load_state(phone)["version"] == 2
+    # Tracing records exception messages unscrubbed, and the candidate id is a phone number.
+    assert "34600999888" not in str(refused.value)
 
 
 def test_reopen_override_resets_silence_clock(repository):

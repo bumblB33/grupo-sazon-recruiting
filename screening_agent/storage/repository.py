@@ -12,6 +12,7 @@ from screening_agent.config import settings
 from screening_agent.domain.enums import Language, Status
 from screening_agent.flow.silence import SilenceCandidate
 from screening_agent.flow.state import ScreeningState, initial_state, stage_of
+from screening_agent.flow.turn_record import TurnRecord
 from screening_agent.storage.models import (
     ApiKey,
     Candidate,
@@ -24,7 +25,8 @@ from screening_agent.storage.models import (
 
 
 class StaleStateError(RuntimeError):
-    """Another writer saved this conversation after the caller loaded it."""
+    """Another writer saved this conversation after the caller loaded it.
+    Messages never name the candidate: tracing exports exception messages unscrubbed."""
 
 
 class DuplicateMessageError(RuntimeError):
@@ -73,10 +75,17 @@ class Repository:
         )
 
     def save_turn(
-        self, state: ScreeningState, channel: str, inbound: str, reply: str, external_id: str | None
+        self,
+        state: ScreeningState,
+        channel: str,
+        inbound: str,
+        reply: str,
+        external_id: str | None,
+        turn: TurnRecord | None = None,
     ) -> None:
-        """One update for inbound, state and reply, so a failed turn leaves no dedupe entry."""
-        entries = [_entry(channel, "in", inbound, external_id)]
+        """One update for inbound, turn record, state and reply, so a failed turn leaves neither
+        a dedupe entry nor a decision record."""
+        entries = [_entry(channel, "in", inbound, external_id).model_copy(update={"turn": turn})]
         if reply:
             entries.append(_entry(channel, "out", reply))
         self._commit(
@@ -366,7 +375,7 @@ class Repository:
             update["$setOnInsert"]["nudge_count"] = 0
         if expected == 0:
             if self.conversation_exists(candidate_id):
-                raise StaleStateError(f"{candidate_id}: created by another writer")
+                raise StaleStateError("conversation created by another writer")
             self.candidates.update_one({"_id": candidate_id}, update, upsert=True)
             return
         query: dict[str, Any] = {"_id": candidate_id, "version": expected}
@@ -379,7 +388,7 @@ class Repository:
             )
             if external_id and version_current:
                 raise DuplicateMessageError(external_id)
-            raise StaleStateError(f"{candidate_id}: version {expected} no longer current")
+            raise StaleStateError(f"version {expected} no longer current")
 
 
 _CANDIDATE_FIELDS = {"state": 0, "transcript": 0}

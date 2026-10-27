@@ -3,6 +3,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from screening_agent.flow.turn_record import TurnRecord
+
 
 def utcnow() -> datetime:
     return datetime.now(UTC)
@@ -29,6 +31,8 @@ class TranscriptEntry(BaseModel):
     body: str
     external_id: str | None = None
     created_at: datetime = Field(default_factory=utcnow)
+    # Set on inbound entries the engine answered; closed-conversation and opener entries have none.
+    turn: TurnRecord | None = None
 
 
 class Event(BaseModel):

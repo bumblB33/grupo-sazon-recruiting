@@ -1,11 +1,9 @@
-import logging
+import sys
 from typing import Protocol
 
 import httpx
 
 from screening_agent.config import settings
-
-logger = logging.getLogger(__name__)
 
 
 class EmailSender(Protocol):
@@ -62,7 +60,7 @@ class SendGridEmailSender:
 
 
 class LoggingEmailSender:
-    """Dev mode without SendGrid: the login link goes to the server log instead of an inbox."""
+    """Dev mode without SendGrid: the login link goes to stderr, never to a log record that tracing exports."""
 
     def send(self, to: str, subject: str, text: str) -> None:
-        logger.warning("email to %s: %s\n%s", to, subject, text)
+        print(f"email to {to}: {subject}\n{text}", file=sys.stderr)

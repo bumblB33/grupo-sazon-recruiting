@@ -32,6 +32,7 @@ from screening_agent.channels.whatsapp import (
 from screening_agent.config import settings
 from screening_agent.domain.enums import Language, Stage, Status
 from screening_agent.flow.engine import OutboundChannel, ScreeningEngine
+from screening_agent.observability import configure_observability
 from screening_agent.recruiter.router import recruiter_router
 from screening_agent.storage.models import Candidate, CandidateDetail
 from screening_agent.storage.repository import Repository
@@ -52,6 +53,12 @@ async def lifespan(app: FastAPI):
         logger.warning("SCREENING_RECRUITER_EMAIL_DOMAINS is empty: no recruiter can log in")
     if not settings.twilio_auth_token:
         logger.warning("SCREENING_TWILIO_AUTH_TOKEN is unset")
+    if settings.logfire_token:
+        configure_observability("screening-api", app)
+        if not settings.candidate_hash_secret:
+            logger.warning("SCREENING_CANDIDATE_HASH_SECRET is unset: traces carry no candidate id")
+    else:
+        logger.warning("SCREENING_LOGFIRE_TOKEN is unset: tracing is off")
     yield
 
 

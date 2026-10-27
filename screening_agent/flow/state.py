@@ -31,6 +31,8 @@ class ScreeningState(TypedDict, total=False):
     version: int
     # This turn's decision record; the engine moves it onto the transcript entry, never into saved state.
     turn: dict[str, Any]
+    # The guardrail's reading of this message; the prompt softens for it, and it is never saved.
+    tone: str
 
 
 def initial_state(candidate_id: str) -> ScreeningState:

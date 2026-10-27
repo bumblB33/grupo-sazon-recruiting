@@ -154,7 +154,8 @@ def grouped_misses(score: GuardrailScore) -> list[Issue]:
 
 METRICS = [
     Metric("Personas passed", HIGHER),
-    Metric("Style failures", LOWER, "turns breaking the reply rules"),
+    Metric("Style failures", LOWER, "model text breaking the reply rules"),
+    Metric("Policy fallbacks", LOWER, "share of turns sent as the fixed question"),
     Metric("Tone", HIGHER, "judge, 1-5"),
     Metric("Summary", HIGHER, "judge, 1-5"),
     Metric("p50 latency", LOWER, "per reply"),
@@ -169,6 +170,7 @@ def score_rows(models: list[ModelRecord]) -> list[ScoreRow]:
     ] = [
         (lambda m: m.passed, lambda v: f"{v:.0f}/{persona_count}", persona_count, True),
         (lambda m: m.style_failures, lambda v: f"{v:.0f}", None, False),
+        (lambda m: m.policy_fallback_rate, lambda v: f"{v:.0%}", 1.0, False),
         (lambda m: m.tone, lambda v: f"{v:.1f}", 5, True),
         (lambda m: m.summary_score, lambda v: f"{v:.1f}", 5, True),
         (lambda m: m.latency_p50, lambda v: f"{v:.1f}s", None, False),

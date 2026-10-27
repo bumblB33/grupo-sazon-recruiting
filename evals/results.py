@@ -22,6 +22,8 @@ class TurnRecord(BaseModel):
     reply: str
     latency_seconds: float
     style: list[str] = Field(default_factory=list)
+    model_text: str | None = None
+    policy_fallback: bool = False
 
 
 class JudgeVerdict(BaseModel):
@@ -70,6 +72,11 @@ class ModelRecord(BaseModel):
         return sum(persona.style_failure_count for persona in self.personas)
 
     @property
+    def policy_fallback_rate(self) -> float | None:
+        turns = [turn for p in self.personas for turn in p.turns]
+        return sum(turn.policy_fallback for turn in turns) / len(turns) if turns else None
+
+    @property
     def latency_p50(self) -> float | None:
         latencies = [turn.latency_seconds for p in self.personas for turn in p.turns]
         return median(latencies) if latencies else None
@@ -101,6 +108,8 @@ class ModelRecord(BaseModel):
 class Gates(BaseModel):
     guardrail_min_accuracy: float
     guardrail_max_latency_seconds: float
+    # Zero means not gated, which is how results written before tone scoring read back.
+    tone_min_accuracy: float = 0.0
 
     def accuracy_passes(self, score: GuardrailScore) -> bool:
         return score.accuracy >= self.guardrail_min_accuracy
@@ -115,6 +124,10 @@ class Gates(BaseModel):
         failures = []
         if not self.accuracy_passes(score):
             failures.append(f"accuracy {score.accuracy:.0%} < {self.guardrail_min_accuracy:.0%}")
+        if score.tone_accuracy < self.tone_min_accuracy:
+            failures.append(
+                f"tone accuracy {score.tone_accuracy:.0%} < {self.tone_min_accuracy:.0%}"
+            )
         if not self.latency_passes(score):
             failures.append(
                 f"p95 latency {score.latency_p95:.1f}s > {self.guardrail_max_latency_seconds:.1f}s"
@@ -210,6 +223,8 @@ def _persona_record(run: PersonaRun) -> PersonaRecord:
                 reply=t.reply,
                 latency_seconds=t.latency_seconds,
                 style=list(t.style),
+                model_text=t.model_text,
+                policy_fallback=t.policy_fallback,
             )
             for t in run.turns
         ],

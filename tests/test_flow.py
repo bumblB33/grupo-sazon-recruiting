@@ -399,3 +399,47 @@ def test_exhausted_stale_retries_raise_without_the_candidate_id(make_engine, mon
     with pytest.raises(StaleStateError) as raised:
         engine.handle("+34600111222", "sí", "whatsapp", external_id="m0")
     assert "34600111222" not in str(raised.value)
+
+
+def test_reply_breaking_the_policy_is_replaced_by_the_next_fixed_question(make_engine):
+    from screening_agent.domain.enums import Language, Stage
+    from screening_agent.flow import replies
+
+    engine, repository, _ = make_engine(
+        [ai("**Genial**. ¿Nombre? ¿Y apellidos?", "record_consent", {"accepted": True})]
+    )
+    reply = drive(engine, ["sí"])[0]
+    assert reply == replies.REASK[Stage.FULL_NAME][Language.ES]
+    record = inbound_turns(repository)[0]
+    assert record.reply_source == "policy_fallback"
+    assert record.model_text == "**Genial**. ¿Nombre? ¿Y apellidos?"
+    assert set(record.violated_rules) == {"more than one question", "markdown or list"}
+    assert repository.load_state("cand")["consent"] is True
+
+
+def test_candidate_tone_reaches_the_turn_and_the_record_but_not_saved_state(make_engine):
+    from screening_agent.llm.guardrail import CandidateTone, GuardrailVerdict
+
+    engine, repository, model = make_engine(
+        [CONSENT],
+        guardrail=lambda text: GuardrailVerdict(allowed=True, tone=CandidateTone.CONFUSED),
+    )
+    drive(engine, ["¿qué? no entiendo nada"])
+    assert inbound_turns(repository)[0].tone == "confused"
+    assert "tone" not in repository.load_state("cand")
+
+
+def test_prompt_adds_a_calmer_instruction_for_confused_or_frustrated_candidates():
+    from langchain_core.messages import HumanMessage
+
+    from screening_agent.domain.enums import Stage
+    from screening_agent.flow.state import initial_state
+    from screening_agent.llm.turn import build_prompt
+
+    state = initial_state("c")
+    state["messages"] = [HumanMessage(content="hola")]
+    neutral = build_prompt(state, Stage.CONSENT)
+    confused = build_prompt({**state, "tone": "confused"}, Stage.CONSENT)
+    frustrated = build_prompt({**state, "tone": "frustrated"}, Stage.CONSENT)
+    assert confused.startswith(neutral) and frustrated.startswith(neutral)
+    assert confused != neutral and frustrated != neutral and confused != frustrated

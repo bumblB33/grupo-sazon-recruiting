@@ -1,5 +1,6 @@
 import time
 from collections.abc import Callable, Mapping
+from dataclasses import dataclass, field
 from typing import Any
 
 from langchain_core.language_models import BaseChatModel
@@ -11,6 +12,7 @@ from screening_agent.domain.enums import Language, ReviewReason, Stage, Status
 from screening_agent.domain.language import detect_language
 from screening_agent.domain.profile import CandidateProfile
 from screening_agent.flow import replies
+from screening_agent.flow.reply_policy import style_failures
 from screening_agent.flow.state import ScreeningState, is_closed, stage_of
 from screening_agent.flow.tools import ALL_TOOLS, TOOL_STAGE, tools_for
 from screening_agent.flow.transitions import Transition, apply_patch, qualify_if_complete
@@ -95,19 +97,23 @@ def build_graph(llm: BaseChatModel, build_prompt: PromptBuilder, model_id: str =
             turn_state.apply(_count_rejection(turn_state.working, stage))
         turn_state.apply(qualify_if_complete(turn_state.working))
 
-        reply, source = _choose_reply(
-            turn_state.working, language, reask_stages, confirm_area, last.text
-        )
-        replaced = reply != last.text
+        choice = _choose_reply(turn_state.working, language, reask_stages, confirm_area, last.text)
+        replaced = choice.text != last.text
         if replaced:
-            tool_messages.append(AIMessage(content=reply))
+            tool_messages.append(AIMessage(content=choice.text))
         turn = {
             **state.get("turn", {}),
             "tool_calls": call_records,
-            "reply_source": source,
+            "reply_source": choice.source,
             "model_text": last.text if replaced and last.text else None,
+            "violated_rules": choice.violated_rules,
         }
-        return {**turn_state.updates, "messages": tool_messages, "reply": reply, "turn": turn}
+        return {
+            **turn_state.updates,
+            "messages": tool_messages,
+            "reply": choice.text,
+            "turn": turn,
+        }
 
     graph = StateGraph(ScreeningState)
     graph.add_node("turn", turn)
@@ -165,17 +171,30 @@ def _choose_reply(
     reask_stages: list[Stage],
     confirm_area: str | None,
     model_text: str,
-) -> tuple[str, ReplySource]:
+) -> "ReplyChoice":
     terminal = _terminal_reply(state, language)
     if terminal:
-        return terminal, ReplySource.TERMINAL
+        return ReplyChoice(terminal, ReplySource.TERMINAL)
     if reask_stages:
-        return replies.REASK[min(reask_stages, key=_stage_index)][language], ReplySource.REASK
+        stage = min(reask_stages, key=_stage_index)
+        return ReplyChoice(replies.REASK[stage][language], ReplySource.REASK)
     if confirm_area:
-        return replies.ZONE_CONFIRM[language].format(area=confirm_area), ReplySource.ZONE_CONFIRM
-    if model_text:
-        return model_text, ReplySource.MODEL_TEXT
-    return replies.REASK[stage_of(state)][language], ReplySource.NEXT_QUESTION
+        text = replies.ZONE_CONFIRM[language].format(area=confirm_area)
+        return ReplyChoice(text, ReplySource.ZONE_CONFIRM)
+    next_question = replies.REASK[stage_of(state)][language]
+    if not model_text:
+        return ReplyChoice(next_question, ReplySource.NEXT_QUESTION)
+    violated = style_failures(model_text, language)
+    if violated:
+        return ReplyChoice(next_question, ReplySource.POLICY_FALLBACK, violated)
+    return ReplyChoice(model_text, ReplySource.MODEL_TEXT)
+
+
+@dataclass(frozen=True)
+class ReplyChoice:
+    text: str
+    source: ReplySource
+    violated_rules: list[str] = field(default_factory=list)
 
 
 def _stage_index(stage: Stage) -> int:

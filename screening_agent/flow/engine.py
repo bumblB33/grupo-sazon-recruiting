@@ -65,6 +65,7 @@ class HandleResult:
     reply: str = ""
     # True on the turn that reached a terminal status; the channel then schedules summarize_outcome.
     terminal: bool = False
+    turn: TurnRecord | None = None
 
 
 @dataclass(frozen=True)
@@ -136,7 +137,7 @@ class ScreeningEngine:
                         "reply_source": record.reply_source.value,
                     }
                 )
-                return _traced(span, HandleResult(Outcome.REPLIED, reply, terminal))
+                return _traced(span, HandleResult(Outcome.REPLIED, reply, terminal, record))
             raise StaleStateError("state kept changing under the turn")
 
     def start_conversation(
@@ -266,6 +267,7 @@ class ScreeningEngine:
             _set_usage(span, verdict.usage)
             if verdict.category:
                 span.set_attribute("guardrail.category", verdict.category.value)
+            span.set_attribute("candidate.tone", verdict.tone.value)
             if verdict.error:
                 span.set_attribute("error", "guardrail_failed")
         if verdict.error:
@@ -285,23 +287,32 @@ class ScreeningEngine:
                 new_state = cast(
                     ScreeningState,
                     self.graph.invoke(
-                        {**state, "messages": [*state["messages"], HumanMessage(content=text)]}
+                        {
+                            **state,
+                            "messages": [*state["messages"], HumanMessage(content=text)],
+                            "tone": verdict.tone.value,
+                        }
                     ),
                 )
+                new_state.pop("tone", None)
                 turn = new_state.pop("turn", {})
                 for usage in turn.get("usage", []):
                     _set_usage(span, usage)
                 span.set_attribute("reply_source", str(turn["reply_source"]))
+                if turn.get("violated_rules"):
+                    span.set_attribute("violated_rules", turn["violated_rules"])
             reply = new_state.get("reply", "")
         record = TurnRecord(
             stage_before=stage_of(state).value,
             stage_after=stage_of(new_state).value,
             status_after=str(new_state["status"]),
             guardrail_category=verdict.category.value if verdict.category else None,
+            tone=verdict.tone.value,
             tools_exposed=turn.get("tools_exposed", []),
             tool_calls=turn.get("tool_calls", []),
             reply_source=turn["reply_source"],
             model_text=turn.get("model_text"),
+            violated_rules=turn.get("violated_rules", []),
             usage=[u for u in (verdict.usage, *turn.get("usage", [])) if u is not None],
             latency_ms=0,
         )

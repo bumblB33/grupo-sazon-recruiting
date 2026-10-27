@@ -2,12 +2,14 @@ import time
 import uuid
 from dataclasses import dataclass, field
 
-from evals.graders import GradeResult, grade, style_failures
+from evals.graders import GradeResult, grade
 from evals.personas.text_personas import Persona
 from screening_agent.domain.enums import Language
 from screening_agent.domain.language import detect_language
 from screening_agent.flow.engine import Outcome, ScreeningEngine
 from screening_agent.flow.graph import build_graph
+from screening_agent.flow.reply_policy import style_failures
+from screening_agent.flow.turn_record import ReplySource, TurnRecord
 from screening_agent.llm.guardrail import Guardrail
 from screening_agent.llm.models import chat_model
 from screening_agent.llm.summary import make_summarizer
@@ -29,6 +31,9 @@ class Turn:
     reply: str
     latency_seconds: float
     style: tuple[str, ...] = ()
+    # The model's own text when the candidate got something else; style grades the model, not templates.
+    model_text: str | None = None
+    policy_fallback: bool = False
 
 
 @dataclass(frozen=True)
@@ -46,7 +51,7 @@ class PersonaRun:
 def build_engine(repository: Repository, models: ModelSet) -> ScreeningEngine:
     return ScreeningEngine(
         repository,
-        graph=build_graph(chat_model(models.live), build_prompt),
+        graph=build_graph(chat_model(models.live), build_prompt, models.live),
         summarizer=make_summarizer(models.summary),
         guardrail=Guardrail.for_model(models.guardrail).check,
     )
@@ -68,9 +73,7 @@ def run_persona(engine: ScreeningEngine, repository: Repository, persona: Person
             if result.outcome != Outcome.REPLIED:
                 break
             language = detect_language(text, default=language)
-            turns.append(
-                Turn(text, result.reply, elapsed, tuple(style_failures(result.reply, language)))
-            )
+            turns.append(_turn(text, result.reply, elapsed, language, result.turn))
             if result.terminal:
                 engine.summarize_outcome(candidate_id)
                 break
@@ -86,6 +89,27 @@ def run_persona(engine: ScreeningEngine, repository: Repository, persona: Person
     input_tokens, output_tokens = _usage(repository, candidate_id)
     return PersonaRun(
         persona, tuple(turns), candidate, grade_result, input_tokens, output_tokens, error
+    )
+
+
+def _turn(
+    text: str, reply: str, elapsed: float, language: Language, record: TurnRecord | None
+) -> Turn:
+    """Grades what the model wrote. A template reply with no model text behind it is not graded."""
+    model_text = record.model_text if record else None
+    if model_text is not None:
+        raw = model_text
+    elif record is None or record.reply_source == ReplySource.MODEL_TEXT:
+        raw = reply
+    else:
+        raw = ""
+    return Turn(
+        text,
+        reply,
+        elapsed,
+        tuple(style_failures(raw, language)) if raw else (),
+        model_text,
+        record is not None and record.reply_source == ReplySource.POLICY_FALLBACK,
     )
 
 

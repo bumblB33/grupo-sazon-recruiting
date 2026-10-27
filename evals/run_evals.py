@@ -36,7 +36,8 @@ def main() -> int:
     guardrails = [score_guardrail(model_id) for model_id in args.guardrail_models]
     for score in guardrails:
         print(
-            f"guardrail {score.model} {score.correct}/{score.total} p95 {score.latency_p95:.2f}s",
+            f"guardrail {score.model} {score.correct}/{score.total} "
+            f"tone {score.tone_accuracy:.0%} p95 {score.latency_p95:.2f}s",
             file=sys.stderr,
         )
     results = BakeoffResults.from_runs(
@@ -48,6 +49,7 @@ def main() -> int:
         gates=Gates(
             guardrail_min_accuracy=args.guardrail_min_accuracy,
             guardrail_max_latency_seconds=args.guardrail_max_latency_seconds,
+            tone_min_accuracy=args.tone_min_accuracy,
         ),
     )
     for failure in results.guardrail_failures:
@@ -114,6 +116,12 @@ def _parse() -> argparse.Namespace:
         type=float,
         default=0.9,
         help="a scored classifier below this accuracy fails the run",
+    )
+    parser.add_argument(
+        "--tone-min-accuracy",
+        type=float,
+        default=0.8,
+        help="a scored classifier whose candidate-tone accuracy is below this fails the run",
     )
     parser.add_argument(
         "--guardrail-max-latency-seconds",

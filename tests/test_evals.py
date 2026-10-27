@@ -7,7 +7,7 @@ from langchain_core.runnables import RunnableLambda
 from pymongo import MongoClient
 
 from evals import render_report, run_evals
-from evals.graders import Expectation, GradeResult, grade, style_failures
+from evals.graders import Expectation, GradeResult, grade
 from evals.guardrail_cases import (
     GuardrailCase,
     GuardrailMiss,
@@ -23,7 +23,6 @@ from evals.pricing import cost_usd
 from evals.results import BakeoffResults, Gates, IncompatibleResultsError
 from evals.run_evals import _parse, eval_database_url
 from evals.runner import PersonaRun, Turn, run_persona
-from screening_agent.domain.enums import Language
 from screening_agent.llm.guardrail import Guardrail, GuardrailCategory
 from screening_agent.storage.models import Candidate
 from tests.conftest import ai, classifier
@@ -50,18 +49,6 @@ def test_grade_compares_lists_as_sets_and_checks_review_reason():
     bad = candidate(status="needs_recruiter_review", review_reason="consent_declined", profile={})
     failures = grade(bad, 3, expected).failures
     assert any("review" in f for f in failures) and any("availability" in f for f in failures)
-
-
-def test_style_failures_flag_questions_emoji_length_and_language():
-    assert style_failures("¿Nombre? ¿Y apellido?", Language.ES) == ["more than one question"]
-    assert "more than one emoji" in style_failures("Hola 😀🚀 ¿nombre?", Language.ES)
-    assert style_failures("Hola 👍🏽 ¿nombre?", Language.ES) == []
-    assert style_failures("Hola 👨\u200d🍳 ¿nombre?", Language.ES) == []
-    assert "reply longer than 280 chars" in style_failures("a" * 281, Language.ES)
-    assert style_failures(
-        "¿En qué ciudad vives? Así veo si tenemos restaurante cerca.", Language.EN
-    ) == ["reply not in en"]
-    assert style_failures("¿En qué ciudad vives?", Language.ES) == []
 
 
 def test_score_cases_counts_misses_and_classifier_errors():
@@ -375,3 +362,53 @@ def test_judge_wraps_untrusted_text_in_data_tags():
     body = seen[0][1].content
     assert body.startswith("<transcript>\n") and body.endswith("\n</transcript>")
     assert body.count("</transcript>") == 1
+
+
+def test_run_persona_grades_raw_model_text_and_flags_policy_fallback(make_engine):
+    bad = "**Hola**. ¿Seguimos? ¿Sí?"
+    engine, repository, _ = make_engine(
+        [
+            ai(bad, "record_consent", {"accepted": True}),
+            ai("¿Nombre?", "record_full_name", {"full_name": "Luis Hernández"}),
+            ai("¿Carnet?", "record_licence", {"has_licence": False}),
+        ]
+    )
+    run = run_persona(engine, repository, next(p for p in PERSONAS if p.name == "no_licence"))
+    first, second = run.turns[0], run.turns[1]
+    assert first.policy_fallback and first.model_text == bad and first.reply != bad
+    assert "markdown or list" in first.style
+    assert not second.policy_fallback and second.style == ()
+
+
+def test_policy_fallback_rate_counts_replaced_turns():
+    from evals.results import ModelRecord, PersonaRecord, TurnRecord
+
+    turns = [
+        TurnRecord(candidate="x", reply="r", latency_seconds=0.1, policy_fallback=flag)
+        for flag in (True, False, False, False)
+    ]
+    persona = PersonaRecord(
+        name="p", expected_status="qualified", passed=True, failures=[], turns=turns
+    )
+    assert ModelRecord(live_model="m", personas=[persona]).policy_fallback_rate == 0.25
+    assert ModelRecord(live_model="m", personas=[]).policy_fallback_rate is None
+
+
+def test_tone_is_scored_and_gated_separately_from_the_category():
+    from screening_agent.llm.guardrail import CandidateTone
+
+    cases = (
+        GuardrailCase("sí", GuardrailCategory.ON_TOPIC),
+        GuardrailCase(
+            "¿otra vez? ya te lo dije", GuardrailCategory.ON_TOPIC, CandidateTone.FRUSTRATED
+        ),
+    )
+    score = score_cases(Guardrail(classifier(GuardrailCategory.ON_TOPIC)), "fake", cases)
+    assert score.accuracy == 1.0
+    assert score.tone_accuracy == 0.5
+    assert [m.text for m in score.tone_misses] == ["¿otra vez? ya te lo dije"]
+    gates = Gates(
+        guardrail_min_accuracy=0.9, guardrail_max_latency_seconds=10, tone_min_accuracy=0.8
+    )
+    assert any("tone" in failure for failure in gates.failures(score))
+    assert Gates(guardrail_min_accuracy=0.9, guardrail_max_latency_seconds=10).failures(score) == []

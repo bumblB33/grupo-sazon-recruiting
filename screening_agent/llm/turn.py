@@ -15,6 +15,11 @@ STAGE_GOAL: dict[Stage, str] = {
     Stage.OUTCOME: "Thank them. The outcome message is sent by the system.",
 }
 
+TONE_GUIDANCE: dict[str, str] = {
+    "confused": "The candidate seems confused. Use simpler words, explain in one short sentence why you ask, and ask the current question again.",
+    "frustrated": "The candidate seems frustrated. Acknowledge it in a few calm words without apologising at length, then ask the current question.",
+}
+
 # The WhatsApp opener already introduced the assistant, so the first live turn must not repeat it.
 CONSENT_AFTER_OPENER = (
     "You already introduced yourself in the opening message. Read their reply as consent to continue "
@@ -34,7 +39,8 @@ def build_prompt(state: ScreeningState, stage: Stage) -> str:
     else:
         goal = STAGE_GOAL[stage]
     today = candidate_today(state.get("profile", {}).get("zone"))
-    return (
+    tone = TONE_GUIDANCE.get(state.get("tone", ""))
+    prompt = (
         f"You are {settings.assistant_name}, the hiring assistant for Grupo Sazón, a restaurant chain hiring "
         "delivery drivers in Spain and Mexico. You are an AI and never pretend to be human.\n"
         "Style: warm, informal-professional (use tú in Spanish), one question per message, at most two short "
@@ -48,6 +54,7 @@ def build_prompt(state: ScreeningState, stage: Stage) -> str:
         "ambiguous, still call the tool with your best reading; the system validates it and asks again if needed. "
         "If they ask something you cannot answer, say a recruiter will follow up and return to the current question."
     )
+    return f"{prompt}\n{tone}" if tone else prompt
 
 
 def _opened_by_agent(state: ScreeningState) -> bool:

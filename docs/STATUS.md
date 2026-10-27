@@ -17,12 +17,12 @@ Moving state for the screening agent. The README describes the system as built. 
 - Evals and bake-off runner.
 - Pyright in `standard` mode with no errors.
 - Logfire tracing with a no-PII test, and the per-turn decision record on the inbound transcript entry.
+- Live reply policy with a fixed-question fallback, and candidate tone from the guardrail call.
 - Tests with fakes for all of the above. The full suite, including the Mongo-backed tests, passes with no LLM calls.
 
 ## Not built
 
 - Live demo console: web chat, turn inspector, how-it-works page, ops panel, Orbio-styled shell.
-- Live reply policy and candidate tone detection.
 - In-API silence scheduler with a sweep lease and per-nudge claims.
 - Voice channel (Pipecat, Deepgram STT, ElevenLabs TTS) on the same engine.
 
@@ -33,7 +33,7 @@ Against `docs/Orbio-Assignment.md`. Rubric weights: technical build 40%, process
 | Requirement | State | Closed by |
 |---|---|---|
 | Phase 1 process design | `docs/process-design.md` | none |
-| Screening agent, validation, JSON output, history, storage, summary, error handling | built and tested with fakes, never run live | Reply policy, live preflight |
+| Screening agent, validation, JSON output, history, storage, summary, error handling | built and tested with fakes, never run live | Live preflight |
 | Recruiter tool | built: list, funnel, detail, override | Console restyle, web chat, console pages |
 | LLM choice justified | not done: the bake-off has no valid run | Bake-off, model defaults, README |
 | Live demo ("show, don't tell") | not possible: no live run, no web chat, mocked data | Everything up to the live preflight |
@@ -41,8 +41,8 @@ Against `docs/Orbio-Assignment.md`. Rubric weights: technical build 40%, process
 | README: potential improvements, sample conversations | missing | README |
 | Demo video, 5-10 minutes | missing | Demo video |
 | Bonus: multi-language with code-switching, re-engagement, tests and evals | built | none |
-| Bonus: guardrails | input classifier built. Model replies are unchecked live. | Reply policy |
-| Bonus: sentiment | not built | Reply policy (candidate tone) |
+| Bonus: guardrails | input classifier and live reply policy built | none |
+| Bonus: sentiment | candidate tone built, untested on a live model | Bake-off |
 | Bonus: analytics | partial: counts by status and stage only | Console pages |
 | Bonus: deployment design (deploy, monitor, scale) | partial: compose and tracing | Scheduler, README |
 | Bonus: voice agent | not built, optional | Voice |
@@ -52,17 +52,15 @@ Voice is last in this plan. Bonus features carry 10% of the rubric, and the brie
 
 ## Live reply quality
 
-Today the model's text goes to the candidate unchecked whenever no fixed template wins (`_choose_reply` in `flow/graph.py`). The tone checks exist only offline, in `evals/graders.py: style_failures`. Live interactions need them on the send path.
+Built. `flow/reply_policy.py` owns the rules for live replies and evals.
 
-- One owner for the prose rules: move `style_failures` and its limits into `screening_agent` (reply policy module). Evals import it from there.
-- Live rules, all deterministic and already proven offline: at most one question, at most one emoji, at most `MAX_REPLY_CHARS`, the candidate's language. Added: no markdown or bullet lists, no links.
-- Not live rules: "claims to be human" and "asks for data outside the screening". A regex gives false positives ("dirección" is both address and direction), and each false positive turns a reply into a template. They go to the LLM judge in evals with the other semantic checks (warmth, promises about pay or hiring, invented job facts).
-- Language check: the detector is a stopword vote, so a short reply or a proper name can misread. Only a confident mismatch fails the check. A tie passes.
-- AI disclosure needs no live rule. Every channel starts with the fixed opener (`replies.opener`), which discloses the AI and the recording. The web chat starts through `start_conversation` like WhatsApp.
-- On a violation the candidate gets the fixed question for the stage after this turn's patch, the same text as the last branch of `_choose_reply`. The engine records the violated rules in the turn record. The inspector and the trace show them. No second LLM call, so no added latency.
-- Evals and the bake-off grade the raw model text and report the fallback rate per model. Grading the sent reply would grade the templates and hide model quality.
-- Candidate tone: the guardrail call also returns `neutral`, `confused` or `frustrated` in the same structured output, so no extra call. A confused or frustrated candidate gets a simpler, calmer instruction in the turn prompt for that turn. A failed classifier means `neutral`. This changes the guardrail eval contract: add tone cases to `evals/guardrail_cases.py` and a tone gate, and check the category accuracy does not drop.
-- Prompt review: rewrite `build_prompt` against `docs/process-design.md` tone rules, then confirm with the live persona run and the judge.
+- Live rules, all deterministic: at most one question, at most one emoji, at most `MAX_REPLY_CHARS`, no markdown or list lines, no links, the candidate's language. Only a confident language mismatch fails; a tie passes.
+- Not live rules: "claims to be human" and "asks for data outside the screening". A regex gives false positives ("dirección" is both address and direction), and each false positive turns a reply into a template. They belong to the LLM judge in evals with the other semantic checks (warmth, promises about pay or hiring, invented job facts).
+- AI disclosure needs no live rule. Every channel starts with the fixed opener (`replies.opener`), which discloses the AI and the recording.
+- On a violation the candidate gets the fixed question for the stage after this turn's patch, with reply source `policy_fallback`. The turn record keeps the model text and the violated rules. No second LLM call.
+- Evals and the bake-off grade the raw model text and report the policy fallback rate per model.
+- Candidate tone: the guardrail call returns `neutral`, `confused` or `frustrated` in the same structured output. A confused or frustrated candidate gets a calmer instruction in that turn's prompt. A failed classifier means `neutral`. The guardrail set has tone cases and a `--tone-min-accuracy` gate (default 0.8). Category accuracy on the live models is unverified until the bake-off runs.
+- Prompt review is open: rewrite `build_prompt` against `docs/process-design.md` tone rules, then confirm with the live persona run and the judge.
 
 ## Names and data
 
@@ -128,21 +126,20 @@ Built. `screening_agent/observability.py` owns it.
 
 ## Remaining work, in order
 
-1. Reply policy and candidate tone, test first. See "Live reply quality".
-2. Service areas: author the 45 locations and their aliases. See "Names and data".
-3. Persona review: rewrite the eval personas as realistic candidates. See "Names and data".
-4. Run the live bake-off with `--out docs`. It needs the three provider keys and a Mongo on `localhost:27017` (the compose `mongo` service does not publish a host port). It writes `docs/bakeoff.json` and `bakeoff.html`. The current files are from a failed run: both Anthropic models hit the missing `anthropic-workspace-id` header, and every OpenAI call errored. Only Mistral produced results, so they do not support a model choice. The bake-off grades raw model text and reports the policy fallback rate per model. It runs before the console work, because it closes a core requirement and the reply policy and personas change its inputs.
-5. Set the `Settings` defaults for `live_model`, `summary_model` and `guardrail_model` in `screening_agent/config.py` to the winners. The current defaults are placeholders.
-6. Seed the demo database with the persona run on the chosen models. See "Names and data".
-7. Silence scheduler, lease and nudge claims, test first. See "Silence scheduler".
-8. Console shell restyle with the Orbio tokens across every existing page.
-9. Web chat and turn inspector. Delete `screening-cli`.
-10. How-it-works page, ops panel, start-screening form and demo reset. Add completion rate, drop-off stage and average duration to the funnel, from `opened_at`, `updated_at` and the outcome event.
-11. Live preflight on the laptop: provider keys and workspace id in `.env`, `docker compose up --build` before the call, seeded personas plus one hand-typed conversation per outcome through the web chat, Logfire token set and one trace opened from the inspector link. The `mongo-data` volume keeps these conversations between runs. Never run `docker compose down -v` before the call. Short silence thresholds or a dry run inside the window. WhatsApp leg: Twilio account and API key in `.env`, presenter's phone joined to the sandbox and in `SCREENING_DEMO_PHONES`, tunnel up, Twilio console webhook and `SCREENING_TWILIO_WEBHOOK_URL` set to `<tunnel>/webhook/whatsapp`, one full screening from the phone, then a demo reset. Read every live reply in the inspector and log each prose or tone fault as a persona or policy case before the call.
-12. README deliverable sections that are missing: "Sample conversations" from live transcripts, "LLM choice" justified from `bakeoff.html`, "Potential improvements", and "Deployment and scaling" (monitoring and alerts through Logfire, the path to 10K candidates a week, the process-local lock as the first limit). Update README and CLAUDE.md for the console, tracing, reply policy and scheduler. Move the as-built parts of "Demo design" out of this file into the README.
-13. Multi-lens adversarial review of the branch. Gates: pytest, ruff, pyright with no new errors.
-14. Record the 5-10 minute demo video from the console: one WhatsApp screening from the phone, the turn inspector, a trace, the how-it-works page, an override.
-15. Voice channel, only if time remains after the video.
+1. Service areas: author the 45 locations and their aliases. See "Names and data".
+2. Persona review: rewrite the eval personas as realistic candidates. See "Names and data".
+3. Run the live bake-off with `--out docs`. It needs the three provider keys and a Mongo on `localhost:27017` (the compose `mongo` service does not publish a host port). It writes `docs/bakeoff.json` and `bakeoff.html`. The current files are from a failed run: both Anthropic models hit the missing `anthropic-workspace-id` header, and every OpenAI call errored. Only Mistral produced results, so they do not support a model choice. The bake-off grades raw model text and reports the policy fallback rate per model. It runs before the console work, because it closes a core requirement and the reply policy and personas change its inputs.
+4. Set the `Settings` defaults for `live_model`, `summary_model` and `guardrail_model` in `screening_agent/config.py` to the winners. The current defaults are placeholders.
+5. Seed the demo database with the persona run on the chosen models. See "Names and data".
+6. Silence scheduler, lease and nudge claims, test first. See "Silence scheduler".
+7. Console shell restyle with the Orbio tokens across every existing page.
+8. Web chat and turn inspector. Delete `screening-cli`.
+9. How-it-works page, ops panel, start-screening form and demo reset. Add completion rate, drop-off stage and average duration to the funnel, from `opened_at`, `updated_at` and the outcome event.
+10. Live preflight on the laptop: provider keys and workspace id in `.env`, `docker compose up --build` before the call, seeded personas plus one hand-typed conversation per outcome through the web chat, Logfire token set and one trace opened from the inspector link. The `mongo-data` volume keeps these conversations between runs. Never run `docker compose down -v` before the call. Short silence thresholds or a dry run inside the window. WhatsApp leg: Twilio account and API key in `.env`, presenter's phone joined to the sandbox and in `SCREENING_DEMO_PHONES`, tunnel up, Twilio console webhook and `SCREENING_TWILIO_WEBHOOK_URL` set to `<tunnel>/webhook/whatsapp`, one full screening from the phone, then a demo reset. Read every live reply in the inspector and log each prose or tone fault as a persona or policy case before the call.
+11. README deliverable sections that are missing: "Sample conversations" from live transcripts, "LLM choice" justified from `bakeoff.html`, "Potential improvements", and "Deployment and scaling" (monitoring and alerts through Logfire, the path to 10K candidates a week, the process-local lock as the first limit). Update README and CLAUDE.md for the console, tracing, reply policy and scheduler. Move the as-built parts of "Demo design" out of this file into the README.
+12. Multi-lens adversarial review of the branch. Gates: pytest, ruff, pyright with no new errors.
+13. Record the 5-10 minute demo video from the console: one WhatsApp screening from the phone, the turn inspector, a trace, the how-it-works page, an override.
+14. Voice channel, only if time remains after the video.
 
 ## Known gaps
 

@@ -62,3 +62,21 @@ def test_parsing_error_fails_open():
     verdict = Guardrail(RunnableLambda(lambda messages: output)).check("hola")
     assert verdict.allowed and verdict.category is None
     assert verdict.error is not None and "bad" in verdict.error
+
+
+def test_tone_comes_with_the_category_and_defaults_to_neutral():
+    from langchain_core.messages import AIMessage as Raw
+
+    from screening_agent.llm.guardrail import CandidateTone, Classification
+
+    output = {
+        "raw": Raw(content=""),
+        "parsed": Classification(
+            category=GuardrailCategory.ON_TOPIC, tone=CandidateTone.FRUSTRATED
+        ),
+        "parsing_error": None,
+    }
+    assert Guardrail(RunnableLambda(lambda m: output)).check("otra vez?").tone == "frustrated"
+    assert Guardrail(classifier(GuardrailCategory.ON_TOPIC)).check("sí").tone == "neutral"
+    failed = Guardrail(RunnableLambda(lambda m: (_ for _ in ()).throw(TimeoutError()))).check("x")
+    assert failed.tone == "neutral"

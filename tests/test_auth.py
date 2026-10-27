@@ -18,8 +18,11 @@ from screening_agent.channels.email import EmailSendError, SendGridEmailSender
 
 
 def test_session_round_trip_and_expiry():
-    token = issue_session("ana@gruposazon.com", "s", 12)
-    assert read_session(token, "s") == "ana@gruposazon.com"
+    issued = datetime.now(UTC)
+    token = issue_session("ana@gruposazon.com", "s", 12, now=issued)
+    session = read_session(token, "s")
+    assert session.email == "ana@gruposazon.com"
+    assert abs((session.issued_at - issued).total_seconds()) < 0.001
     assert read_session(token, "other") is None
     assert read_session(None, "s") is None
     assert read_session("not.a.jwt", "s") is None

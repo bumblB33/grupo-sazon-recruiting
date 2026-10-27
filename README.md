@@ -50,7 +50,7 @@ Upgrading from a deployment where any address at an allowed domain could log in:
 Three mechanisms behind the login are worth knowing when changing it:
 
 - The CSRF token on the override form is an HMAC of the session cookie, not a stored value. The server keeps no extra state, and a stolen token is useless without the exact cookie it was minted from.
-- Session revocation is a timestamp on the recruiter row (`sessions_valid_after`), not a token blocklist. One write invalidates every outstanding cookie. The JWT `iat` is stored as a float timestamp so a deactivation in the same second as a login still wins.
+- Session revocation is a timestamp on the recruiter row (`sessions_valid_after`), not a token blocklist. One write invalidates every outstanding cookie. The JWT `iat` is a float timestamp. MongoDB stores `sessions_valid_after` to the millisecond, so a session issued inside the deactivation's millisecond also counts as revoked.
 - The login link separates GET (show a button) from POST (consume the token). Mail scanners follow GET links but never submit forms, so a prefetch cannot burn the link or log the scanner in.
 
 ### Machine clients and admin
@@ -92,13 +92,14 @@ ruff check . && ruff format .
 | --- | --- | --- |
 | `POST /webhook/whatsapp` | Twilio signature | Inbound candidate message. Answers TwiML with the reply. |
 | `POST /candidates` | recruiter | Opens a conversation and sends the opener. Candidate id is the E.164 phone. |
-| `GET /candidates` | recruiter | Candidate list. |
+| `GET /candidates` | recruiter | Candidate list, newest first. `status` and `stage` filters answer 422 for an unknown value. `limit` (default 100, at most 500) and `offset` page it. |
 | `GET /candidates/{id}` | recruiter | Profile, summary, transcript and events. |
 | `PATCH /candidates/{id}` | recruiter | Outcome override. Writes a `recruiter_override` event with the actor. |
 | `GET /analytics` | recruiter | Funnel counts. |
+| `GET /csrf-token` | recruiter | The CSRF token for the caller's session cookie, or `null` for an API key. |
 | `/recruiter/...` | session cookie | Server-rendered pages: login, candidate table with filters and funnel, detail with override form. |
 
-"recruiter" means a session cookie or an `X-API-Key`. Routes answer 503 until their secrets are configured, unless `SCREENING_DEV_MODE` is on. Page routes answer 303 to login instead of 401.
+"recruiter" means a session cookie or an `X-API-Key`. A cookie caller on `POST` or `PATCH` must also send the token from `GET /csrf-token` in `X-CSRF-Token`, because `SameSite=Lax` still sends the cookie from sibling subdomains. Routes answer 503 until their secrets are configured, unless `SCREENING_DEV_MODE` is on. Page routes answer 303 to login instead of 401.
 
 ## How it works, in plain language
 
@@ -396,8 +397,8 @@ sequenceDiagram
 - **Tool gating is enforced twice.** Only the current stage's tools are bound to the model, and a call to any other tool is rejected when applied. Allowed tools are recomputed after each accepted call, so one message can answer several questions. Model misuse of a tool re-asks the current question and is never counted against the candidate.
 - **Candidate-local dates.** "Today" for start dates and the prompt is the calendar day in the candidate's service-area timezone, not the server's.
 - **One document per candidate.** Chosen so a turn is one atomic write with no replica set or transaction. Mechanism in Architecture, containers.
-- **Fail-closed API.** Recruiter routes and the webhook return 503 until their secrets are configured, unless `SCREENING_DEV_MODE` is on. The summary LLM call runs as a background task after the reply.
-- **People log in by email, machines by key.** The recruiter pages are plain HTML forms on the API app. Login is a one-time emailed link. The cookie is a signed, expiring session, not a secret, and deactivating a recruiter ends it on the next request. JSON routes accept that cookie or a per-client `X-API-Key` whose hash lives in MongoDB. Nothing is pasted or shared.
+- **Fail-closed API.** Recruiter routes and the webhook return 503 until their secrets are configured, unless `SCREENING_DEV_MODE` is on. Dev mode opens the recruiter routes only while `SCREENING_SESSION_SECRET` is unset, and skips the webhook signature only while `SCREENING_TWILIO_AUTH_TOKEN` is unset. A stray dev-mode flag on a deployment with real secrets opens neither. The summary LLM call runs as a background task after the reply.
+- **People log in by email, machines by key.** The recruiter pages are plain HTML forms on the API app. Login is a one-time emailed link. The cookie is a signed, expiring session, not a secret, and deactivating a recruiter ends it on the next request. JSON routes accept that cookie, with a CSRF header on writes, or a per-client `X-API-Key` whose hash lives in MongoDB. Nothing is pasted or shared.
 - **Guardrail fails open.** One structured-output classification before each turn. A classifier outage allows the message and logs an event. It never blocks a candidate.
 - **Silence is a cron sweep.** No long-lived timers, so a restart loses nothing and the policy is a pure function over stored timestamps. Mechanism in Architecture, runtime view.
 - **Provider is configuration.** `SCREENING_LIVE_MODEL`, `SCREENING_SUMMARY_MODEL` and `SCREENING_GUARDRAIL_MODEL` take any `provider:model` id supported by LangChain. `llm/models.py` is the single constructor. Provider keys come from settings, so `.env` works outside Docker too: `PROJECT_ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `MISTRAL_API_KEY`. A missing key fails closed, so a shell `ANTHROPIC_API_KEY` is never billed by accident. Anthropic and OpenAI ids get no sampling parameters, Mistral runs at temperature 0, Bedrock and Vertex use their cloud credentials.

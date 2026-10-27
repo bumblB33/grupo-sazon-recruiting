@@ -129,6 +129,7 @@ API_SCRIPT = [
 
 SECRET_SETTINGS = (
     "anthropic_api_key",
+    "anthropic_workspace_id",
     "openai_api_key",
     "mistral_api_key",
     "session_secret",
@@ -196,8 +197,13 @@ def screen_no_licence(client: TestClient, phone: str) -> None:
 RECRUITER_EMAIL = "ana@gruposazon.com"
 
 
+def invite(address: str = RECRUITER_EMAIL) -> None:
+    api.app.dependency_overrides[api.get_repository]().invite_recruiter(address)
+
+
 def log_in(client: TestClient, email: FakeEmail, address: str = RECRUITER_EMAIL) -> None:
-    """Requests a link for an allowed address and follows it; the session cookie lands on the client."""
+    """Invites the address, requests a link and confirms it; the session cookie lands on the client."""
+    invite(address)
     client.post(LOGIN_PATH, data={"email": address})
-    response = client.get(email.last_link(), follow_redirects=False)
+    response = client.post(email.last_link(), follow_redirects=False)
     assert response.status_code == 303, response.text

@@ -21,7 +21,10 @@ from screening_agent.api.deps import (
     get_repository,
     login_base_url,
     recruiter_from_cookie,
+    secure_cookies,
+    session_csrf_token,
     session_secret,
+    verify_csrf,
 )
 from screening_agent.channels.email import EmailSender, EmailSendError
 from screening_agent.config import settings
@@ -32,6 +35,7 @@ logger = logging.getLogger(__name__)
 
 RECRUITER_PREFIX = "/recruiter"
 LOGIN_PATH = f"{RECRUITER_PREFIX}/login"
+CSRF_FIELD = "csrf_token"
 STATUSES = list(Status)
 STAGES = list(Stage)
 LOGIN_SUBJECT = "Your Grupo Sazón recruiter login link"
@@ -78,21 +82,24 @@ def request_login_link(
     sender: EmailSender = Depends(get_email_sender),
 ) -> Response:
     """Always answers "check your inbox" so the form cannot be used to list recruiters or probe the
-    domain allowlist. The recruiter row is created when the link is used, not when it is requested."""
+    domain allowlist. Only an invited, active address at an allowed domain gets a link."""
     session_secret()
     base_url = login_base_url(request)
     email = email.strip().lower()
-    if is_valid_email(email) and email_domain_allowed(email, settings.recruiter_email_domains):
+    valid = is_valid_email(email)
+    if valid and email_domain_allowed(email, settings.recruiter_email_domains):
         client_ip = request.client.host if request.client else "unknown"
         send_login_link(email, client_ip, base_url, repository, sender)
-    return templates.TemplateResponse(request, "check_inbox.html", {"email": email})
+    return templates.TemplateResponse(
+        request, "check_inbox.html", {"email": email if valid else None}
+    )
 
 
 def send_login_link(
     email: str, client_ip: str, base_url: str, repository: Repository, sender: EmailSender
 ) -> None:
     recruiter = repository.get_recruiter(email)
-    if recruiter is not None and not recruiter.active:
+    if recruiter is None or not recruiter.active:
         return
     now = datetime.now(UTC)
     if not repository.try_acquire_login_slot(
@@ -117,16 +124,33 @@ def send_login_link(
         logger.exception("login email to %s failed", email)
 
 
+LINK_USED = "That link has expired or was already used"
+
+
 @recruiter_router.get("/login/{token}")
+def confirm_login_page(
+    request: Request, token: str, repository: Repository = Depends(get_repository)
+) -> Response:
+    """Mail scanners prefetch links; the GET only shows a button and the POST consumes the token."""
+    session_secret()
+    if not repository.login_token_is_live(hash_secret(token), datetime.now(UTC)):
+        return login_page(request, LINK_USED, 401)
+    return templates.TemplateResponse(
+        request, "confirm_login.html", {"action": f"{LOGIN_PATH}/{token}"}
+    )
+
+
+@recruiter_router.post("/login/{token}")
 def login_with_link(
     request: Request, token: str, repository: Repository = Depends(get_repository)
 ) -> Response:
     secret = session_secret()
     email = repository.consume_login_token(hash_secret(token), datetime.now(UTC))
     if email is None:
-        return login_page(request, "That link has expired or was already used", 401)
-    if not repository.enrol_recruiter(email).active:
-        return login_page(request, "This account is deactivated", 401)
+        return login_page(request, LINK_USED, 401)
+    recruiter = repository.get_recruiter(email)
+    if recruiter is None or not recruiter.active:
+        return login_page(request, "This account is not active", 401)
     repository.mark_recruiter_login(email)
     response = RedirectResponse(f"{RECRUITER_PREFIX}/", status_code=303)
     # Dev mode without a secret has no sessions to issue; the pages are open anyway.
@@ -137,8 +161,7 @@ def login_with_link(
             max_age=int(settings.session_hours * 3600),
             httponly=True,
             samesite="lax",
-            # Secure follows the scheme the app sees, so a plain-http demo does not loop on login.
-            secure=request.url.scheme == "https",
+            secure=secure_cookies(request),
         )
     return response
 
@@ -179,6 +202,7 @@ def candidate_page(
     candidate_id: str,
     repository: Repository = Depends(get_repository),
     principal: Principal = Depends(require_recruiter_page),
+    recruiter_session: str | None = Cookie(default=None, alias=RECRUITER_COOKIE),
 ) -> Response:
     candidate = repository.get_candidate_detail(candidate_id)
     if candidate is None:
@@ -192,6 +216,8 @@ def candidate_page(
             "statuses": STATUSES,
             "stages": STAGES,
             "principal": principal,
+            "csrf_field": CSRF_FIELD,
+            "csrf_token": session_csrf_token(principal, recruiter_session),
         },
     )
 
@@ -201,10 +227,13 @@ def override_form(
     candidate_id: str,
     status: str = Form(default=""),
     notes: str = Form(default=""),
+    csrf_token: str = Form(default="", alias=CSRF_FIELD),
     repository: Repository = Depends(get_repository),
     principal: Principal = Depends(require_recruiter_page),
+    recruiter_session: str | None = Cookie(default=None, alias=RECRUITER_COOKIE),
 ) -> Response:
     """An empty status keeps the current one; an empty textarea clears the notes."""
+    verify_csrf(principal, csrf_token, recruiter_session)
     try:
         new_status = Status(status) if status else None
     except ValueError as exc:

@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}Sign in{% endblock %}
+{% block header %}{% endblock %}
+{% block styles %}
+    .login { max-width: 380px; margin: 8vh auto 0; }
+    .login h1 { font-size: 40px; }
+    .login button { margin-top: 18px; width: 100%; }
+{% endblock %}
+{% block content %}
+<div class="login card ticket reveal">
+  <p class="kicker">Pase de cocina</p>
+  <h1>Recruiter login</h1>
+  <p>Press the button to finish signing in. The link works once.</p>
+  <form method="post" action="{{ action }}">
+    <button type="submit">Sign in</button>
+  </form>
+</div>
+{% endblock %}

@@ -75,6 +75,7 @@
     <section class="override card reveal" style="--i: 3">
       <h2>Override</h2>
       <form method="post" action="/recruiter/candidates/{{ candidate.id | urlencode }}/override">
+        {% if csrf_token %}<input type="hidden" name="{{ csrf_field }}" value="{{ csrf_token }}">{% endif %}
         <label for="status">Status</label>
         <select id="status" name="status">
           <option value="">keep {{ candidate.status }}</option>

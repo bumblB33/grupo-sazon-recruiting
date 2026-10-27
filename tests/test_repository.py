@@ -90,8 +90,19 @@ def test_login_ip_limit_counts_per_ip_per_window(repository):
     assert acquire(repository, email=emails[2], ip_limit=2, now=later)
 
 
-def test_enrol_recruiter_is_idempotent_and_keeps_deactivation(repository):
-    first = repository.enrol_recruiter("ana@gruposazon.com")
-    assert first.active
-    repository.set_recruiter_active("ana@gruposazon.com", False)
-    assert not repository.enrol_recruiter("ana@gruposazon.com").active
+def test_invite_deactivate_and_reactivate_recruiter(repository):
+    assert repository.invite_recruiter("ana@gruposazon.com").active
+    assert repository.invite_recruiter("ana@gruposazon.com").sessions_valid_after is None
+    repository.deactivate_recruiter("ana@gruposazon.com")
+    blocked = repository.get_recruiter("ana@gruposazon.com")
+    assert not blocked.active and blocked.sessions_valid_after is not None
+    assert repository.reactivate_recruiter("ana@gruposazon.com")
+    assert repository.get_recruiter("ana@gruposazon.com").active
+    assert not repository.reactivate_recruiter("nobody@gruposazon.com")
+
+
+def test_deactivate_blocks_an_address_before_its_first_login(repository):
+    repository.deactivate_recruiter("mallory@gruposazon.com")
+    assert not repository.get_recruiter("mallory@gruposazon.com").active
+    # An invite after a block does not lift the block.
+    assert not repository.invite_recruiter("mallory@gruposazon.com").active

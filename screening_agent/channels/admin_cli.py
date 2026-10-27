@@ -1,16 +1,19 @@
 import argparse
 
-from screening_agent.api.auth import hash_secret, new_api_key
+from screening_agent.api.auth import email_domain_allowed, hash_secret, is_valid_email, new_api_key
+from screening_agent.config import settings
 from screening_agent.storage.repository import Repository
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Recruiter accounts and machine API keys. Recruiters enrol themselves at login."
+        description="Recruiter accounts and machine API keys. Only an invited address can log in."
     )
     parser.add_argument("--db", default=None, help="Database URL, default from settings")
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("recruiters", help="List recruiters")
+    invite = commands.add_parser("invite", help="Allow a work address to log in")
+    invite.add_argument("email")
     deactivate = commands.add_parser("deactivate", help="Block a recruiter's login and sessions")
     deactivate.add_argument("email")
     reactivate = commands.add_parser("reactivate", help="Allow a recruiter to log in again")
@@ -27,10 +30,22 @@ def main() -> None:
         for recruiter in repository.list_recruiters():
             state = "active" if recruiter.active else "deactivated"
             print(f"{recruiter.email}\t{state}\tlast login {recruiter.last_login_at or 'never'}")
-    elif args.command in ("deactivate", "reactivate"):
+    elif args.command == "invite":
         email = args.email.strip().lower()
-        found = repository.set_recruiter_active(email, args.command == "reactivate")
-        print(f"{email} {args.command}d" if found else f"{email} not found")
+        if not is_valid_email(email):
+            parser.error(f"{email!r} is not a plain email address")
+        if not email_domain_allowed(email, settings.recruiter_email_domains):
+            parser.error(f"{email} is not at a domain in SCREENING_RECRUITER_EMAIL_DOMAINS")
+        recruiter = repository.invite_recruiter(email)
+        print(f"{email} invited" if recruiter.active else f"{email} is deactivated; reactivate it")
+    elif args.command == "deactivate":
+        email = args.email.strip().lower()
+        repository.deactivate_recruiter(email)
+        print(f"{email} deactivated")
+    elif args.command == "reactivate":
+        email = args.email.strip().lower()
+        found = repository.reactivate_recruiter(email)
+        print(f"{email} reactivated" if found else f"{email} not found")
     elif args.command == "api-keys":
         for key in repository.list_api_keys():
             state = "active" if key.active else "revoked"

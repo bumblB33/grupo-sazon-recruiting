@@ -41,12 +41,13 @@ class Event(BaseModel):
 
 
 class Recruiter(BaseModel):
-    """One row per person. Deactivating a recruiter ends their sessions and blocks new login links."""
+    """One row per invited person. Deactivating ends sessions issued before it and blocks new links."""
 
     email: str
     active: bool = True
     created_at: datetime = Field(default_factory=utcnow)
     last_login_at: datetime | None = None
+    sessions_valid_after: datetime | None = None
 
 
 class ApiKey(BaseModel):

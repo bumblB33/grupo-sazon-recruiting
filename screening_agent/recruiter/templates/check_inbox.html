@@ -9,7 +9,7 @@
 <div class="login card ticket reveal">
   <p class="kicker">Pase de cocina</p>
   <h1>Check your inbox</h1>
-  <p>If <strong>{{ email }}</strong> belongs to a recruiter, a login link is on its way. It works once and expires soon.</p>
+  <p>If {% if email %}<strong>{{ email }}</strong>{% else %}that address{% endif %} belongs to an invited recruiter, a login link is on its way. It works once and expires soon.</p>
   <p><a href="/recruiter/login">Use a different address</a></p>
 </div>
 {% endblock %}

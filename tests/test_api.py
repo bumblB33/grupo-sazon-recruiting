@@ -1,8 +1,11 @@
+from datetime import UTC, datetime, timedelta
+
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
 
 from screening_agent.api import app as api
-from screening_agent.api.auth import hash_secret, new_api_key
+from screening_agent.api.auth import hash_secret, issue_session, new_api_key
+from screening_agent.api.deps import CSRF_HEADER, RECRUITER_COOKIE, email_sender, get_email_sender
 from screening_agent.channels.whatsapp import _twilio_signature
 from screening_agent.config import settings
 from tests.conftest import RECRUITER_EMAIL, FakeOutbound, log_in, screen_no_licence, twilio_form
@@ -78,9 +81,78 @@ def test_session_cookie_from_login_link_works_on_json_routes(client, email, monk
     log_in(client, email)
     assert client.get("/candidates").status_code == 200
     client.post("/webhook/whatsapp", data=twilio_form("SM1", "+34600", "sí"))
-    client.patch("/candidates/+34600", json={"status": "qualified"})
+    token = client.get("/csrf-token").json()["csrf_token"]
+    patched = client.patch(
+        "/candidates/+34600", json={"status": "qualified"}, headers={CSRF_HEADER: token}
+    )
+    assert patched.status_code == 200
     events = client.get("/candidates/+34600").json()["events"]
     assert events[-1]["payload"]["actor"] == f"recruiter:{RECRUITER_EMAIL}"
+
+
+def test_cookie_writes_on_json_routes_need_the_csrf_header(client, email, monkeypatch):
+    monkeypatch.setattr(settings, "session_secret", SecretStr("sign"))
+    monkeypatch.setattr(settings, "recruiter_email_domains", ["gruposazon.com"])
+    log_in(client, email)
+    client.post("/webhook/whatsapp", data=twilio_form("SM1", "+34600", "sí"))
+    override = {"status": "qualified"}
+    assert client.patch("/candidates/+34600", json=override).status_code == 403
+    forged = {CSRF_HEADER: "0" * 64}
+    assert client.patch("/candidates/+34600", json=override, headers=forged).status_code == 403
+    start = {"phone": "+34600111444"}
+    assert client.post("/candidates", json=start).status_code == 403
+    assert client.get("/candidates/+34600").json()["status"] == "in_progress"
+
+
+def test_api_key_writes_work_without_a_session_secret(client, monkeypatch):
+    monkeypatch.setattr(settings, "dev_mode", False)
+    repository = api.app.dependency_overrides[api.get_repository]()
+    key_id, secret, presented = new_api_key()
+    repository.save_api_key(key_id, hash_secret(secret), "ats-sync")
+    monkeypatch.setattr(settings, "dev_mode", True)
+    client.post(WEBHOOK, data=twilio_form("SM1", "+34600", "sí"))
+    monkeypatch.setattr(settings, "dev_mode", False)
+    headers = {"x-api-key": presented}
+    assert (
+        client.patch("/candidates/+34600", json={"notes": "x"}, headers=headers).status_code == 200
+    )
+    assert client.get("/csrf-token", headers=headers).json() == {"csrf_token": None}
+
+
+def test_json_routes_reject_tampered_and_expired_cookies(client, monkeypatch):
+    monkeypatch.setattr(settings, "session_secret", SecretStr("sign"))
+    monkeypatch.setattr(settings, "recruiter_email_domains", ["gruposazon.com"])
+    client.cookies.set(RECRUITER_COOKIE, issue_session(RECRUITER_EMAIL, "other-secret", 12))
+    assert client.get("/candidates").status_code == 401
+    expired = issue_session(RECRUITER_EMAIL, "sign", 1, now=datetime.now(UTC) - timedelta(hours=2))
+    client.cookies.set(RECRUITER_COOKIE, expired)
+    assert client.get("/candidates").status_code == 401
+
+
+def test_candidate_list_pages_and_rejects_unknown_filters(client):
+    for index in range(3):
+        client.post(WEBHOOK, data=twilio_form(f"SM{index}", f"+3460{index}", "sí"))
+    first = [c["id"] for c in client.get("/candidates", params={"limit": 2}).json()]
+    rest = client.get("/candidates", params={"limit": 2, "offset": 2}).json()
+    paged = first + [c["id"] for c in rest]
+    every = [c["id"] for c in client.get("/candidates").json()]
+    assert len(first) == 2 and paged == every
+    assert client.get("/candidates", params={"status": "qualifed"}).status_code == 422
+    assert client.get("/candidates", params={"stage": "nope"}).status_code == 422
+    assert client.get("/candidates", params={"limit": 0}).status_code == 422
+    assert client.get("/candidates", params={"limit": 501}).status_code == 422
+    assert len(client.get("/candidates", params={"status": "in_progress"}).json()) == 3
+
+
+def test_login_without_mail_settings_does_not_name_them(client, monkeypatch):
+    monkeypatch.setattr(settings, "dev_mode", False)
+    monkeypatch.setattr(settings, "session_secret", SecretStr("sign"))
+    monkeypatch.setattr(settings, "public_url", "https://recruit.gruposazon.com")
+    del api.app.dependency_overrides[get_email_sender]
+    email_sender.cache_clear()
+    response = client.post("/recruiter/login", data={"email": RECRUITER_EMAIL})
+    assert response.status_code == 503
+    assert "SCREENING_" not in response.text
 
 
 def test_recruiter_routes_fail_closed_without_session_secret_outside_dev_mode(client, monkeypatch):

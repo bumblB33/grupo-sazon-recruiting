@@ -156,8 +156,8 @@ class Repository:
         document = self.recruiters.find_one({"_id": email})
         return None if document is None else _recruiter(document)
 
-    def enrol_recruiter(self, email: str) -> Recruiter:
-        """Creates the row on first login and leaves an existing one, including its active flag, alone."""
+    def invite_recruiter(self, email: str) -> Recruiter:
+        """Creates the row that login requires. An existing row, including a deactivation, is kept."""
         document = self.recruiters.find_one_and_update(
             {"_id": email},
             {"$setOnInsert": {"active": True, "created_at": utcnow(), "last_login_at": None}},
@@ -169,9 +169,21 @@ class Repository:
     def mark_recruiter_login(self, email: str) -> None:
         self.recruiters.update_one({"_id": email}, {"$set": {"last_login_at": utcnow()}})
 
-    def set_recruiter_active(self, email: str, active: bool) -> bool:
+    def deactivate_recruiter(self, email: str) -> None:
+        """Upserts, so an address can be blocked before it is ever invited or logs in."""
+        now = utcnow()
+        self.recruiters.update_one(
+            {"_id": email},
+            {
+                "$set": {"active": False, "sessions_valid_after": now},
+                "$setOnInsert": {"created_at": now, "last_login_at": None},
+            },
+            upsert=True,
+        )
+
+    def reactivate_recruiter(self, email: str) -> bool:
         return (
-            self.recruiters.update_one({"_id": email}, {"$set": {"active": active}}).matched_count
+            self.recruiters.update_one({"_id": email}, {"$set": {"active": True}}).matched_count
             == 1
         )
 
@@ -215,6 +227,10 @@ class Repository:
             {"_id": token_hash, "email": email, "expires_at": expires_at, "used_at": None}
         )
 
+    def login_token_is_live(self, token_hash: str, now: datetime) -> bool:
+        query = {"_id": token_hash, "used_at": None, "expires_at": {"$gt": now}}
+        return self.login_tokens.count_documents(query, limit=1) == 1
+
     def consume_login_token(self, token_hash: str, now: datetime) -> str | None:
         """Single use: the conditional update is the lock, so two clicks cannot both log in."""
         document = self.login_tokens.find_one_and_update(
@@ -256,14 +272,21 @@ class Repository:
         ]
 
     def list_candidates(
-        self, status: str | None = None, stage: str | None = None
+        self, status: str | None = None, stage: str | None = None, limit: int = 0, offset: int = 0
     ) -> list[Candidate]:
+        """A limit of 0 returns every match, which is MongoDB's own meaning of limit 0."""
         query: dict[str, Any] = {}
         if status:
             query["status"] = status
         if stage:
             query["stage"] = stage
-        cursor = self.candidates.find(query, _CANDIDATE_FIELDS).sort("updated_at", DESCENDING)
+        cursor = (
+            self.candidates.find(query, _CANDIDATE_FIELDS)
+            # _id breaks updated_at ties, so pages neither repeat nor skip a candidate.
+            .sort([("updated_at", DESCENDING), ("_id", ASCENDING)])
+            .skip(offset)
+            .limit(limit)
+        )
         return [_candidate(document) for document in cursor]
 
     def get_candidate(self, candidate_id: str) -> Candidate | None:
@@ -410,4 +433,5 @@ def _recruiter(document: dict[str, Any]) -> Recruiter:
         active=document["active"],
         created_at=document["created_at"],
         last_login_at=document.get("last_login_at"),
+        sessions_valid_after=document.get("sessions_valid_after"),
     )

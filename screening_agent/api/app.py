@@ -1,15 +1,28 @@
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Request, Response
+from fastapi import (
+    BackgroundTasks,
+    Cookie,
+    Depends,
+    FastAPI,
+    Header,
+    HTTPException,
+    Query,
+    Request,
+    Response,
+)
 from pydantic import BaseModel, Field
 
 from screening_agent.api.auth import Principal
 from screening_agent.api.deps import (
+    RECRUITER_COOKIE,
     get_engine,
     get_repository,
     get_whatsapp_outbound,
     require_recruiter,
+    require_recruiter_write,
+    session_csrf_token,
 )
 from screening_agent.channels.whatsapp import (
     InboundWhatsAppMessage,
@@ -17,13 +30,16 @@ from screening_agent.channels.whatsapp import (
     verify_twilio_signature,
 )
 from screening_agent.config import settings
-from screening_agent.domain.enums import Language, Status
+from screening_agent.domain.enums import Language, Stage, Status
 from screening_agent.flow.engine import OutboundChannel, ScreeningEngine
 from screening_agent.recruiter.router import recruiter_router
 from screening_agent.storage.models import Candidate, CandidateDetail
 from screening_agent.storage.repository import Repository
 
 logger = logging.getLogger(__name__)
+
+DEFAULT_PAGE_SIZE = 100
+MAX_PAGE_SIZE = 500
 
 
 @asynccontextmanager
@@ -97,7 +113,7 @@ def whatsapp_webhook(
     )
 
 
-@app.post("/candidates", status_code=201, dependencies=[Depends(require_recruiter)])
+@app.post("/candidates", status_code=201, dependencies=[Depends(require_recruiter_write)])
 def start_candidate(
     body: StartRequest,
     engine: ScreeningEngine = Depends(get_engine),
@@ -111,11 +127,13 @@ def start_candidate(
 
 @app.get("/candidates", dependencies=[Depends(require_recruiter)])
 def list_candidates(
-    status: str | None = None,
-    stage: str | None = None,
+    status: Status | None = None,
+    stage: Stage | None = None,
+    limit: int = Query(default=DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
+    offset: int = Query(default=0, ge=0),
     repository: Repository = Depends(get_repository),
 ) -> list[Candidate]:
-    return repository.list_candidates(status=status, stage=stage)
+    return repository.list_candidates(status=status, stage=stage, limit=limit, offset=offset)
 
 
 @app.get("/candidates/{candidate_id}", dependencies=[Depends(require_recruiter)])
@@ -133,7 +151,7 @@ def override_candidate(
     candidate_id: str,
     body: OverrideRequest,
     repository: Repository = Depends(get_repository),
-    principal: Principal = Depends(require_recruiter),
+    principal: Principal = Depends(require_recruiter_write),
 ) -> Candidate:
     candidate = repository.override(candidate_id, body.status, body.notes, principal.label)
     if candidate is None:
@@ -144,3 +162,12 @@ def override_candidate(
 @app.get("/analytics", dependencies=[Depends(require_recruiter)])
 def analytics(repository: Repository = Depends(get_repository)) -> dict:
     return repository.funnel()
+
+
+@app.get("/csrf-token")
+def get_csrf_token(
+    principal: Principal = Depends(require_recruiter),
+    recruiter_session: str | None = Cookie(default=None, alias=RECRUITER_COOKIE),
+) -> dict[str, str | None]:
+    """Cookie callers echo this in X-CSRF-Token on JSON writes; API-key callers get null."""
+    return {"csrf_token": session_csrf_token(principal, recruiter_session)}

@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}{{ candidate.id }}{% endblock %}
+{% block head %}{% if refresh_seconds %}<meta http-equiv="refresh" content="{{ refresh_seconds }}">{% endif %}{% endblock %}
 {% block styles %}
     .back { font: 600 11px var(--mono); letter-spacing: 0.14em; text-transform: uppercase; text-decoration: none; }
     .facts { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; margin: 10px 0 0; }
@@ -22,6 +23,16 @@
     .transcript .out { background: var(--ink); color: var(--paper); margin-left: auto; border-bottom-right-radius: 2px; }
     .transcript .out .meta { color: var(--paper-deep); opacity: 0.7; }
     .transcript .meta { margin-top: 4px; }
+    .transcript .in { max-width: 100%; }
+    .inspector { margin-top: 10px; padding: 8px 12px; background: var(--card); border: 1px dashed var(--rule); border-radius: 4px; font-size: 13px; }
+    .inspector summary { cursor: pointer; font: 600 10px var(--mono); letter-spacing: 0.16em; text-transform: uppercase; color: var(--muted); }
+    .inspector dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; margin: 10px 0 0; }
+    .inspector dt { font: 600 10px/1.6 var(--mono); letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
+    .inspector dd { margin: 0; word-break: break-word; }
+    .inspector .call { display: block; }
+    .inspector .accepted { color: var(--agave); }
+    .inspector .rejected { color: var(--chile); }
+    .inspector .replaced { font-style: italic; color: var(--muted); }
     .summary pre { font: 15px/1.6 var(--body); }
     .profile { background: var(--ink); color: var(--marigold); border-color: var(--ink); }
     .profile pre { color: var(--paper); }
@@ -57,13 +68,7 @@
 <div class="detail">
   <section>
     <h2>Transcript</h2>
-    <ul class="transcript card">
-    {% for entry in candidate.transcript %}
-      <li class="{{ entry.direction }}" style="--i: {{ loop.index0 }}">{{ entry.body }}<div class="meta">{{ entry.channel }} · {{ entry.created_at.strftime("%Y-%m-%d %H:%M") }}</div></li>
-    {% else %}
-      <li class="meta" style="--i: 0">No messages yet.</li>
-    {% endfor %}
-    </ul>
+    {% include "_transcript.html" %}
   </section>
 
   <div>

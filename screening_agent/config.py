@@ -66,6 +66,8 @@ class Settings(BaseSettings):
     logfire_token: SecretStr | None = None
     # Keys the candidate hash in traces; a plain hash of a phone number is reversible by enumeration.
     candidate_hash_secret: SecretStr | None = None
+    # The recruiter candidate page reloads itself at this interval while the conversation is open; 0 disables it.
+    candidate_page_refresh_seconds: int = 5
     # Only dev mode lets the API run without a recruiter key or webhook secret.
     dev_mode: bool = False
 

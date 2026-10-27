@@ -1,0 +1,9 @@
+<ul class="transcript card">
+{% for message in transcript %}
+  <li class="{{ message.direction }}" style="--i: {{ loop.index0 }}">{{ message.body }}<div class="meta">{{ message.channel }} · {{ message.created_at.strftime("%Y-%m-%d %H:%M") }}</div>
+    {% if message.turn %}{% with turn = message.turn %}{% include "_turn.html" %}{% endwith %}{% endif %}
+  </li>
+{% else %}
+  <li class="meta" style="--i: 0">No messages yet.</li>
+{% endfor %}
+</ul>

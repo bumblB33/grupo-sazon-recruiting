@@ -29,6 +29,7 @@ from screening_agent.api.deps import (
 from screening_agent.channels.email import EmailSender, EmailSendError
 from screening_agent.config import settings
 from screening_agent.domain.enums import Stage, Status
+from screening_agent.recruiter.views import transcript_views
 from screening_agent.storage.repository import Repository
 
 logger = logging.getLogger(__name__)
@@ -212,6 +213,12 @@ def candidate_page(
         "candidate.html",
         {
             "candidate": candidate,
+            "transcript": transcript_views(candidate.transcript),
+            "refresh_seconds": (
+                settings.candidate_page_refresh_seconds
+                if candidate.status == Status.IN_PROGRESS
+                else 0
+            ),
             "profile_json": json.dumps(candidate.profile, indent=2, ensure_ascii=False),
             "statuses": STATUSES,
             "stages": STAGES,

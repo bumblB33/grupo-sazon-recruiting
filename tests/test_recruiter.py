@@ -313,3 +313,16 @@ def test_detail_route_marks_nothing_done_for_an_unknown_stage(client):
     repository.candidates.update_one({"_id": "+34600"}, {"$set": {"stage": "retired_stage"}})
     page = client.get(route).text
     assert 'class="done"' not in page and 'class="here"' not in page
+
+
+def test_detail_shows_the_turn_inspector_and_refreshes_only_while_in_progress(client):
+    screen_no_licence(client, "+34600")
+    closed_page = client.get(f"{RECRUITER_PREFIX}/candidates/+34600").text
+    assert 'http-equiv="refresh"' not in closed_page
+    assert "Why this reply" in closed_page
+    assert "has_licence &rarr; zone · disqualified" in closed_page
+    assert "fixed closing message" in closed_page
+    client.post("/webhook/whatsapp", data=twilio_form("SM-open", "+34601", "sí"))
+    open_page = client.get(f"{RECRUITER_PREFIX}/candidates/+34601").text
+    assert '<meta http-equiv="refresh" content="5">' in open_page
+    assert "consent &rarr; full_name" in open_page

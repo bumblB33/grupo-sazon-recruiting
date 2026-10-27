@@ -1,0 +1,25 @@
+<details class="inspector"{% if message.expanded %} open{% endif %}>
+  <summary>Why this reply</summary>
+  <dl>
+    <dt>Stage</dt><dd class="mono">{{ turn.stage_before }} &rarr; {{ turn.stage_after }} · {{ turn.status_after }}</dd>
+    <dt>Guardrail</dt><dd class="mono">{{ turn.guardrail_category or "not run" }}{% if turn.tone %} · tone {{ turn.tone }}{% endif %}</dd>
+    <dt>Tools exposed</dt><dd class="mono">{{ turn.tools_exposed | join(", ") or "none" }}</dd>
+    <dt>Tool calls</dt>
+    <dd>
+      {% for call in turn.tool_calls %}
+        <span class="call {{ 'accepted' if call.accepted else 'rejected' }}"><span class="mono">{{ call.name }}</span> {{ "accepted" if call.accepted else "rejected" }}{% if call.message %}: {{ call.message }}{% endif %}</span>
+      {% else %}<span class="meta">none</span>{% endfor %}
+    </dd>
+    <dt>Reply source</dt><dd><span class="mono">{{ turn.reply_source }}</span> · {{ turn.reply_source_label }}</dd>
+    {% if turn.violated_rules %}<dt>Rules broken</dt><dd class="mono">{{ turn.violated_rules | join(", ") }}</dd>{% endif %}
+    {% if turn.replaced_model_text %}<dt>Model text replaced</dt><dd class="replaced">{{ turn.replaced_model_text }}</dd>{% endif %}
+    <dt>Model calls</dt>
+    <dd>
+      {% for row in turn.usage %}
+        <span class="mono">{{ row.call }} · {{ row.model }} · {{ row.tokens }} · {{ row.latency_ms }} ms</span><br>
+      {% else %}<span class="meta">none</span>{% endfor %}
+    </dd>
+    <dt>Turn latency</dt><dd class="mono">{{ turn.latency_ms }} ms</dd>
+    {% if turn.trace_id %}<dt>Trace</dt><dd class="mono">{{ turn.trace_id }}{% if turn.candidate_hash %} · candidate {{ turn.candidate_hash }}{% endif %}</dd>{% endif %}
+  </dl>
+</details>

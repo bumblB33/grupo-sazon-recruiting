@@ -415,6 +415,8 @@ class Repository:
             "review_reason": str_or_none(state.get("review_reason")),
             "profile": state.get("profile", {}),
             "applicant_name": state.get("applicant_name"),
+            "concerns": list(state.get("concerns", [])),
+            "candidate_questions": list(state.get("candidate_questions", [])),
             "channel": channel,
             "version": expected + 1,
             "state": {

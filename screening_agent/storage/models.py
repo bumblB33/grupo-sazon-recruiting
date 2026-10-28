@@ -22,6 +22,9 @@ class Candidate(BaseModel):
     profile: dict[str, Any] = Field(default_factory=dict)
     # The name on the application, from the client that opened the conversation; not what the candidate said.
     applicant_name: str | None = None
+    # What the agent flagged for a recruiter to check, and what the candidate asked to pass on.
+    concerns: list[str] = Field(default_factory=list)
+    candidate_questions: list[str] = Field(default_factory=list)
     summary: str | None = None
     recruiter_notes: str | None = None
     created_at: datetime

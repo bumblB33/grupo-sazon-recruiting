@@ -22,7 +22,13 @@ from screening_agent.flow.silence import (
     nudges_due,
     silence_action,
 )
-from screening_agent.flow.state import ScreeningState, initial_state, is_closed, stage_of
+from screening_agent.flow.state import (
+    ScreeningState,
+    initial_state,
+    is_closed,
+    is_decided,
+    stage_of,
+)
 from screening_agent.flow.turn_record import ReplySource, TurnRecord
 from screening_agent.llm.guardrail import Guardrail, GuardrailVerdict
 from screening_agent.llm.models import chat_model
@@ -67,7 +73,8 @@ class Outcome(StrEnum):
 class HandleResult:
     outcome: Outcome
     reply: str = ""
-    # True on the turn that reached a terminal status; the channel then schedules summarize_outcome.
+    # True on the turn that decided the outcome and again on the one that closed the chat with the
+    # candidate's questions; the channel then schedules summarize_outcome.
     terminal: bool = False
     turn: TurnRecord | None = None
 
@@ -105,10 +112,9 @@ class ScreeningEngine:
         text: str,
         channel: str,
         external_id: str | None = None,
-        create_if_missing: bool = True,
     ) -> HandleResult:
-        """With create_if_missing False an id with no conversation gets Outcome.UNKNOWN under the
-        lock, so a reset between a caller's check and this call cannot open an opener-less one."""
+        """Every conversation starts with start_conversation and its fixed opener: an id with no
+        conversation gets Outcome.UNKNOWN under the lock, so no turn ever runs without the disclosure."""
         hashed = candidate_hash(candidate_id)
         with self._locks[candidate_id], TRACER.start_as_current_span("handle") as span:
             span.set_attribute("channel", channel)
@@ -119,7 +125,7 @@ class ScreeningEngine:
             for _ in range(STALE_RETRIES + 1):
                 started = time.perf_counter()
                 state = self.repository.load_state(candidate_id)
-                if not create_if_missing and state.get("version", 0) == 0:
+                if state.get("version", 0) == 0:
                     return _traced(span, HandleResult(Outcome.UNKNOWN))
                 if is_closed(state):
                     self.repository.record_message(candidate_id, "in", channel, text, external_id)
@@ -139,8 +145,9 @@ class ScreeningEngine:
                     return _traced(span, HandleResult(Outcome.DUPLICATE))
                 except StaleStateError:
                     continue
-                terminal = is_closed(new_state)
-                if terminal:
+                decided = is_decided(new_state) and not is_decided(state)
+                terminal = decided or (is_closed(new_state) and not is_closed(state))
+                if decided:
                     self._record_outcome(candidate_id, new_state)
                 span.set_attributes(
                     {
@@ -209,17 +216,16 @@ class ScreeningEngine:
         return SweepReport(nudged=nudged, abandoned=abandoned, failed=failed)
 
     def summarize_outcome(self, candidate_id: str) -> None:
-        """Runs the summary LLM call outside the candidate lock and after the reply is sent."""
+        """Runs the summary LLM call outside the candidate lock and after the reply is sent. Runs
+        again when the wrap-up reply lands, so the summary carries the candidate's questions."""
         state = self.repository.load_state(candidate_id)
-        if not is_closed(state):
+        if not is_decided(state):
             return
         with TRACER.start_as_current_span("summary") as span:
             _set_candidate(span, candidate_id)
             started = time.perf_counter()
             try:
-                message = self.summarizer(
-                    state.get("profile", {}), str(state["status"]), state["messages"]
-                )
+                message = self.summarizer(state)
             except Exception as exc:  # a failed summary must not fail the candidate's reply
                 span.set_attribute("error", type(exc).__name__)
                 self.repository.record_event(candidate_id, "summary_failed", {"error": str(exc)})

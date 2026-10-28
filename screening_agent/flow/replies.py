@@ -91,6 +91,10 @@ REVIEW: dict[ReviewReason, dict[Language, str]] = {
         Language.ES: "Gracias. Un reclutador revisará los datos de tu solicitud y te escribe.",
         Language.EN: "Thanks. A recruiter will check your application details and get back to you.",
     },
+    ReviewReason.RECRUITER_CHECK: {
+        Language.ES: "Gracias, eso es todo lo que necesitaba preguntarte. Un reclutador revisará tus respuestas y te escribirá.",
+        Language.EN: "Thanks, that's everything I needed to ask. A recruiter will go over your answers and get back to you.",
+    },
 }
 
 OFF_TOPIC_REDIRECT: dict[Language, str] = {
@@ -98,9 +102,26 @@ OFF_TOPIC_REDIRECT: dict[Language, str] = {
     Language.EN: "Let's stick to your application, it's quick. Back to the previous question.",
 }
 
+# A passed screening is not an offer: the text promises a recruiter contact, nothing about the job.
 QUALIFIED: dict[Language, str] = {
-    Language.ES: "¡Listo, {first_name}! Cumples lo que buscamos. Un reclutador te escribirá para agendar una entrevista corta.",
-    Language.EN: "All set, {first_name}! You meet what we're looking for. A recruiter will message you to book a short interview.",
+    Language.ES: "¡Gracias, {first_name}, eso es todo! Tus respuestas pasan ahora a un reclutador, que te escribirá para contarte los siguientes pasos.",
+    Language.EN: "Thanks, {first_name}, that's everything! Your answers now go to a recruiter, who will message you about the next steps.",
+}
+
+# Appended to the outcome message; opt-outs (declined consent, stop request) never get it.
+QUESTIONS_PROMPT: dict[Language, str] = {
+    Language.ES: "Antes de despedirme: ¿tienes alguna pregunta sobre el puesto que quieras que le pase al reclutador?",
+    Language.EN: "Before I go: do you have any questions about the job you'd like me to pass on to the recruiter?",
+}
+
+CLOSING_WITH_QUESTIONS: dict[Language, str] = {
+    Language.ES: "Anotado, el reclutador verá tus preguntas. ¡Gracias por tu tiempo!",
+    Language.EN: "Noted, the recruiter will see your questions. Thanks for your time!",
+}
+
+CLOSING_WITHOUT_QUESTIONS: dict[Language, str] = {
+    Language.ES: "Perfecto. ¡Gracias por tu tiempo!",
+    Language.EN: "Great. Thanks for your time!",
 }
 
 OPENER: dict[Language, str] = {

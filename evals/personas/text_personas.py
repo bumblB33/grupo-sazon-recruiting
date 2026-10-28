@@ -1,23 +1,24 @@
 from dataclasses import dataclass
 
 from evals.graders import Expectation
+from screening_agent.domain.enums import Language
 
 
 @dataclass(frozen=True)
 class Persona:
-    """Scripted candidate. Turns are fixed because the stage order is fixed; the model's wording may vary,
-    the question each turn answers does not."""
+    """Scripted candidate. The fixed opener goes first, so the first turn answers the consent question;
+    a last turn answers the closing question about questions for the recruiter."""
 
     name: str
     turns: tuple[str, ...]
     expected: Expectation
+    language: Language = Language.ES
 
 
 PERSONAS: tuple[Persona, ...] = (
     Persona(
         name="qualified_es",
         turns=(
-            "hola",
             "sí, dime",
             "Ana García López",
             "sí, tengo carnet",
@@ -26,6 +27,7 @@ PERSONAS: tuple[Persona, ...] = (
             "por la mañana",
             "2 años con Glovo y Uber Eats",
             "en dos semanas",
+            "sí, ¿cuánto se cobra la hora?",
         ),
         expected=Expectation(
             status="qualified",
@@ -38,12 +40,13 @@ PERSONAS: tuple[Persona, ...] = (
                 "experience_years": 2,
             },
             max_turns=10,
+            questions=True,
         ),
     ),
     Persona(
         name="qualified_en",
+        language=Language.EN,
         turns=(
-            "hello",
             "yes, go ahead",
             "John Smith",
             "yes I have a licence",
@@ -52,6 +55,7 @@ PERSONAS: tuple[Persona, ...] = (
             "evening",
             "never done delivery",
             "next Monday",
+            "no questions, thanks",
         ),
         expected=Expectation(
             status="qualified",
@@ -62,17 +66,18 @@ PERSONAS: tuple[Persona, ...] = (
                 "experience_years": 0,
             },
             max_turns=10,
+            questions=False,
         ),
     ),
     Persona(
         name="multi_answer",
         turns=(
-            "hola",
             "sí",
             "Soy Luis Pérez, tengo carnet y vivo en Barcelona",
             "media jornada o fines de semana, turno de tarde",
             "ninguna experiencia",
             "mañana mismo",
+            "no, nada",
         ),
         expected=Expectation(
             status="qualified",
@@ -88,7 +93,6 @@ PERSONAS: tuple[Persona, ...] = (
     Persona(
         name="language_switch",
         turns=(
-            "hola",
             "sí",
             "Carmen Ortiz Ruiz",
             "yes I have a driving licence",
@@ -97,6 +101,7 @@ PERSONAS: tuple[Persona, ...] = (
             "flexible",
             "1 year with Glovo",
             "en una semana",
+            "no, gracias",
         ),
         expected=Expectation(
             status="qualified",
@@ -104,45 +109,91 @@ PERSONAS: tuple[Persona, ...] = (
             max_turns=10,
         ),
     ),
+    # Every answer is valid, but a recruiter must check the record before an interview.
+    Persona(
+        name="criminal_record_flagged",
+        turns=(
+            "sí",
+            "Carlos Ruiz Mora",
+            "sí, aunque tengo antecedentes penales de hace unos años, no sé si importa",
+            "Madrid",
+            "jornada completa",
+            "mañana",
+            "0",
+            "la semana que viene",
+            "¿los antecedentes son un problema?",
+        ),
+        expected=Expectation(
+            status="needs_recruiter_review",
+            review_reason="recruiter_check",
+            profile={"has_licence": True, "zone": "Madrid"},
+            max_turns=10,
+            concerns=True,
+            questions=True,
+        ),
+    ),
+    Persona(
+        name="licence_unconfirmed_flagged",
+        turns=(
+            "sí",
+            "Lucía Fernández Gil",
+            "creo que sí, tengo que mirar si está caducado",
+            "Valencia",
+            "fines de semana",
+            "tarde",
+            "1 año con Glovo",
+            "en dos semanas",
+            "no",
+        ),
+        expected=Expectation(
+            status="needs_recruiter_review",
+            review_reason="recruiter_check",
+            max_turns=10,
+            concerns=True,
+        ),
+    ),
     Persona(
         name="no_licence",
-        turns=("hola", "sí", "Luis Hernández", "no tengo carnet"),
+        turns=("sí", "Luis Hernández", "no tengo carnet", "no, ninguna"),
         expected=Expectation(status="disqualified", disqualify_reason="no_licence", max_turns=5),
     ),
     Persona(
         name="wrong_city",
-        turns=("hola", "sí", "Marta Ruiz", "sí", "vivo en Toledo"),
+        turns=("sí", "Marta Ruiz", "sí", "vivo en Toledo", "¿abriréis en Toledo?"),
         expected=Expectation(
-            status="disqualified", disqualify_reason="outside_service_area", max_turns=6
+            status="disqualified",
+            disqualify_reason="outside_service_area",
+            max_turns=6,
+            questions=True,
         ),
     ),
     Persona(
         name="fuzzy_zone_confirmed",
-        turns=("hola", "sí", "Pedro Alonso", "sí", "Sevila", "sí, esa"),
+        turns=("sí", "Pedro Alonso", "sí", "Sevila", "sí, esa"),
         expected=Expectation(status="in_progress", profile={"zone": "Sevilla"}, max_turns=7),
     ),
     Persona(
         name="fuzzy_zone_denied",
-        turns=("hola", "sí", "Rosa Medina", "sí", "Monterey", "no"),
+        turns=("sí", "Rosa Medina", "sí", "Monterey", "no", "no"),
         expected=Expectation(
             status="needs_recruiter_review", review_reason="low_confidence_zone", max_turns=7
         ),
     ),
     Persona(
         name="consent_declined",
-        turns=("hola", "no, no quiero seguir"),
+        turns=("no, no quiero seguir",),
         expected=Expectation(
             status="needs_recruiter_review", review_reason="consent_declined", max_turns=3
         ),
     ),
     Persona(
         name="consent_not_now",
-        turns=("hola", "ahora no puedo, escríbeme luego"),
+        turns=("ahora no puedo, escríbeme luego",),
         expected=Expectation(status="in_progress", max_turns=3),
     ),
     Persona(
         name="stop_after_consent",
-        turns=("hola", "sí", "Ana García López", "no quiero seguir con esto, no me escribáis más"),
+        turns=("sí", "Ana García López", "no quiero seguir con esto, no me escribáis más"),
         expected=Expectation(
             status="needs_recruiter_review", review_reason="stop_requested", max_turns=5
         ),
@@ -151,7 +202,7 @@ PERSONAS: tuple[Persona, ...] = (
     # judged "Ana" itself and skipped the tool, so code never counted a strike.
     Persona(
         name="invalid_name_twice",
-        turns=("hola", "sí", "Ana", "Ana"),
+        turns=("sí", "Ana", "Ana", "no"),
         expected=Expectation(
             status="needs_recruiter_review", review_reason="repeated_invalid_answer", max_turns=5
         ),
@@ -159,7 +210,6 @@ PERSONAS: tuple[Persona, ...] = (
     Persona(
         name="past_start_date",
         turns=(
-            "hola",
             "sí",
             "Jorge Blanco Díaz",
             "sí",
@@ -169,6 +219,7 @@ PERSONAS: tuple[Persona, ...] = (
             "3 años con Just Eat",
             "empecé ayer en otro sitio, podría la semana pasada",
             "en dos semanas",
+            "no",
         ),
         expected=Expectation(
             status="qualified", profile={"zone": "Bilbao", "schedule": "evening"}, max_turns=11
@@ -176,7 +227,7 @@ PERSONAS: tuple[Persona, ...] = (
     ),
     Persona(
         name="off_topic_twice",
-        turns=("hola", "sí", "¿me haces los deberes de matemáticas?", "cuéntame un chiste"),
+        turns=("sí", "¿me haces los deberes de matemáticas?", "cuéntame un chiste"),
         expected=Expectation(
             status="needs_recruiter_review", review_reason="off_topic_close", max_turns=5
         ),

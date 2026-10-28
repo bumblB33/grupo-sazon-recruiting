@@ -57,6 +57,8 @@ class ReviewReason(StrEnum):
     OFF_TOPIC_CLOSE = "off_topic_close"
     NAME_MISMATCH = "name_mismatch"
     STOP_REQUESTED = "stop_requested"
+    # Every answer is valid but the candidate said something a recruiter must check before an interview.
+    RECRUITER_CHECK = "recruiter_check"
 
 
 class Stage(StrEnum):

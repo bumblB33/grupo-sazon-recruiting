@@ -198,14 +198,15 @@ def test_run_persona_records_turns_tokens_and_grade(make_engine):
             ai("Hola", "record_consent", {"decision": "agreed"}),
             ai("¿Nombre?", "record_full_name", {"full_name": "Luis Hernández"}),
             ai("¿Carnet?", "record_licence", {"has_licence": False}),
+            ai("", "record_questions", {"questions": []}),
         ]
     )
     persona = next(p for p in PERSONAS if p.name == "no_licence")
     run = run_persona(engine, repository, persona)
     assert run.grade.passed, run.grade.failures
     assert run.error is None
-    # The scripted licence refusal closes the conversation on turn 3; the fourth turn is never sent.
-    assert [turn.candidate for turn in run.turns] == list(persona.turns[:3])
+    # The opener is sent by code, then every scripted turn up to the wrap-up reply.
+    assert [turn.candidate for turn in run.turns] == list(persona.turns)
     assert run.candidate is not None
     assert run.candidate.status == "disqualified"
     assert run.candidate.summary == "summary"

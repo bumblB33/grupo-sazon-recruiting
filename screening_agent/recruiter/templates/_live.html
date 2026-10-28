@@ -44,6 +44,14 @@
   <section class="summary card ticket reveal" style="--i: 2">
     <h2>Summary</h2>
     {% if candidate.summary %}<pre>{{ candidate.summary }}</pre>{% else %}<p class="meta">No summary yet.</p>{% endif %}
+    {% if candidate.concerns %}
+    <h3>Check before an interview</h3>
+    <ul>{% for concern in candidate.concerns %}<li>{{ concern }}</li>{% endfor %}</ul>
+    {% endif %}
+    {% if candidate.candidate_questions %}
+    <h3>Candidate's questions</h3>
+    <ul>{% for question in candidate.candidate_questions %}<li>{{ question }}</li>{% endfor %}</ul>
+    {% endif %}
   </section>
 </div>
 {% endmacro %}

@@ -26,6 +26,7 @@ LABELS: dict[str, dict[str, str]] = {
         "off_topic_close": "Closed for going off topic",
         "name_mismatch": "Name differs from application",
         "stop_requested": "Candidate asked to stop",
+        "recruiter_check": "Flagged for a recruiter check",
     },
     "event": {
         "outcome": "Outcome reached",
@@ -41,6 +42,8 @@ LABELS: dict[str, dict[str, str]] = {
     "tool": {
         "record_consent": "Recorded consent",
         "request_stop": "Candidate asked to stop",
+        "flag_for_recruiter": "Flagged for a recruiter check",
+        "record_questions": "Recorded questions for the recruiter",
         "record_full_name": "Recorded name",
         "confirm_name": "Confirmed name",
         "record_licence": "Recorded licence",

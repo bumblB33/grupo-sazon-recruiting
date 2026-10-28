@@ -14,8 +14,20 @@ from screening_agent.domain.names import first_name
 from screening_agent.domain.profile import CandidateProfile
 from screening_agent.flow import replies
 from screening_agent.flow.reply_policy import style_failures
-from screening_agent.flow.state import ScreeningState, is_closed, stage_of
-from screening_agent.flow.tools import ALL_TOOLS, TOOL_STAGE, request_stop, tools_for
+from screening_agent.flow.state import (
+    ScreeningState,
+    awaiting_questions,
+    is_closed,
+    is_decided,
+    stage_of,
+)
+from screening_agent.flow.tools import (
+    ALL_TOOLS,
+    TOOL_STAGE,
+    record_questions,
+    request_stop,
+    tools_for,
+)
 from screening_agent.flow.transitions import Transition, apply_patch, qualify_if_complete
 from screening_agent.flow.turn_record import ReplySource, ToolCallRecord
 from screening_agent.llm.turn import (
@@ -29,12 +41,17 @@ from screening_agent.llm.usage import elapsed_ms, usage_of
 
 PromptBuilder = Callable[[ScreeningState, Stage], str]
 
+# The candidate asked not to be contacted, so the outcome message must not ask anything back.
+OPT_OUT_REASONS = frozenset({ReviewReason.CONSENT_DECLINED, ReviewReason.STOP_REQUESTED})
+
 
 class UnexpectedModelOutputError(RuntimeError):
     pass
 
 
 def exposed_tools(state: Mapping[str, Any]):
+    if awaiting_questions(state):
+        return [record_questions]
     profile = CandidateProfile.model_validate(state.get("profile", {}))
     return tools_for(
         stage_of(state),
@@ -76,6 +93,7 @@ def build_graph(llm: BaseChatModel, build_prompt: PromptBuilder, model_id: str =
             )
         language = state.get("language", Language.ES)
         turn_state = TurnState(state)
+        wrapping_up = awaiting_questions(state)
         tool_messages: list[ToolMessage | AIMessage] = []
         call_records: list[ToolCallRecord] = []
         rejections: list[tuple[Stage, str]] = []
@@ -116,20 +134,26 @@ def build_graph(llm: BaseChatModel, build_prompt: PromptBuilder, model_id: str =
             confirm_name = transition.confirm_name or confirm_name
             consent_deferred = consent_deferred or transition.consent_deferred
 
-        # A strike is one rejected candidate message per stage, not one per tool call in it.
-        for stage in dict.fromkeys(strike_stages):
-            turn_state.apply(_count_rejection(turn_state.working, stage))
-        turn_state.apply(qualify_if_complete(turn_state.working))
-
-        choice = _choose_reply(
-            turn_state.working,
-            language,
-            rejections,
-            confirm_area,
-            confirm_name,
-            consent_deferred,
-            last.text,
-        )
+        if wrapping_up:
+            # The wrap-up turn always closes, whatever the model called; the closing text is fixed.
+            turn_state.apply({"closed": True})
+            choice = ReplyChoice(_closing_reply(turn_state.working, language), ReplySource.TERMINAL)
+        else:
+            # A strike is one rejected candidate message per stage, not one per tool call in it.
+            for stage in dict.fromkeys(strike_stages):
+                turn_state.apply(_count_rejection(turn_state.working, stage))
+            turn_state.apply(qualify_if_complete(turn_state.working))
+            if is_decided(turn_state.working):
+                turn_state.apply({"closed": _opts_out(turn_state.working)})
+            choice = _choose_reply(
+                turn_state.working,
+                language,
+                rejections,
+                confirm_area,
+                confirm_name,
+                consent_deferred,
+                last.text,
+            )
         turn = {
             **state.get("turn", {}),
             "tool_calls": call_records,
@@ -338,7 +362,19 @@ def _language_of_last_human(state: ScreeningState) -> Language:
     return state.get("language", Language.ES)
 
 
+def _opts_out(state: dict[str, Any]) -> bool:
+    return state.get("review_reason") in OPT_OUT_REASONS
+
+
 def _terminal_reply(state: dict[str, Any], language: Language) -> str | None:
+    """The outcome message, plus the question for the recruiter when the chat stays open for it."""
+    outcome = _outcome_reply(state, language)
+    if outcome is None or state.get("closed", True):
+        return outcome
+    return f"{outcome} {replies.QUESTIONS_PROMPT[language]}"
+
+
+def _outcome_reply(state: dict[str, Any], language: Language) -> str | None:
     status = state.get("status", Status.IN_PROGRESS)
     if status == Status.DISQUALIFIED:
         return replies.DISQUALIFIED[state["disqualify_reason"]][language]
@@ -348,3 +384,9 @@ def _terminal_reply(state: dict[str, Any], language: Language) -> str | None:
         name = first_name(state.get("profile", {}).get("full_name") or "")
         return replies.QUALIFIED[language].format(first_name=name)
     return None
+
+
+def _closing_reply(state: dict[str, Any], language: Language) -> str:
+    if state.get("candidate_questions"):
+        return replies.CLOSING_WITH_QUESTIONS[language]
+    return replies.CLOSING_WITHOUT_QUESTIONS[language]

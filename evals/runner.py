@@ -61,9 +61,10 @@ def run_persona(engine: ScreeningEngine, repository: Repository, persona: Person
     """Drives one scripted candidate like a channel would; a crash is a failed run, not a crashed suite."""
     candidate_id = f"{persona.name}-{uuid.uuid4().hex[:6]}"
     turns: list[Turn] = []
-    language = Language.ES
+    language = persona.language
     error: str | None = None
     try:
+        engine.start_conversation(candidate_id, "eval", language, _NoOutbound())
         for index, text in enumerate(persona.turns):
             started = time.perf_counter()
             result = engine.handle(
@@ -76,7 +77,6 @@ def run_persona(engine: ScreeningEngine, repository: Repository, persona: Person
             turns.append(_turn(text, result.reply, elapsed, language, result.turn))
             if result.terminal:
                 engine.summarize_outcome(candidate_id)
-                break
     except Exception as exc:  # the suite reports the failure and moves to the next persona
         error = f"{type(exc).__name__}: {exc}"
     candidate = repository.get_candidate(candidate_id)
@@ -90,6 +90,16 @@ def run_persona(engine: ScreeningEngine, repository: Repository, persona: Person
     return PersonaRun(
         persona, tuple(turns), candidate, grade_result, input_tokens, output_tokens, error
     )
+
+
+class _NoOutbound:
+    """The opener and nudges go nowhere in an eval; the transcript still records them."""
+
+    def send_text(self, candidate_id: str, text: str) -> None:
+        pass
+
+    def send_opener(self, candidate_id: str, text: str, first_name: str | None = None) -> None:
+        pass
 
 
 MODEL_SOURCES = frozenset({ReplySource.MODEL_TEXT, ReplySource.MODEL_COMPOSED})

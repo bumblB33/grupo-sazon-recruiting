@@ -20,6 +20,28 @@ def request_stop() -> dict:
     return {"stop": True}
 
 
+FLAG_FOR_RECRUITER = (
+    "Flag something a recruiter must check before an interview, in one short sentence: a criminal "
+    "record or pending charges, a licence that is suspended, expired, pending or that the candidate "
+    "is not sure about, a work-permit or documents question, or an answer they hedge or cannot "
+    "confirm. Call it in addition to the tool that records the answer. The candidate is never told."
+)
+RECORD_QUESTIONS = (
+    "Record the questions about the job the candidate wants passed on to the recruiter, one short "
+    "sentence each. An empty list means they have none."
+)
+
+
+@tool(description=FLAG_FOR_RECRUITER)
+def flag_for_recruiter(concern: str) -> dict:
+    return {"concern": concern}
+
+
+@tool(description=RECORD_QUESTIONS)
+def record_questions(questions: list[str]) -> dict:
+    return {"questions": questions}
+
+
 @tool
 def record_full_name(full_name: str) -> dict:
     """Record the candidate's full name exactly as they gave it."""
@@ -92,6 +114,8 @@ ALL_TOOLS: dict[str, BaseTool] = {
 } | {
     confirm_zone.name: confirm_zone,
     confirm_name.name: confirm_name,
+    flag_for_recruiter.name: flag_for_recruiter,
+    record_questions.name: record_questions,
     request_stop.name: request_stop,
 }
 
@@ -106,11 +130,12 @@ def tools_for(
     stage: Stage, missing_fields: list[str], pending_zone: bool, pending_name: bool = False
 ) -> list[BaseTool]:
     """Exposes every tool for a still-missing field from the current stage on, so one message can fill
-    several. After consent the candidate can always withdraw, so request_stop is always there."""
+    several. After consent the candidate can always withdraw and the model can always flag a
+    concern, so flag_for_recruiter and request_stop are always there."""
     if stage == Stage.CONSENT:
         return [record_consent]
     if stage == Stage.OUTCOME:
-        return []
+        return [flag_for_recruiter, request_stop]
     exposed: list[BaseTool] = []
     if pending_name:
         exposed.append(confirm_name)
@@ -126,4 +151,4 @@ def tools_for(
             and not awaiting_confirmation.get(field_stage, False)
         ):
             exposed.extend(TOOLS_BY_STAGE[field_stage])
-    return [*exposed, request_stop]
+    return [*exposed, flag_for_recruiter, request_stop]

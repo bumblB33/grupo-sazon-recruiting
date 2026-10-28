@@ -128,7 +128,6 @@ def whatsapp_webhook(
         message.text,
         channel="whatsapp",
         external_id=message.message_id,
-        create_if_missing=False,
     )
     if result.outcome == Outcome.UNKNOWN:
         return _twiml(replies.unknown_number(), Outcome.UNKNOWN)

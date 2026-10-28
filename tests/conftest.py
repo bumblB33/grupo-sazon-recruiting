@@ -107,7 +107,7 @@ def make_engine(repository: Repository):
         engine = ScreeningEngine(
             repository,
             graph,
-            summarizer=lambda profile, status, msgs: AIMessage(content="summary"),
+            summarizer=lambda state: AIMessage(content="summary"),
             guardrail=guardrail,
         )
         return engine, repository, model
@@ -139,12 +139,13 @@ def classifier(category: GuardrailCategory, raw: AIMessage | None = None) -> Run
     return RunnableLambda(lambda messages: output)
 
 
-NO_LICENCE_TURNS = ["sí", "Ana García", "no tengo carnet"]
-# One no-licence screening, then one consent so a test can open a second candidate.
+NO_LICENCE_TURNS = ["sí", "Ana García", "no tengo carnet", "no, ninguna"]
+# One no-licence screening with its wrap-up reply, then one consent so a test can open a second candidate.
 API_SCRIPT = [
     ai("Hola", "record_consent", {"decision": "agreed"}),
     ai("¿Nombre?", "record_full_name", {"full_name": "Ana García"}),
     ai("¿Carnet?", "record_licence", {"has_licence": False}),
+    ai("", "record_questions", {"questions": []}),
     ai("Hola", "record_consent", {"decision": "agreed"}),
 ]
 

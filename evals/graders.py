@@ -10,6 +10,9 @@ class Expectation:
     review_reason: str | None = None
     profile: dict | None = None
     max_turns: int | None = None
+    # True: at least one entry expected. False: none. None: not graded.
+    concerns: bool | None = None
+    questions: bool | None = None
 
 
 @dataclass(frozen=True)
@@ -33,6 +36,10 @@ def grade(candidate: Candidate, turns: int, expected: Expectation) -> GradeResul
             failures.append(f"profile.{key} {actual!r} != {value!r}")
     if expected.max_turns is not None and turns > expected.max_turns:
         failures.append(f"turns {turns} > {expected.max_turns}")
+    recorded = {"concerns": candidate.concerns, "questions": candidate.candidate_questions}
+    for name, wanted in (("concerns", expected.concerns), ("questions", expected.questions)):
+        if wanted is not None and bool(recorded[name]) != wanted:
+            failures.append(f"{name} {'missing' if wanted else 'recorded'}: {recorded[name]!r}")
     return GradeResult(passed=not failures, failures=tuple(failures))
 
 

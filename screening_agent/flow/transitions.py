@@ -52,6 +52,10 @@ def apply_patch(state: dict[str, Any], patch: dict[str, Any]) -> Transition:
                 "review_reason": ReviewReason.STOP_REQUESTED,
             }
         )
+    if "concern" in patch:
+        return Transition(updates={"concerns": [*state.get("concerns", []), patch["concern"]]})
+    if "questions" in patch:
+        return Transition(updates={"candidate_questions": list(patch["questions"])})
     if "zone_query" in patch:
         return _apply_zone_query(patch["zone_query"])
     if "zone_confirmed" in patch:
@@ -62,15 +66,22 @@ def apply_patch(state: dict[str, Any], patch: dict[str, Any]) -> Transition:
 
 
 def qualify_if_complete(state: dict[str, Any]) -> dict[str, Any]:
-    """Single owner of the qualified transition; runs after every accepted patch regardless of tool order."""
+    """Single owner of the qualified transition; runs after every accepted patch regardless of tool
+    order. A complete profile with a flagged concern goes to a recruiter instead: never an automated
+    yes on a judgement call either."""
     if state.get("status", Status.IN_PROGRESS) != Status.IN_PROGRESS or not state.get("consent"):
         return {}
     if state.get("pending_zone") or state.get("pending_name"):
         return {}
     profile = CandidateProfile.model_validate(state.get("profile", {}))
-    if profile.current_stage() == Stage.OUTCOME:
-        return {"status": Status.QUALIFIED}
-    return {}
+    if profile.current_stage() != Stage.OUTCOME:
+        return {}
+    if state.get("concerns"):
+        return {
+            "status": Status.NEEDS_RECRUITER_REVIEW,
+            "review_reason": ReviewReason.RECRUITER_CHECK,
+        }
+    return {"status": Status.QUALIFIED}
 
 
 def _apply_consent(decision: ConsentDecision) -> Transition:

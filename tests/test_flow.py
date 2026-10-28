@@ -504,3 +504,21 @@ def test_nudge_repeats_the_name_confirmation_while_it_is_pending(make_engine):
     state = repository.load_state("cand")
     assert state["pending_name"] == "Ana García"
     assert "Pedro Martínez" in _nudge_text(state, Language.ES)
+
+
+def test_no_licence_still_disqualifies_when_the_name_needs_confirmation(make_engine):
+    engine, repository, _ = make_engine(
+        [
+            CONSENT,
+            ai_multi(
+                "ok",
+                ("record_full_name", {"full_name": "Ana García"}),
+                ("record_licence", {"has_licence": False}),
+            ),
+        ]
+    )
+    start_with_name(engine, "Pedro Martínez")
+    drive(engine, ["sí", "Ana García, sin carnet"])
+    candidate = repository.get_candidate("cand")
+    assert candidate.status == Status.DISQUALIFIED
+    assert candidate.disqualify_reason == DisqualifyReason.NO_LICENCE

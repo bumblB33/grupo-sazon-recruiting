@@ -31,9 +31,10 @@ Consent and the full name come first. Both hard stops (licence and zone) come be
 | 6 | Preferred shift | `record_schedule` | Invalid: re-ask once |
 | 7 | Delivery experience | `record_experience` | 0 years is valid |
 | 8 | Start date | `record_start_date` | Past date: re-ask once |
-| 9 | Outcome | none | `qualified`: summary and interview handoff |
+| 9 | Outcome | `flag_for_recruiter` | `qualified`: summary and interview handoff. Any flagged concern: `needs_recruiter_review`, reason `recruiter_check` |
+| 10 | Wrap-up | `record_questions` | The outcome message asks for questions about the job for the recruiter. One reply is recorded, then a fixed thank-you closes the chat |
 
-`request_stop` is exposed at every stage after consent. It closes the chat with `needs_recruiter_review`, reason `stop_requested`.
+`request_stop` and `flag_for_recruiter` are exposed at every stage after consent. A stop request closes the chat with `needs_recruiter_review`, reason `stop_requested`, and skips the wrap-up. A flag records what a recruiter must check before an interview (a criminal record, a suspended, expired or unconfirmed licence, a documents question, a hedged answer); the answer is still recorded and the screening continues.
 
 The current stage is the first required field still missing. Code exposes the tools for every missing field from the current stage onward. A candidate who answers three questions in one message therefore advances three stages.
 
@@ -79,12 +80,12 @@ The structured output is the JSON dump of `CandidateProfile`.
 
 | Status | Who decides | What the candidate hears | What the recruiter sees |
 | --- | --- | --- | --- |
-| `qualified` | Code, when all fields are valid | Fixed message: a recruiter will book a short interview | Summary, profile JSON, transcript |
+| `qualified` | Code, when all fields are valid and nothing is flagged | Fixed message: the answers go to a recruiter, who will be in touch about next steps | Summary, profile JSON, transcript, the candidate's questions |
 | `disqualified` | Code, only on no licence or out of zone | The real reason, in their language. The application stays on file | Reason code. Override button |
-| `needs_recruiter_review` | Code, on anything ambiguous | A recruiter will follow up | Reason code, transcript |
+| `needs_recruiter_review` | Code, on anything ambiguous or flagged | A recruiter will follow up | Reason code, flagged concerns, transcript, the candidate's questions |
 | `abandoned` | Code, on silence | Nothing further | Drop-off stage |
 
-Only the two objective criteria disqualify automatically. A human decides everything that needs judgement. Every outcome and override goes to an append-only event log with its reason. The one exception is the demo reset, which re-keys a candidate's events to the archive id and adds a `demo_reset` event with the actor.
+Only the two objective criteria disqualify automatically, and only an unflagged complete profile qualifies automatically. A human decides everything that needs judgement. Every outcome except an opt-out (declined consent, stop request) is followed by one wrap-up turn: the outcome message asks for questions about the job for the recruiter, the reply is recorded for them, and a fixed thank-you closes the chat. Every outcome and override goes to an append-only event log with its reason. The one exception is the demo reset, which re-keys a candidate's events to the archive id and adds a `demo_reset` event with the actor.
 
 ## Tone and length
 
@@ -94,7 +95,7 @@ Only the two objective criteria disqualify automatically. A human decides everyt
 - Replies arrive within seconds.
 - The agent never leaves more than two of its own messages unanswered. Silence nudges do not count toward this limit.
 - Ask, do not instruct. No "yes or no" tails on a question. Acknowledge the answer in a few words before the next question.
-- Code owns the closing messages, so a disqualified candidate always hears the real reason. Everything else the model writes from a code brief: carry on, re-ask with this reason, confirm this city or name, or say the chat waits.
+- Code owns the opener and the closing messages, so the disclosure and opt-in are always the same and a disqualified candidate always hears the real reason. Everything else the model writes from a code brief: carry on, re-ask with this reason, confirm this city or name, or say the chat waits.
 
 Code checks every model reply before sending it. The checks are: one question, at most one emoji, at most 280 characters, the candidate's language, no markdown, and no links. A first draft that fails is rewritten once by a second model call that sees the tool results and the broken rules. A rewrite that still fails, or an empty one, is replaced by the fixed question for the current stage. The second call runs only when the first draft cannot go out, so an ordinary accepted turn keeps one call.
 

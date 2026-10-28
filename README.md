@@ -13,7 +13,7 @@ Documents:
 
 Grupo Sazón hires delivery drivers in Spain and Mexico and receives about 1,000 applications a week. Recruiters spend most of their phone time on people who cannot be hired. This system does the first pass over WhatsApp and hands recruiters only candidates who passed two objective checks: a valid driving licence and a home city with a Grupo Sazón restaurant.
 
-A recruiter, or the company's hiring software, registers a candidate's phone number (`POST /candidates` or `screening-admin start-from-file`). The link from the application form is not built, so registration is a manual or external step. The candidate then gets a WhatsApp message from an assistant called Sazón, the opener. The assistant says it is an AI, asks for permission to continue, then asks seven short questions, one at a time. The conversation ends in one of four results. Recruiters see the result, a summary, the full chat and every decision the system made on the recruiter pages.
+A recruiter, or the company's hiring software, registers a candidate's phone number (`POST /candidates` or `screening-admin start-from-file`). The link from the application form is treated as makes registration an external step (candidates are seeded for the demo). The candidate then gets a WhatsApp message from an assistant called Sazón, the opener. The opener is fixed text: it says the assistant is an AI, that the chat is recorded, who sees it and how to stop, and asks for permission to continue. The assistant then asks seven short questions, one at a time. The conversation ends in one of four results. The outcome message asks whether the candidate has questions about the job for the recruiter, records one reply, and closes. Recruiters see the result, a summary, anything flagged for a check, the candidate's questions, the full chat and every decision the system made on the recruiter pages.
 
 The model talks and the code decides:
 
@@ -24,9 +24,9 @@ The model talks and the code decides:
 
 | Result | Who decides | What the candidate hears |
 | --- | --- | --- |
-| Qualified | Code, when every answer is valid | A recruiter will book a short interview. |
+| Qualified | Code, when every answer is valid and nothing was flagged | Their answers go to a recruiter, who will be in touch about next steps. Nothing about the job is promised. |
 | Not qualified | Code, only for no licence or no restaurant nearby | The real reason, and that the application stays on file. |
-| Needs a recruiter | Code, when the candidate says no to consent or anything is unclear | A recruiter will follow up. |
+| Needs a recruiter | Code, when the candidate says no to consent, anything is unclear, or the agent flagged something to check (a criminal record, an unconfirmed licence, a documents question, a hedged answer) | A recruiter will follow up. |
 | Abandoned | Code, after a long silence | Nothing further. |
 
 Only two facts cause an automatic no. Everything that needs judgement goes to a person. A recruiter can change any result from the recruiter web page, and the change is logged with their name.
@@ -146,6 +146,7 @@ A candidate who answers several questions in one message skips ahead. The code a
 6. The code decides what the reply must say, and the AI says it. Closing messages are fixed text, so a rejected candidate always hears the true reason. For every other turn the code writes a one-line brief: carry on, or ask again because the answer was rejected for this reason, or confirm this city or this name, or say the chat waits. If the AI's first draft already fits (every answer accepted, nothing to confirm, passes the reply rules), it goes out as is. Otherwise the AI is called once more with the results and the brief. The reply rules apply to both texts: one question, at most one emoji, short, no formatting or links, in the candidate's language. If the AI writes nothing, breaks a rule or the call fails, the fixed question for the step goes out. The recruiter page shows which happened.
 7. The message, the updated form, the reply and a record of why the system replied as it did are saved as one unit, before the reply is delivered. If the system crashes halfway, nothing is recorded, and the copy Twilio sends again is handled as new. If delivery then fails, the form has moved on and the candidate hears nothing until the two-hour nudge repeats the open question.
 8. The reply goes back through Twilio. When the result is final, the system then writes a short summary for the recruiter, so the candidate never waits for it.
+9. The outcome message ends by asking whether the candidate has questions about the job for the recruiter. One more reply is read, the questions are recorded for the recruiter, a fixed thank-you closes the chat and the summary is written again with them. A candidate who declined consent or asked to stop is not asked; their chat closes at once.
 
 Each candidate message costs one main AI call, a second when the first draft cannot go out (step 6), plus the small check in step 3.
 
@@ -376,7 +377,9 @@ sequenceDiagram
 
 - **One or two LLM calls per candidate message.** The first call records with tools and drafts a reply. Code validates the arguments, advances the stage and swaps the tool set. When the draft cannot go out (a rejected answer, a pending confirmation, no text, a broken reply rule) a second call with the tool results and a one-line brief writes the message. The brief, not the template, is what the model follows, so the templates are fallbacks and the live runs that returned tool calls with no text now get a model-written question.
 - **Tool gating, enforced twice.** The model only sees the tools for fields still missing from the current stage onward, so it cannot ask about experience before the licence check. A call to any other tool is rejected when applied. Allowed tools are recomputed after each accepted call, so one message can answer several questions. Model misuse of a tool re-asks the current question and is never counted against the candidate.
-- **Code-owned closing messages.** Disqualifications, review hand-offs and the qualified message are fixed text per language (detected per message, Spanish by default), so compliance wording never depends on the model. Re-asks and confirmations are model-written from a code brief, with a fixed fallback.
+- **Code-owned opener and closing messages.** The opener, disqualifications, review hand-offs, the qualified message and the wrap-up question are fixed text per language (detected per message, Spanish by default), so compliance and opt-in wording never depends on the model. Every channel, `screening-cli` and the evals included, starts a conversation with the same opener; a message from a number with no opener gets no model call. Re-asks and confirmations are model-written from a code brief, with a fixed fallback.
+- **Never an automated yes on a judgement call.** A `flag_for_recruiter` tool is exposed after consent. The prompt tells the model to call it, alongside the recording tool, when the candidate mentions a criminal record, a suspended, expired or unconfirmed licence, a work-permit or documents question, or hedges an answer. The answer is still recorded as given and the screening continues, but a complete profile with any flag goes to `needs_recruiter_review` with reason `recruiter_check` instead of `qualified`. The flags are shown on the candidate page and fed to the summary.
+- **The summary is structured.** The summary model returns four fields (outcome, profile facts, what to double-check, next step) and code joins them into four lines, so the recruiter page never shows the model's own labels or numbering.
 - **Explicit opt-in, and a way out.** The opener says it is an AI and not a person, that the chat is recorded and only the recruiting team sees it, that the candidate can stop at any time by saying so, and asks whether they agree. The model records the answer as `agreed`, `declined`, `not_now` or `unclear`. Only `agreed` opens the screening. "Not now" waits for the candidate. A bare "no" is unclear and is asked about once: not now, or not at all? After consent a `request_stop` tool is always exposed; a stop request closes the chat for a recruiter with reason `stop_requested` and the agent sends nothing more.
 - **Idempotent inbound.** A redelivered webhook returns `duplicate` and a failed turn is retried as new, so Twilio retries are safe.
 - **Candidate-local dates.** "Today" for start dates and the prompt is the calendar day in the candidate's service-area timezone, not the server's.
@@ -502,7 +505,7 @@ pyright                              # standard mode, config in pyproject.toml
 | `POST /webhook/whatsapp` | Twilio signature | Inbound candidate message. Answers TwiML with the reply. |
 | `POST /candidates` | recruiter | Opens a conversation and sends the opener. Candidate id is the E.164 phone. Optional `name` is the applicant name from the application: it personalises the opener and is checked against the name the candidate gives. |
 | `GET /candidates` | recruiter | Candidate list, newest first. `status` and `stage` filters answer 422 for an unknown value. `limit` (default 100, at most 500) and `offset` page it. |
-| `GET /candidates/{id}` | recruiter | Profile, summary, transcript and events. |
+| `GET /candidates/{id}` | recruiter | Profile, summary, flagged concerns, the candidate's questions, transcript and events. |
 | `PATCH /candidates/{id}` | recruiter | Outcome override. Writes a `recruiter_override` event with the actor (`recruiter:<email>` or `api_key:<label>`). |
 | `GET /analytics` | recruiter | Funnel counts. |
 | `GET /csrf-token` | recruiter | The CSRF token for the caller's session cookie, or `null` for an API key. |

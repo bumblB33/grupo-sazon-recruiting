@@ -7,47 +7,52 @@ from screening_agent.flow.state import stage_of
 
 REASK: dict[Stage, dict[Language, str]] = {
     Stage.CONSENT: {
-        Language.ES: "Soy un asistente de IA de Grupo Sazón y esta conversación queda registrada. ¿Te parece bien que sigamos? Sí o no.",
-        Language.EN: "I'm an AI assistant for Grupo Sazón and this conversation is being recorded. Is it okay if we continue? Yes or no.",
+        Language.ES: "Antes de empezar necesito tu permiso. Soy una IA y la conversación queda registrada para el equipo de selección. ¿Quieres que sigamos por aquí?",
+        Language.EN: "Before we start I need your okay. I'm an AI and this chat is recorded for the recruiting team. Would you like to continue here?",
     },
     Stage.FULL_NAME: {
-        Language.ES: "No me quedó claro tu nombre. ¿Me lo dices completo? Por ejemplo: Ana García López.",
-        Language.EN: "Could you please confirm your full name? I want to make sure it matches the application we received.",
+        Language.ES: "¿Me dices tu nombre completo, por favor? Por ejemplo: Ana García López.",
+        Language.EN: "Could you tell me your full name, please? For example: Ana García López.",
     },
     Stage.HAS_LICENCE: {
-        Language.ES: "Solo para confirmar: ¿tienes carnet de conducir vigente? Sí o no.",
-        Language.EN: "Just to confirm: do you have a valid driving licence?",
+        Language.ES: "¿Tienes carnet de conducir vigente? Lo pregunto porque hace falta para repartir.",
+        Language.EN: "Do you have a valid driving licence? I ask because the role needs one.",
     },
     Stage.ZONE: {
         Language.ES: "¿En qué ciudad vives? Así veo si tenemos restaurante cerca.",
         Language.EN: "Which city do you live in? I'll check if we have a restaurant nearby.",
     },
     Stage.AVAILABILITY: {
-        Language.ES: "¿Qué disponibilidad tienes: jornada completa, media jornada o fines de semana?",
-        Language.EN: "When would you prefer to work? Are you available full-time, part-time, or on weekends?",
+        Language.ES: "¿Cómo te vendría mejor trabajar: jornada completa, media jornada o fines de semana?",
+        Language.EN: "What would suit you best: full-time, part-time or weekends?",
     },
     Stage.SCHEDULE: {
-        Language.ES: "¿Qué turno prefieres: mañana, tarde, noche o flexible?",
-        Language.EN: "Which time of day do you prefer to work? Would you like morning, afternoon, evening, or flexible shifts?",
+        Language.ES: "¿Qué turno te viene mejor: mañana, tarde, noche o te da igual?",
+        Language.EN: "Which shift suits you best: morning, afternoon, evening, or are you flexible?",
     },
     Stage.EXPERIENCE: {
-        Language.ES: "¿Cuántos años llevas en reparto y con qué plataformas? Si es tu primera vez, dime 0.",
-        Language.EN: "How many years of delivery experience do you have, and for which restaurants or platforms? Say 0 if none.",
+        Language.ES: "¿Cuánto tiempo llevas repartiendo y con qué plataformas? Si sería tu primera vez, no pasa nada, dime 0.",
+        Language.EN: "How long have you been doing deliveries, and with which platforms? If this would be your first time, that's fine, just say 0.",
     },
     Stage.START_DATE: {
-        Language.ES: "¿Cuándo podrías empezar?",
-        Language.EN: "What day could you start with us?",
+        Language.ES: "¿Cuándo te vendría bien empezar? Por ejemplo, el 3 de noviembre.",
+        Language.EN: "When would suit you to start? For example, 3 November.",
     },
 }
 
 ZONE_CONFIRM: dict[Language, str] = {
-    Language.ES: "¿Te refieres a {area}? Sí o no.",
-    Language.EN: "Do you mean {area}? Yes or no.",
+    Language.ES: "¿Te refieres a {area}?",
+    Language.EN: "Do you mean {area}?",
 }
 
 NAME_CONFIRM: dict[Language, str] = {
-    Language.ES: "Solo para confirmar: ¿eres {name}? Sí o no.",
-    Language.EN: "Just to confirm: are you {name}? Yes or no.",
+    Language.ES: "Para asegurarme de que hablo con la persona correcta: ¿eres {name}?",
+    Language.EN: "Just so I know I'm talking to the right person: are you {name}?",
+}
+
+CONSENT_LATER: dict[Language, str] = {
+    Language.ES: "Sin problema. Escríbeme por aquí cuando te venga bien y seguimos.",
+    Language.EN: "No problem. Message me here whenever suits you and we'll pick it up.",
 }
 
 DISQUALIFIED: dict[DisqualifyReason, dict[Language, str]] = {
@@ -63,8 +68,8 @@ DISQUALIFIED: dict[DisqualifyReason, dict[Language, str]] = {
 
 REVIEW: dict[ReviewReason, dict[Language, str]] = {
     ReviewReason.CONSENT_DECLINED: {
-        Language.ES: "Entendido, no seguimos por aquí. Un reclutador del equipo se pondrá en contacto contigo.",
-        Language.EN: "Understood, we'll stop here. A recruiter from the team will get in touch with you.",
+        Language.ES: "Entendido, no seguimos por aquí y no te escribo más. Si quieres, un reclutador del equipo puede contactarte.",
+        Language.EN: "Understood, we'll stop here and I won't message you again. If you'd like, a recruiter from the team can get in touch.",
     },
     ReviewReason.LOW_CONFIDENCE_ZONE: {
         Language.ES: "No encuentro tu ciudad en nuestra lista. Un reclutador lo revisará y te escribe.",
@@ -77,6 +82,10 @@ REVIEW: dict[ReviewReason, dict[Language, str]] = {
     ReviewReason.OFF_TOPIC_CLOSE: {
         Language.ES: "Lo dejamos por hoy. Si quieres seguir con la solicitud, un reclutador te contactará.",
         Language.EN: "Let's leave it for today. If you want to continue your application, a recruiter will contact you.",
+    },
+    ReviewReason.STOP_REQUESTED: {
+        Language.ES: "Entendido, lo dejamos aquí y no te escribo más por este chat. Si quieres retomar tu solicitud, un reclutador puede ayudarte.",
+        Language.EN: "Understood, we'll stop here and I won't message you again in this chat. If you want to pick your application up later, a recruiter can help.",
     },
     ReviewReason.NAME_MISMATCH: {
         Language.ES: "Gracias. Un reclutador revisará los datos de tu solicitud y te escribe.",
@@ -95,8 +104,8 @@ QUALIFIED: dict[Language, str] = {
 }
 
 OPENER: dict[Language, str] = {
-    Language.ES: "{greeting} Soy {assistant}, el asistente de IA de Grupo Sazón. Recibimos tu solicitud para repartidor y esta conversación queda registrada. ¿Es buen momento para unas preguntas rápidas?",
-    Language.EN: "{greeting} I'm {assistant}, the AI assistant for Grupo Sazón. We received your delivery-driver application and this conversation is recorded. Is now a good moment for a few quick questions?",
+    Language.ES: "{greeting} Soy {assistant}, el asistente de IA de Grupo Sazón, no una persona. Recibimos tu solicitud para repartidor y me gustaría hacerte unas preguntas cortas por aquí. La conversación queda registrada y solo la ve el equipo de selección, y puedes parar cuando quieras diciéndomelo. ¿Te parece bien que sigamos?",
+    Language.EN: "{greeting} I'm {assistant}, Grupo Sazón's AI assistant, not a person. We received your delivery-driver application and I'd like to ask you a few short questions here. This chat is recorded and only the recruiting team sees it, and you can stop whenever you want by telling me. Are you happy to go ahead?",
 }
 
 GREETING: dict[Language, tuple[str, str]] = {

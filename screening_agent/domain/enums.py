@@ -25,6 +25,15 @@ class MessageKind(StrEnum):
     NUDGE = "nudge"
 
 
+class ConsentDecision(StrEnum):
+    """Only an explicit agreement opens the screening; a bare no is unclear until the candidate says which."""
+
+    AGREED = "agreed"
+    DECLINED = "declined"
+    NOT_NOW = "not_now"
+    UNCLEAR = "unclear"
+
+
 class Status(StrEnum):
     IN_PROGRESS = "in_progress"
     QUALIFIED = "qualified"
@@ -47,6 +56,7 @@ class ReviewReason(StrEnum):
     REPEATED_INVALID_ANSWER = "repeated_invalid_answer"
     OFF_TOPIC_CLOSE = "off_topic_close"
     NAME_MISMATCH = "name_mismatch"
+    STOP_REQUESTED = "stop_requested"
 
 
 class Stage(StrEnum):

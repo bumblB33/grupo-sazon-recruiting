@@ -10,7 +10,10 @@ class ReplySource(StrEnum):
     REASK = "reask"
     ZONE_CONFIRM = "zone_confirm"
     NAME_CONFIRM = "name_confirm"
+    CONSENT_DEFERRED = "consent_deferred"
     MODEL_TEXT = "model_text"
+    # Written by the model after it saw the tool results and the guidance for this turn.
+    MODEL_COMPOSED = "model_composed"
     POLICY_FALLBACK = "policy_fallback"
     NEXT_QUESTION = "next_question"
     GUARDRAIL_REDIRECT = "guardrail_redirect"

@@ -6,7 +6,13 @@ from pydantic import ValidationError
 
 from screening_agent.config import settings
 from screening_agent.domain.clock import candidate_today
-from screening_agent.domain.enums import DisqualifyReason, ReviewReason, Stage, Status
+from screening_agent.domain.enums import (
+    ConsentDecision,
+    DisqualifyReason,
+    ReviewReason,
+    Stage,
+    Status,
+)
 from screening_agent.domain.names import name_similarity
 from screening_agent.domain.profile import REQUIRED_FIELD_ORDER, CandidateProfile
 from screening_agent.domain.service_areas import match_zone
@@ -27,6 +33,8 @@ class Transition:
     confirm_area: str | None = None
     # Set when the stated name must be confirmed against the applicant name; the reply is a template.
     confirm_name: str | None = None
+    # The candidate agreed in principle but not now; nothing changes and the reply says the chat waits.
+    consent_deferred: bool = False
     candidate_fault: bool = True
 
     @classmethod
@@ -35,8 +43,15 @@ class Transition:
 
 
 def apply_patch(state: dict[str, Any], patch: dict[str, Any]) -> Transition:
-    if "consent" in patch:
-        return _apply_consent(patch["consent"])
+    if "consent_decision" in patch:
+        return _apply_consent(ConsentDecision(patch["consent_decision"]))
+    if "stop" in patch:
+        return Transition(
+            updates={
+                "status": Status.NEEDS_RECRUITER_REVIEW,
+                "review_reason": ReviewReason.STOP_REQUESTED,
+            }
+        )
     if "zone_query" in patch:
         return _apply_zone_query(patch["zone_query"])
     if "zone_confirmed" in patch:
@@ -58,16 +73,21 @@ def qualify_if_complete(state: dict[str, Any]) -> dict[str, Any]:
     return {}
 
 
-def _apply_consent(accepted: bool) -> Transition:
-    if accepted:
+def _apply_consent(decision: ConsentDecision) -> Transition:
+    if decision == ConsentDecision.AGREED:
         return Transition(updates={"consent": True})
-    return Transition(
-        updates={
-            "consent": False,
-            "status": Status.NEEDS_RECRUITER_REVIEW,
-            "review_reason": ReviewReason.CONSENT_DECLINED,
-        }
-    )
+    if decision == ConsentDecision.DECLINED:
+        return Transition(
+            updates={
+                "consent": False,
+                "status": Status.NEEDS_RECRUITER_REVIEW,
+                "review_reason": ReviewReason.CONSENT_DECLINED,
+            }
+        )
+    if decision == ConsentDecision.NOT_NOW:
+        return Transition(consent_deferred=True)
+    # An unclear answer is re-asked and counts like an invalid one, so the flow cannot loop.
+    return Transition.rejected(Stage.CONSENT, "consent answer unclear: not now, or not at all?")
 
 
 def _apply_zone_query(city: str) -> Transition:

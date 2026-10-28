@@ -36,7 +36,11 @@ class ScriptedToolModel(GenericFakeChatModel):
 
     def invoke(self, input, config=None, **kwargs):
         self.seen_inputs.append(list(input))
-        return super().invoke(input, config=config, **kwargs)
+        try:
+            return super().invoke(input, config=config, **kwargs)
+        except StopIteration:
+            # An exhausted script reads as a model that wrote nothing, so the fixed fallback goes out.
+            return AIMessage(content="")
 
 
 def ai(
@@ -137,10 +141,10 @@ def classifier(category: GuardrailCategory, raw: AIMessage | None = None) -> Run
 NO_LICENCE_TURNS = ["sí", "Ana García", "no tengo carnet"]
 # One no-licence screening, then one consent so a test can open a second candidate.
 API_SCRIPT = [
-    ai("Hola", "record_consent", {"accepted": True}),
+    ai("Hola", "record_consent", {"decision": "agreed"}),
     ai("¿Nombre?", "record_full_name", {"full_name": "Ana García"}),
     ai("¿Carnet?", "record_licence", {"has_licence": False}),
-    ai("Hola", "record_consent", {"accepted": True}),
+    ai("Hola", "record_consent", {"decision": "agreed"}),
 ]
 
 

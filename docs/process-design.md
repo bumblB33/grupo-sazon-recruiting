@@ -11,8 +11,9 @@ The agent takes over the first screening. Recruiters book interviews only for ca
 WhatsApp carries the whole screening.
 
 - First contact is a WhatsApp template sent minutes after the application.
-- The template names the assistant, says it is an AI, says the conversation is recorded, and asks for a good moment.
-- The candidate's reply is the opt-in. It also opens the 24-hour WhatsApp service window.
+- The template names the assistant, says it is an AI and not a person, says the conversation is recorded and only the recruiting team sees it, says the candidate can stop at any time by saying so, and asks whether they agree to continue.
+- Only a clear agreement is the opt-in. "Not now" leaves the chat waiting. A clear no closes it for a recruiter. A bare "no" is asked about once: not now, or not at all? The reply also opens the 24-hour WhatsApp service window.
+- After consent the candidate can stop at any time. The agent records it, closes the chat for a recruiter and sends nothing more.
 
 The engine takes text and returns text. Another channel, such as a browser voice call, is an adapter on the same flow. No other channel is built (see the README improvements). A channel switch never restarts the flow.
 
@@ -22,7 +23,7 @@ Consent and the full name come first. Both hard stops (licence and zone) come be
 
 | # | Stage | Tool exposed to the LLM | Branch |
 | --- | --- | --- | --- |
-| 1 | Consent | `record_consent` | No: close politely, `needs_recruiter_review` |
+| 1 | Consent | `record_consent` (agreed, declined, not_now, unclear) | Declined: close politely, `needs_recruiter_review`. Not now: wait. Unclear: ask which, twice at most |
 | 2 | Full name | `record_full_name`, `confirm_name` | Invalid: re-ask once. Differs from the application name: confirm once, then `needs_recruiter_review` if denied |
 | 3 | Driving licence | `record_licence` | No: `disqualified`, reason `no_licence` |
 | 4 | City or zone | `record_zone`, `confirm_zone` | No match: `disqualified`, reason `outside_service_area`. Fuzzy match: confirm, then `needs_recruiter_review` if denied |
@@ -31,6 +32,8 @@ Consent and the full name come first. Both hard stops (licence and zone) come be
 | 7 | Delivery experience | `record_experience` | 0 years is valid |
 | 8 | Start date | `record_start_date` | Past date: re-ask once |
 | 9 | Outcome | none | `qualified`: summary and interview handoff |
+
+`request_stop` is exposed at every stage after consent. It closes the chat with `needs_recruiter_review`, reason `stop_requested`.
 
 The current stage is the first required field still missing. Code exposes the tools for every missing field from the current stage onward. A candidate who answers three questions in one message therefore advances three stages.
 
@@ -66,7 +69,7 @@ The structured output is the JSON dump of `CandidateProfile`.
 - **Silence.**
   - No reply to the opener: one template retry at about 24 hours, then `abandoned` at stage `consent`.
   - Silence after a reply: a free-form nudge at 2 hours and a last one at about 23 hours, both inside the window. Then `abandoned`, with the stage recorded.
-- **Invalid or ambiguous answer.** The validator rejects the tool call. Code sends a fixed re-ask message with an example. After two rejections on the same stage, the candidate goes to `needs_recruiter_review`. The flow never loops.
+- **Invalid or ambiguous answer.** The validator rejects the tool call. The model sees the rejection and its reason and asks again in its own words with an example; a fixed re-ask is the fallback. After two rejections on the same stage, the candidate goes to `needs_recruiter_review`. The flow never loops.
 - **Language switch.** Code detects the language of each message. The agent replies in that language. The language history is stored. Code-switched messages work because the tools do not depend on language.
 - **Off-topic or inappropriate input.** A guardrail check runs before the turn. The agent redirects once, then closes politely to `needs_recruiter_review`.
 - **Several answers in one message.** The agent calls every matching tool in one turn. The flow skips the stages already satisfied.
@@ -90,9 +93,10 @@ Only the two objective criteria disqualify automatically. A human decides everyt
 - No bullet lists.
 - Replies arrive within seconds.
 - The agent never leaves more than two of its own messages unanswered. Silence nudges do not count toward this limit.
-- Code owns the closing messages, so a disqualified candidate always hears the real reason.
+- Ask, do not instruct. No "yes or no" tails on a question. Acknowledge the answer in a few words before the next question.
+- Code owns the closing messages, so a disqualified candidate always hears the real reason. Everything else the model writes from a code brief: carry on, re-ask with this reason, confirm this city or name, or say the chat waits.
 
-Code checks every model reply before sending it. The checks are: one question, at most one emoji, at most 280 characters, the candidate's language, no markdown, and no links. A reply that fails a check is replaced by the fixed question for the current stage. There is no second LLM call, so the check adds no latency.
+Code checks every model reply before sending it. The checks are: one question, at most one emoji, at most 280 characters, the candidate's language, no markdown, and no links. A first draft that fails is rewritten once by a second model call that sees the tool results and the broken rules. A rewrite that still fails, or an empty one, is replaced by the fixed question for the current stage. The second call runs only when the first draft cannot go out, so an ordinary accepted turn keeps one call.
 
 ## Designed, not built
 

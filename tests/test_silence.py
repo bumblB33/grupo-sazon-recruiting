@@ -77,7 +77,7 @@ def test_opener_then_silence_retries_template_and_abandons_at_consent(make_engin
 
 
 def test_reply_after_opener_sees_it_and_asks_name(make_engine):
-    engine, repository, model = make_engine([ai("", "record_consent", {"accepted": True})])
+    engine, repository, model = make_engine([ai("", "record_consent", {"decision": "agreed"})])
     engine.start_conversation("+34600", "whatsapp", Language.ES, FakeOutbound())
     result = engine.handle("+34600", "sí", "whatsapp", external_id="m0")
     assert [m.type for m in model.seen_inputs[0]] == ["system", "ai", "human"]
@@ -86,7 +86,7 @@ def test_reply_after_opener_sees_it_and_asks_name(make_engine):
 
 
 def test_silence_after_reply_nudges_with_stage_question_then_abandons(make_engine):
-    engine, repository, _ = make_engine([ai("Hola", "record_consent", {"accepted": True})])
+    engine, repository, _ = make_engine([ai("Hola", "record_consent", {"decision": "agreed"})])
     outbound = FakeOutbound()
     engine.handle("+34601", "sí", "whatsapp", external_id="m0")
     now = datetime.now(UTC)
@@ -108,7 +108,7 @@ def test_silence_after_reply_nudges_with_stage_question_then_abandons(make_engin
 
 def test_candidate_reply_resets_nudges_and_keeps_nudge_in_history(make_engine):
     engine, repository, _ = make_engine(
-        [ai("Hola", "record_consent", {"accepted": True}), ai("¿Nombre?")]
+        [ai("Hola", "record_consent", {"decision": "agreed"}), ai("¿Nombre?")]
     )
     outbound = FakeOutbound()
     engine.handle("+34602", "sí", "whatsapp", external_id="m0")
@@ -121,7 +121,7 @@ def test_candidate_reply_resets_nudges_and_keeps_nudge_in_history(make_engine):
 
 
 def test_channel_without_outbound_is_only_abandoned(make_engine):
-    engine, repository, _ = make_engine([ai("Hola", "record_consent", {"accepted": True})])
+    engine, repository, _ = make_engine([ai("Hola", "record_consent", {"decision": "agreed"})])
     engine.handle("cli-1", "sí", "cli", external_id="m0")
     now = datetime.now(UTC)
     assert engine.sweep_silence(now + timedelta(hours=3), {}).nudged == 0
@@ -139,8 +139,8 @@ class FailingOutbound(FakeOutbound):
 def test_one_failed_send_does_not_stall_the_sweep(make_engine):
     engine, repository, _ = make_engine(
         [
-            ai("Hola", "record_consent", {"accepted": True}),
-            ai("Hola", "record_consent", {"accepted": True}),
+            ai("Hola", "record_consent", {"decision": "agreed"}),
+            ai("Hola", "record_consent", {"decision": "agreed"}),
         ]
     )
     engine.handle("+34610", "sí", "whatsapp", external_id="m0")
@@ -154,7 +154,7 @@ def test_one_failed_send_does_not_stall_the_sweep(make_engine):
 
 def test_reply_landing_during_sweep_wins(make_engine):
     engine, repository, _ = make_engine(
-        [ai("Hola", "record_consent", {"accepted": True}), ai("¿Nombre?")]
+        [ai("Hola", "record_consent", {"decision": "agreed"}), ai("¿Nombre?")]
     )
     engine.handle("+34620", "sí", "whatsapp", external_id="m0")
     now = datetime.now(UTC)

@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import AIMessage, SystemMessage, ToolCall, ToolMessage
+from langchain_core.messages import AIMessage, AnyMessage, SystemMessage, ToolCall, ToolMessage
 from langgraph.graph import END, START, StateGraph
 
 from screening_agent.config import settings
@@ -15,9 +15,16 @@ from screening_agent.domain.profile import CandidateProfile
 from screening_agent.flow import replies
 from screening_agent.flow.reply_policy import style_failures
 from screening_agent.flow.state import ScreeningState, is_closed, stage_of
-from screening_agent.flow.tools import ALL_TOOLS, TOOL_STAGE, tools_for
+from screening_agent.flow.tools import ALL_TOOLS, TOOL_STAGE, request_stop, tools_for
 from screening_agent.flow.transitions import Transition, apply_patch, qualify_if_complete
 from screening_agent.flow.turn_record import ReplySource, ToolCallRecord
+from screening_agent.llm.turn import (
+    COMPOSE_INSTRUCTION,
+    GUIDANCE_CONSENT_DEFERRED,
+    GUIDANCE_CONTINUE,
+    GUIDANCE_REJECTED,
+    GUIDANCE_RESTYLE,
+)
 from screening_agent.llm.usage import elapsed_ms, usage_of
 
 PromptBuilder = Callable[[ScreeningState, Stage], str]
@@ -38,6 +45,9 @@ def exposed_tools(state: Mapping[str, Any]):
 
 
 def build_graph(llm: BaseChatModel, build_prompt: PromptBuilder, model_id: str = ""):
+    """turn extracts with tools, apply_tools runs code, compose lets the model write the reply once it
+    has seen the tool results. compose is skipped when the first text can go out as it is."""
+
     def turn(state: ScreeningState) -> dict[str, Any]:
         language = _language_of_last_human(state)
         tools = exposed_tools(state)
@@ -68,12 +78,15 @@ def build_graph(llm: BaseChatModel, build_prompt: PromptBuilder, model_id: str =
         turn_state = TurnState(state)
         tool_messages: list[ToolMessage | AIMessage] = []
         call_records: list[ToolCallRecord] = []
-        reask_stages: list[Stage] = []
+        rejections: list[tuple[Stage, str]] = []
         strike_stages: list[Stage] = []
         confirm_area: str | None = None
         confirm_name: str | None = None
+        consent_deferred = False
 
-        for call in last.tool_calls:
+        # A stop request wins over anything else in the same message, whatever order the model used.
+        calls = sorted(last.tool_calls, key=lambda call: call["name"] != request_stop.name)
+        for call in calls:
             if turn_state.closed:
                 tool_messages.append(
                     ToolMessage(content="ignored: conversation closed", tool_call_id=call["id"])
@@ -91,33 +104,43 @@ def build_graph(llm: BaseChatModel, build_prompt: PromptBuilder, model_id: str =
                 call_records.append(
                     ToolCallRecord(name=call["name"], accepted=False, message=transition.error)
                 )
-                reask_stages.append(transition.failed_stage or Stage.FULL_NAME)
+                failed_stage = transition.failed_stage or Stage.FULL_NAME
+                rejections.append((failed_stage, transition.error))
                 if transition.candidate_fault:
-                    strike_stages.append(transition.failed_stage or Stage.FULL_NAME)
+                    strike_stages.append(failed_stage)
                 continue
             tool_messages.append(ToolMessage(content="recorded", tool_call_id=call["id"]))
             call_records.append(ToolCallRecord(name=call["name"], accepted=True))
             turn_state.apply(transition.updates)
             confirm_area = transition.confirm_area or confirm_area
             confirm_name = transition.confirm_name or confirm_name
+            consent_deferred = consent_deferred or transition.consent_deferred
 
         for stage in strike_stages:
             turn_state.apply(_count_rejection(turn_state.working, stage))
         turn_state.apply(qualify_if_complete(turn_state.working))
 
         choice = _choose_reply(
-            turn_state.working, language, reask_stages, confirm_area, confirm_name, last.text
+            turn_state.working,
+            language,
+            rejections,
+            confirm_area,
+            confirm_name,
+            consent_deferred,
+            last.text,
         )
-        replaced = choice.text != last.text
-        if replaced:
-            tool_messages.append(AIMessage(content=choice.text))
         turn = {
             **state.get("turn", {}),
             "tool_calls": call_records,
             "reply_source": choice.source,
-            "model_text": last.text if replaced and last.text else None,
+            "model_text": last.text if choice.text != last.text and last.text else None,
             "violated_rules": choice.violated_rules,
         }
+        if choice.guidance:
+            turn["compose_guidance"] = choice.guidance
+            turn["compose_question"] = choice.question
+        elif choice.text != last.text:
+            tool_messages.append(AIMessage(content=choice.text))
         return {
             **turn_state.updates,
             "messages": tool_messages,
@@ -125,12 +148,59 @@ def build_graph(llm: BaseChatModel, build_prompt: PromptBuilder, model_id: str =
             "turn": turn,
         }
 
+    def compose(state: ScreeningState) -> dict[str, Any]:
+        """The fallback text chosen by apply_tools goes out unless the model writes a reply that
+        passes the style rules and asks (or, for a wait message, does not ask) a question."""
+        turn = dict(state.get("turn", {}))
+        guidance = turn.pop("compose_guidance")
+        question = turn.pop("compose_question", None)
+        language = state.get("language", Language.ES)
+        fallback = state.get("reply", "")
+        system = SystemMessage(
+            content=f"{build_prompt(state, stage_of(state))}\n"
+            f"{COMPOSE_INSTRUCTION.format(guidance=guidance)}"
+        )
+        # The history holds tool_use blocks, and Anthropic rejects those unless tools are defined.
+        # Any tool call the model still makes here is ignored; only the text is used.
+        tools = exposed_tools(state)
+        bound = llm.bind_tools(tools) if tools else llm
+        started = time.perf_counter()
+        try:
+            response = bound.invoke([system, *_history_for_compose(state["messages"])])
+        except (
+            Exception
+        ) as exc:  # a provider failure after the state is decided must not lose the turn
+            turn["violated_rules"] = [f"compose failed: {type(exc).__name__}"]
+            return {"messages": [AIMessage(content=fallback)], "turn": turn}
+        latency_ms = elapsed_ms(started, time.perf_counter())
+        turn["usage"] = [
+            *turn.get("usage", []),
+            usage_of(response, "compose", model_id, latency_ms),
+        ]
+        text = response.text
+        if not text:
+            return {"messages": [AIMessage(content=fallback)], "turn": turn}
+        failures = [*style_failures(text, language), *_question_failures(text, question)]
+        if failures:
+            turn["violated_rules"] = failures
+            turn["model_text"] = text
+            return {"messages": [AIMessage(content=fallback)], "turn": turn}
+        turn["reply_source"] = ReplySource.MODEL_COMPOSED
+        turn["violated_rules"] = []
+        composed = AIMessage(content=text, usage_metadata=response.usage_metadata)
+        return {"messages": [composed], "reply": text, "turn": turn}
+
+    def needs_compose(state: ScreeningState) -> str:
+        return "compose" if state.get("turn", {}).get("compose_guidance") else END
+
     graph = StateGraph(ScreeningState)
     graph.add_node("turn", turn)
     graph.add_node("apply_tools", apply_tools)
+    graph.add_node("compose", compose)
     graph.add_edge(START, "turn")
     graph.add_edge("turn", "apply_tools")
-    graph.add_edge("apply_tools", END)
+    graph.add_conditional_edges("apply_tools", needs_compose, ["compose", END])
+    graph.add_edge("compose", END)
     return graph.compile()
 
 
@@ -161,7 +231,9 @@ def _run_tool(call: ToolCall, state: dict[str, Any]) -> Transition:
     try:
         patch = ALL_TOOLS[name].invoke(call["args"])
     except Exception as exc:  # tool arg validation errors come from pydantic and langchain
-        return Transition.rejected(TOOL_STAGE[name], f"invalid arguments: {exc}")
+        return Transition.rejected(
+            TOOL_STAGE.get(name, stage_of(state)), f"invalid arguments: {exc}"
+        )
     return apply_patch(state, patch)
 
 
@@ -178,32 +250,50 @@ def _count_rejection(state: dict[str, Any], stage: Stage) -> dict[str, Any]:
 def _choose_reply(
     state: dict[str, Any],
     language: Language,
-    reask_stages: list[Stage],
+    rejections: list[tuple[Stage, str]],
     confirm_area: str | None,
     confirm_name: str | None,
+    consent_deferred: bool,
     model_text: str,
 ) -> "ReplyChoice":
+    """Terminal messages are fixed. Everything else is a fallback text plus the guidance the model
+    gets to write the reply itself; model text from the first call is kept when it needs no rewrite."""
     terminal = _terminal_reply(state, language)
     if terminal:
         return ReplyChoice(terminal, ReplySource.TERMINAL)
-    if reask_stages:
-        stage = min(reask_stages, key=_stage_index)
+    if rejections:
+        stage, reason = min(rejections, key=lambda item: _stage_index(item[0]))
+        guidance = GUIDANCE_REJECTED.format(reason=reason)
         # A rejection at the current stage re-asks what is pending there, which may be a confirmation.
         if stage == stage_of(state):
-            return ReplyChoice(replies.next_question(state, language), ReplySource.REASK)
-        return ReplyChoice(replies.REASK[stage][language], ReplySource.REASK)
+            return ReplyChoice(
+                replies.next_question(state, language), ReplySource.REASK, guidance, question=True
+            )
+        return ReplyChoice(
+            replies.REASK[stage][language], ReplySource.REASK, guidance, question=True
+        )
     if confirm_area:
         text = replies.ZONE_CONFIRM[language].format(area=confirm_area)
-        return ReplyChoice(text, ReplySource.ZONE_CONFIRM)
+        return ReplyChoice(text, ReplySource.ZONE_CONFIRM, GUIDANCE_CONTINUE, question=True)
     if confirm_name:
         text = replies.NAME_CONFIRM[language].format(name=confirm_name)
-        return ReplyChoice(text, ReplySource.NAME_CONFIRM)
+        return ReplyChoice(text, ReplySource.NAME_CONFIRM, GUIDANCE_CONTINUE, question=True)
+    if consent_deferred:
+        text = replies.CONSENT_LATER[language]
+        return ReplyChoice(
+            text, ReplySource.CONSENT_DEFERRED, GUIDANCE_CONSENT_DEFERRED, question=False
+        )
     next_question = replies.next_question(state, language)
     if not model_text:
-        return ReplyChoice(next_question, ReplySource.NEXT_QUESTION)
+        return ReplyChoice(
+            next_question, ReplySource.NEXT_QUESTION, GUIDANCE_CONTINUE, question=True
+        )
     violated = style_failures(model_text, language)
     if violated:
-        return ReplyChoice(next_question, ReplySource.POLICY_FALLBACK, violated)
+        guidance = GUIDANCE_RESTYLE.format(rules=", ".join(violated))
+        return ReplyChoice(
+            next_question, ReplySource.POLICY_FALLBACK, guidance, violated, question=True
+        )
     return ReplyChoice(model_text, ReplySource.MODEL_TEXT)
 
 
@@ -211,7 +301,29 @@ def _choose_reply(
 class ReplyChoice:
     text: str
     source: ReplySource
+    # Set when the model should write the reply; `text` is then the fallback if it cannot.
+    guidance: str | None = None
     violated_rules: list[str] = field(default_factory=list)
+    # True: the composed text must ask the pending question. False: it must not ask anything.
+    question: bool | None = None
+
+
+def _question_failures(text: str, question: bool | None) -> list[str]:
+    asked = "?" in text
+    if question is True and not asked:
+        return ["no question"]
+    if question is False and asked:
+        return ["asked a question"]
+    return []
+
+
+def _history_for_compose(messages: list[AnyMessage]) -> list[AnyMessage]:
+    """A trailing draft with no tool calls is dropped: a provider would continue it as a prefill
+    instead of writing a new message, and an empty one is rejected outright."""
+    history = list(messages)
+    if history and isinstance(history[-1], AIMessage) and not history[-1].tool_calls:
+        history.pop()
+    return history
 
 
 def _stage_index(stage: Stage) -> int:

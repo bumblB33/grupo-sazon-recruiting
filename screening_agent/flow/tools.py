@@ -2,14 +2,22 @@ from datetime import date
 
 from langchain_core.tools import BaseTool, tool
 
-from screening_agent.domain.enums import Availability, Schedule, Stage
+from screening_agent.domain.enums import Availability, ConsentDecision, Schedule, Stage
 from screening_agent.domain.profile import REQUIRED_FIELD_ORDER
 
 
 @tool
-def record_consent(accepted: bool) -> dict:
-    """Record whether the candidate agrees to continue with the recorded AI screening."""
-    return {"consent": accepted}
+def record_consent(decision: ConsentDecision) -> dict:
+    """Record the candidate's answer to the consent question. agreed: they clearly agree to continue
+    the recorded chat with an AI. declined: they do not want it. not_now: fine with it but a bad
+    moment. unclear: anything else, including a bare no."""
+    return {"consent_decision": decision}
+
+
+@tool
+def request_stop() -> dict:
+    """Record that the candidate asks to stop the screening or not to be contacted any more."""
+    return {"stop": True}
 
 
 @tool
@@ -81,7 +89,11 @@ ALL_TOOLS: dict[str, BaseTool] = {
     stage_tool.name: stage_tool
     for stage_tools in TOOLS_BY_STAGE.values()
     for stage_tool in stage_tools
-} | {confirm_zone.name: confirm_zone, confirm_name.name: confirm_name}
+} | {
+    confirm_zone.name: confirm_zone,
+    confirm_name.name: confirm_name,
+    request_stop.name: request_stop,
+}
 
 TOOL_STAGE: dict[str, Stage] = {
     stage_tool.name: stage
@@ -93,7 +105,8 @@ TOOL_STAGE: dict[str, Stage] = {
 def tools_for(
     stage: Stage, missing_fields: list[str], pending_zone: bool, pending_name: bool = False
 ) -> list[BaseTool]:
-    """Exposes every tool for a still-missing field from the current stage on, so one message can fill several."""
+    """Exposes every tool for a still-missing field from the current stage on, so one message can fill
+    several. After consent the candidate can always withdraw, so request_stop is always there."""
     if stage == Stage.CONSENT:
         return [record_consent]
     if stage == Stage.OUTCOME:
@@ -113,4 +126,4 @@ def tools_for(
             and not awaiting_confirmation.get(field_stage, False)
         ):
             exposed.extend(TOOLS_BY_STAGE[field_stage])
-    return exposed
+    return [*exposed, request_stop]

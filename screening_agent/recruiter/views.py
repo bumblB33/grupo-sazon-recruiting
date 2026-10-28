@@ -7,12 +7,14 @@ from screening_agent.storage.models import TranscriptEntry
 
 REPLY_SOURCE_LABELS: dict[ReplySource, str] = {
     ReplySource.TERMINAL: "fixed closing message",
-    ReplySource.REASK: "fixed re-ask",
-    ReplySource.ZONE_CONFIRM: "fixed zone confirmation",
-    ReplySource.NAME_CONFIRM: "fixed name confirmation",
+    ReplySource.REASK: "fixed re-ask, model text unusable",
+    ReplySource.ZONE_CONFIRM: "fixed zone confirmation, model text unusable",
+    ReplySource.NAME_CONFIRM: "fixed name confirmation, model text unusable",
+    ReplySource.CONSENT_DEFERRED: "fixed wait message, model text unusable",
     ReplySource.MODEL_TEXT: "model text, passed the reply rules",
+    ReplySource.MODEL_COMPOSED: "model text, written after the tool results",
     ReplySource.POLICY_FALLBACK: "fixed question, model text broke a reply rule",
-    ReplySource.NEXT_QUESTION: "fixed next question",
+    ReplySource.NEXT_QUESTION: "fixed next question, model wrote nothing",
     ReplySource.GUARDRAIL_REDIRECT: "fixed guardrail redirect",
 }
 

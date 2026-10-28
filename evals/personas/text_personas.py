@@ -135,6 +135,18 @@ PERSONAS: tuple[Persona, ...] = (
             status="needs_recruiter_review", review_reason="consent_declined", max_turns=3
         ),
     ),
+    Persona(
+        name="consent_not_now",
+        turns=("hola", "ahora no puedo, escríbeme luego"),
+        expected=Expectation(status="in_progress", max_turns=3),
+    ),
+    Persona(
+        name="stop_after_consent",
+        turns=("hola", "sí", "Ana García López", "no quiero seguir con esto, no me escribáis más"),
+        expected=Expectation(
+            status="needs_recruiter_review", review_reason="stop_requested", max_turns=5
+        ),
+    ),
     # The prompt tells the model to call the tool with its best reading. A FAIL here means the model
     # judged "Ana" itself and skipped the tool, so code never counted a strike.
     Persona(

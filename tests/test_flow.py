@@ -5,10 +5,13 @@ from screening_agent.flow.engine import Outcome, _nudge_text
 from screening_agent.flow.turn_record import ReplySource
 from tests.conftest import FakeOutbound, ai, ai_multi
 
-CONSENT = ai("Hola", "record_consent", {"accepted": True})
+CONSENT = ai("Hola", "record_consent", {"decision": "agreed"})
 NAME = ai("¿Nombre?", "record_full_name", {"full_name": "Ana García"})
 LICENCE = ai("¿Carnet?", "record_licence", {"has_licence": True})
 START = (date.today() + timedelta(days=7)).isoformat()
+# The compose call wrote nothing, so the fixed fallback goes out.
+NO_TEXT = ai("")
+NAME_CONFIRM_PEDRO = "Para asegurarme de que hablo con la persona correcta: ¿eres Pedro Martínez?"
 
 
 def drive(engine, texts):
@@ -78,7 +81,7 @@ def test_invalid_tool_arguments_become_reask(make_engine):
         ]
     )
     replies = drive(engine, ["sí", "Ana García", "sí", "Madrid", "jornada completa"])
-    assert "disponibilidad" in replies[-1]
+    assert "jornada" in replies[-1]
     assert repository.get_candidate("cand").status == Status.IN_PROGRESS
 
 
@@ -87,6 +90,7 @@ def test_two_invalid_answers_escalate_to_recruiter(make_engine):
         [
             CONSENT,
             ai("¿Nombre?", "record_full_name", {"full_name": "Ana"}),
+            NO_TEXT,
             ai("¿Nombre?", "record_full_name", {"full_name": "A"}),
         ]
     )
@@ -97,7 +101,7 @@ def test_two_invalid_answers_escalate_to_recruiter(make_engine):
 
 
 def test_consent_declined_goes_to_recruiter(make_engine):
-    engine, repository, _ = make_engine([ai("Hola", "record_consent", {"accepted": False})])
+    engine, repository, _ = make_engine([ai("Hola", "record_consent", {"decision": "declined"})])
     drive(engine, ["no quiero"])
     assert repository.get_candidate("cand").review_reason == ReviewReason.CONSENT_DECLINED
 
@@ -109,6 +113,7 @@ def test_fuzzy_zone_asks_confirmation_then_accepts(make_engine):
             NAME,
             LICENCE,
             ai("¿Ciudad?", "record_zone", {"city": "madird"}),
+            NO_TEXT,
             ai("ok", "confirm_zone", {"confirmed": True}),
         ]
     )
@@ -168,7 +173,7 @@ def test_multi_tool_turn_qualifies_regardless_of_order(make_engine):
 
 
 def test_empty_model_text_falls_back_to_next_question(make_engine):
-    engine, _, _ = make_engine([ai("", "record_consent", {"accepted": True})])
+    engine, _, _ = make_engine([ai("", "record_consent", {"decision": "agreed"})])
     assert "nombre" in drive(engine, ["sí"])[-1]
 
 
@@ -184,7 +189,7 @@ def test_past_start_date_rejected_only_on_input(make_engine):
         ]
     )
     replies = drive(engine, ["sí", "Ana García", "sí", "Madrid", "ayer"])
-    assert "fecha" in replies[-1]
+    assert "empezar" in replies[-1]
     assert repository.get_candidate("cand").status == Status.IN_PROGRESS
 
 
@@ -208,12 +213,13 @@ def test_unexposed_tool_reasks_current_stage_without_strike(make_engine):
     engine, repository, _ = make_engine(
         [
             ai("x", "record_licence", {"has_licence": True}),
+            NO_TEXT,
             ai("y", "record_licence", {"has_licence": True}),
         ]
     )
     replies = drive(engine, ["hola", "hola"])
     candidate = repository.get_candidate("cand")
-    assert "asistente de IA" in replies[0]
+    assert "Soy una IA" in replies[0]
     assert candidate.status == Status.IN_PROGRESS
     assert candidate.stage == "consent"
 
@@ -223,7 +229,7 @@ def test_consent_and_name_in_one_turn_are_both_recorded(make_engine):
         [
             ai_multi(
                 "ok",
-                ("record_consent", {"accepted": True}),
+                ("record_consent", {"decision": "agreed"}),
                 ("record_full_name", {"full_name": "Ana García"}),
             )
         ]
@@ -237,7 +243,7 @@ def test_consent_and_name_in_one_turn_are_both_recorded(make_engine):
 
 def test_empty_consent_turn_reasks_consent(make_engine):
     engine, _, _ = make_engine([ai("")])
-    assert "asistente de IA" in drive(engine, ["hola"])[-1]
+    assert "Soy una IA" in drive(engine, ["hola"])[-1]
 
 
 def test_off_topic_twice_closes_and_keeps_history(make_engine):
@@ -254,7 +260,7 @@ def test_off_topic_twice_closes_and_keeps_history(make_engine):
 
 
 def test_terminal_turn_is_flagged_and_summary_runs_on_request(make_engine):
-    engine, repository, _ = make_engine([ai("Hola", "record_consent", {"accepted": False})])
+    engine, repository, _ = make_engine([ai("Hola", "record_consent", {"decision": "declined"})])
     result = engine.handle("cand", "no", "cli", external_id="m0")
     assert result.terminal
     assert repository.get_candidate("cand").summary is None
@@ -264,7 +270,9 @@ def test_terminal_turn_is_flagged_and_summary_runs_on_request(make_engine):
 
 def test_lost_dedupe_race_reports_duplicate(make_engine, monkeypatch):
     # A scripted AIMessage gets an id on first use, so the same object cannot be replayed twice.
-    engine, repository, _ = make_engine([CONSENT, ai("Hola", "record_consent", {"accepted": True})])
+    engine, repository, _ = make_engine(
+        [CONSENT, ai("Hola", "record_consent", {"decision": "agreed"})]
+    )
     engine.handle("cand", "sí", "cli", external_id="same")
     monkeypatch.setattr(repository, "has_message", lambda external_id: False)
     assert engine.handle("cand", "sí", "cli", external_id="same").outcome == Outcome.DUPLICATE
@@ -350,7 +358,12 @@ def test_turn_record_carries_usage_for_the_turn_and_the_guardrail(make_engine):
     scripted = AIMessage(
         content="Hola",
         tool_calls=[
-            {"name": "record_consent", "args": {"accepted": True}, "id": "c1", "type": "tool_call"}
+            {
+                "name": "record_consent",
+                "args": {"decision": "agreed"},
+                "id": "c1",
+                "type": "tool_call",
+            }
         ],
         usage_metadata={"input_tokens": 120, "output_tokens": 15, "total_tokens": 135},
     )
@@ -407,7 +420,7 @@ def test_reply_breaking_the_policy_is_replaced_by_the_next_fixed_question(make_e
     from screening_agent.flow import replies
 
     engine, repository, _ = make_engine(
-        [ai("**Genial**. ¿Nombre? ¿Y apellidos?", "record_consent", {"accepted": True})]
+        [ai("**Genial**. ¿Nombre? ¿Y apellidos?", "record_consent", {"decision": "agreed"})]
     )
     reply = drive(engine, ["sí"])[0]
     assert reply == replies.REASK[Stage.FULL_NAME][Language.ES]
@@ -469,11 +482,11 @@ def test_matching_name_is_recorded_without_a_confirmation_turn(make_engine):
 
 def test_mismatched_name_asks_a_fixed_confirmation_then_accepts(make_engine):
     engine, repository, model = make_engine(
-        [CONSENT, NAME, ai("ok", "confirm_name", {"confirmed": True}), LICENCE]
+        [CONSENT, NAME, NO_TEXT, ai("ok", "confirm_name", {"confirmed": True}), LICENCE]
     )
     start_with_name(engine, "Pedro Martínez")
     replies = drive(engine, ["sí", "Ana García", "sí", "sí"])
-    assert replies[1] == "Solo para confirmar: ¿eres Pedro Martínez? Sí o no."
+    assert replies[1] == NAME_CONFIRM_PEDRO
     assert model.bound_tool_names[2][0] == "confirm_name"
     assert "record_full_name" not in model.bound_tool_names[2]
     candidate = repository.get_candidate("cand")
@@ -486,7 +499,7 @@ def test_mismatched_name_asks_a_fixed_confirmation_then_accepts(make_engine):
 
 def test_denied_name_confirmation_goes_to_recruiter_review(make_engine):
     engine, repository, _ = make_engine(
-        [CONSENT, NAME, ai("ok", "confirm_name", {"confirmed": False})]
+        [CONSENT, NAME, NO_TEXT, ai("ok", "confirm_name", {"confirmed": False})]
     )
     start_with_name(engine, "Pedro Martínez")
     replies = drive(engine, ["sí", "Ana García", "no"])
@@ -530,7 +543,7 @@ def test_fallback_question_repeats_the_name_confirmation_while_pending(make_engi
     )
     start_with_name(engine, "Pedro Martínez")
     replies = drive(engine, ["sí", "Ana García", "Ana García"])
-    assert replies[-1] == "Solo para confirmar: ¿eres Pedro Martínez? Sí o no."
+    assert replies[-1] == NAME_CONFIRM_PEDRO
     assert repository.load_state("cand")["pending_name"] == "Ana García"
     assert "confirm_name" in model.bound_tool_names[-1]
 
@@ -547,14 +560,169 @@ def test_qualified_reply_uses_the_shared_first_name_rule(make_engine):
     engine, _, _ = make_engine(
         [
             CONSENT,
-            ai("", "record_full_name", {"full_name": "Ana  García"}),
+            ai("ok", "record_full_name", {"full_name": "Ana  García"}),
             LICENCE,
-            ai("", "record_zone", {"city": "Madrid"}),
-            ai("", "record_availability", {"availability": ["full_time"]}),
-            ai("", "record_schedule", {"schedule": "morning"}),
-            ai("", "record_experience", {"years": 0, "platforms": []}),
-            ai("", "record_start_date", {"start_date": START}),
+            ai("ok", "record_zone", {"city": "Madrid"}),
+            ai("ok", "record_availability", {"availability": ["full_time"]}),
+            ai("ok", "record_schedule", {"schedule": "morning"}),
+            ai("ok", "record_experience", {"years": 0, "platforms": []}),
+            ai("ok", "record_start_date", {"start_date": START}),
         ]
     )
     replies = drive(engine, ["sí", "Ana  García", "sí", "Madrid", "completa", "mañana", "0", START])
     assert replies[-1].startswith("¡Listo, Ana!")
+
+
+def test_rejected_answer_is_reasked_in_the_models_words_after_it_sees_the_result(make_engine):
+    engine, repository, model = make_engine(
+        [
+            CONSENT,
+            ai("Genial", "record_full_name", {"full_name": "Ana"}),
+            ai("Gracias. ¿Me dices tu nombre completo, como aparece en tu DNI?"),
+        ]
+    )
+    reply = drive(engine, ["sí", "soy Ana"])[-1]
+    assert reply == "Gracias. ¿Me dices tu nombre completo, como aparece en tu DNI?"
+    record = inbound_turns(repository)[1]
+    assert record.reply_source == ReplySource.MODEL_COMPOSED
+    assert record.model_text == "Genial"
+    assert [usage.call for usage in record.usage] == ["turn", "compose"]
+    compose_input = model.seen_inputs[-1]
+    assert [m.type for m in compose_input][-3:] == ["human", "ai", "tool"]
+    assert "could not be recorded" in compose_input[0].content
+    assert "no tool calls" in compose_input[0].content
+
+
+def test_composed_reply_breaking_the_rules_falls_back_to_the_fixed_question(make_engine):
+    engine, repository, _ = make_engine(
+        [CONSENT, ai("", "record_full_name", {"full_name": "Ana"}), ai("¿Nombre? ¿Apellidos?")]
+    )
+    reply = drive(engine, ["sí", "soy Ana"])[-1]
+    assert "nombre completo" in reply
+    record = inbound_turns(repository)[1]
+    assert record.reply_source == ReplySource.REASK
+    assert record.model_text == "¿Nombre? ¿Apellidos?"
+    assert record.violated_rules == ["more than one question"]
+
+
+def test_compose_failure_keeps_the_turn_and_sends_the_fallback(make_engine):
+    def script():
+        yield ai("", "record_consent", {"decision": "agreed"})
+        raise RuntimeError("provider down")
+
+    engine, repository, _ = make_engine(script())
+    reply = drive(engine, ["sí"])[-1]
+    assert "nombre completo" in reply
+    record = inbound_turns(repository)[0]
+    assert record.reply_source == ReplySource.NEXT_QUESTION
+    assert record.violated_rules == ["compose failed: RuntimeError"]
+    assert repository.load_state("cand")["consent"] is True
+
+
+def test_compose_history_drops_the_unsent_draft_so_the_model_starts_fresh(make_engine):
+    engine, _, model = make_engine(
+        [ai("¿Hola? ¿Sigues ahí?"), ai("Soy una IA y esto queda registrado. ¿Seguimos?")]
+    )
+    drive(engine, ["hola"])
+    assert [m.type for m in model.seen_inputs[-1]] == ["system", "human"]
+
+
+def test_consent_not_now_waits_without_a_strike(make_engine):
+    engine, repository, _ = make_engine(
+        [ai("", "record_consent", {"decision": "not_now"}), ai("Claro, escríbeme cuando puedas.")]
+    )
+    reply = drive(engine, ["ahora no puedo"])[-1]
+    assert reply == "Claro, escríbeme cuando puedas."
+    state = repository.load_state("cand")
+    assert state["consent"] is None and state["invalid_counts"] == {}
+    assert repository.get_candidate("cand").stage == "consent"
+    assert inbound_turns(repository)[0].reply_source == ReplySource.MODEL_COMPOSED
+
+
+def test_unclear_consent_is_reasked_then_escalates(make_engine):
+    def unclear():
+        return ai("", "record_consent", {"decision": "unclear"})
+
+    engine, repository, _ = make_engine([unclear(), NO_TEXT, unclear()])
+    replies = drive(engine, ["no", "no"])
+    assert "Soy una IA" in replies[0]
+    candidate = repository.get_candidate("cand")
+    assert candidate.status == Status.NEEDS_RECRUITER_REVIEW
+    assert candidate.review_reason == ReviewReason.REPEATED_INVALID_ANSWER
+
+
+def test_stop_request_after_consent_goes_to_recruiter_review(make_engine):
+    engine, repository, model = make_engine([CONSENT, ai("", "request_stop")])
+    replies = drive(engine, ["sí", "no quiero seguir, dejadme"])
+    assert "request_stop" not in model.bound_tool_names[0]
+    assert model.bound_tool_names[1][-1] == "request_stop"
+    candidate = repository.get_candidate("cand")
+    assert candidate.status == Status.NEEDS_RECRUITER_REVIEW
+    assert candidate.review_reason == ReviewReason.STOP_REQUESTED
+    assert "no te escribo más" in replies[-1]
+
+
+def test_opener_discloses_recording_opt_out_and_asks_for_agreement():
+    from screening_agent.flow import replies
+
+    for language, stop, agree in (
+        (Language.EN, "you can stop whenever you want", "happy to go ahead"),
+        (Language.ES, "puedes parar cuando quieras", "Te parece bien que sigamos"),
+    ):
+        text = replies.opener(language, "Ana")
+        assert text.startswith("¡Hola, Ana!" if language == Language.ES else "Hi, Ana!")
+        assert stop in text and agree in text and "recruiting team" in text or "selección" in text
+
+
+def test_compose_keeps_the_stage_tools_bound_and_ignores_a_tool_call_in_its_reply(make_engine):
+    engine, repository, model = make_engine(
+        [
+            CONSENT,
+            ai("", "record_full_name", {"full_name": "Ana"}),
+            ai("¿Me dices tu nombre completo?", "record_full_name", {"full_name": "Ana"}),
+        ]
+    )
+    reply = drive(engine, ["sí", "soy Ana"])[-1]
+    assert reply == "¿Me dices tu nombre completo?"
+    assert model.bound_tool_names[-1][0] == "record_full_name"
+    record = inbound_turns(repository)[1]
+    assert record.reply_source == ReplySource.MODEL_COMPOSED
+    assert [call.name for call in record.tool_calls] == ["record_full_name"]
+    state = repository.load_state("cand")
+    assert state["invalid_counts"] == {"full_name": 1}
+    assert not state["messages"][-1].tool_calls
+
+
+def test_composed_confirmation_without_the_question_falls_back(make_engine):
+    engine, repository, _ = make_engine(
+        [CONSENT, NAME, ai("Gracias, Ana. Pasamos a la siguiente pregunta."), LICENCE]
+    )
+    start_with_name(engine, "Pedro Martínez")
+    reply = drive(engine, ["sí", "Ana García"])[-1]
+    assert reply == NAME_CONFIRM_PEDRO
+    record = inbound_turns(repository)[1]
+    assert record.reply_source == ReplySource.NAME_CONFIRM
+    assert record.violated_rules == ["no question"]
+
+
+def test_consent_wait_message_that_asks_a_question_falls_back(make_engine):
+    engine, repository, _ = make_engine(
+        [ai("", "record_consent", {"decision": "not_now"}), ai("Vale. ¿Te escribo mañana?")]
+    )
+    reply = drive(engine, ["ahora no"])[-1]
+    assert reply == "Sin problema. Escríbeme por aquí cuando te venga bien y seguimos."
+    assert inbound_turns(repository)[0].violated_rules == ["asked a question"]
+
+
+def test_stop_request_wins_over_a_disqualifying_answer_in_the_same_message(make_engine):
+    engine, repository, _ = make_engine(
+        [
+            CONSENT,
+            NAME,
+            ai_multi("", ("record_licence", {"has_licence": False}), ("request_stop", {})),
+        ]
+    )
+    drive(engine, ["sí", "Ana García", "no tengo carnet y no quiero seguir"])
+    candidate = repository.get_candidate("cand")
+    assert candidate.status == Status.NEEDS_RECRUITER_REVIEW
+    assert candidate.review_reason == ReviewReason.STOP_REQUESTED

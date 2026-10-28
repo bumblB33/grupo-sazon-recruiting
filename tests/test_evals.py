@@ -195,7 +195,7 @@ def test_persona_names_are_unique():
 def test_run_persona_records_turns_tokens_and_grade(make_engine):
     engine, repository, _ = make_engine(
         [
-            ai("Hola", "record_consent", {"accepted": True}),
+            ai("Hola", "record_consent", {"decision": "agreed"}),
             ai("¿Nombre?", "record_full_name", {"full_name": "Luis Hernández"}),
             ai("¿Carnet?", "record_licence", {"has_licence": False}),
         ]
@@ -213,7 +213,12 @@ def test_run_persona_records_turns_tokens_and_grade(make_engine):
 
 
 def test_run_persona_survives_engine_crash(make_engine):
+    class CrashingGraph:
+        def invoke(self, state):
+            raise RuntimeError("provider down")
+
     engine, repository, _ = make_engine([])
+    engine.graph = CrashingGraph()
     run = run_persona(engine, repository, PERSONAS[0])
     assert not run.grade.passed
     assert run.error
@@ -224,7 +229,7 @@ def test_run_persona_sums_provider_usage_from_the_stored_transcript(make_engine)
     script = [
         AIMessage(
             content="Hola",
-            tool_calls=[_call("record_consent", {"accepted": True})],
+            tool_calls=[_call("record_consent", {"decision": "agreed"})],
             usage_metadata=usage,
         ),
         AIMessage(
@@ -368,7 +373,8 @@ def test_run_persona_grades_raw_model_text_and_flags_policy_fallback(make_engine
     bad = "**Hola**. ¿Seguimos? ¿Sí?"
     engine, repository, _ = make_engine(
         [
-            ai(bad, "record_consent", {"accepted": True}),
+            ai(bad, "record_consent", {"decision": "agreed"}),
+            ai(""),
             ai("¿Nombre?", "record_full_name", {"full_name": "Luis Hernández"}),
             ai("¿Carnet?", "record_licence", {"has_licence": False}),
         ]

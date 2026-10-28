@@ -92,15 +92,19 @@ def run_persona(engine: ScreeningEngine, repository: Repository, persona: Person
     )
 
 
+MODEL_SOURCES = frozenset({ReplySource.MODEL_TEXT, ReplySource.MODEL_COMPOSED})
+
+
 def _turn(
     text: str, reply: str, elapsed: float, language: Language, record: TurnRecord | None
 ) -> Turn:
-    """Grades what the model wrote. A template reply with no model text behind it is not graded."""
+    """Grades what the model wrote: the sent reply when the model wrote it, else the draft a
+    template replaced. A template reply with no draft behind it is not graded."""
     model_text = record.model_text if record else None
-    if model_text is not None:
-        raw = model_text
-    elif record is None or record.reply_source == ReplySource.MODEL_TEXT:
+    if record is None or record.reply_source in MODEL_SOURCES:
         raw = reply
+    elif model_text is not None:
+        raw = model_text
     else:
         raw = ""
     return Turn(

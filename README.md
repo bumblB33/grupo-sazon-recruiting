@@ -5,9 +5,9 @@ AI candidate-screening agent for delivery-driver hiring, plus a recruiter API an
 Documents:
 
 - `docs/Orbio-Assignment.md`: the brief.
-- `docs/process-design.md`: the Phase 1 process design (stages, validation, outcomes, tone).
+- `docs/process-design.md`: the Phase 1 process design (stages, validation, outcomes, tone) and the items designed but not built, with rationale and tradeoffs.
 - This README: the system as built, design decisions, LLM choice, deployment and improvements.
-- `docs/STATUS.md`: remaining work, requirements coverage, known gaps, open questions and deferred designs.
+- `docs/STATUS.md`: remaining work, requirements coverage, known gaps and open questions.
 - `TROUBLESHOOTING.md`: demo runbook, commands run, common failures and tech debt.
 
 ## Setup
@@ -17,6 +17,10 @@ python3.12 -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"            # add ,evals for the OpenAI and Mistral bake-off candidates
 export PROJECT_ANTHROPIC_API_KEY=... # Anthropic models; not ANTHROPIC_API_KEY, which Claude Code reads
+# export PROJECT_ANTHROPIC_WORKSPACE_ID=...   # an org-level Anthropic key needs it, sent as the anthropic-workspace-id header
+# export OPENAI_API_KEY=...                   # bake-off candidates only
+# export MISTRAL_API_KEY=...                  # bake-off candidates only
+# export SCREENING_EVAL_DATABASE_URL=mongodb://localhost:27017/screening   # throwaway eval databases; the default
 export SCREENING_DEV_MODE=true      # local only: lets the API run without the secrets below
 export SCREENING_SESSION_SECRET=...        # signs the recruiter session cookie, see below
 export SCREENING_RECRUITER_EMAIL_DOMAINS='["gruposazon.com"]'   # who may log in
@@ -24,11 +28,11 @@ export SCREENING_SENDGRID_API_KEY=SG...    # login links go out through Twilio S
 export SCREENING_LOGIN_EMAIL_FROM=...      # a sender verified in SendGrid
 # export SCREENING_LOGIN_EMAIL_REDIRECT_TO=...   # dev mode only: every login email goes to this demo inbox
 export SCREENING_PUBLIC_URL=https://...    # base URL of every login link; required outside dev mode
+# export SCREENING_DEMO_PHONES='["+34600111222"]'   # demo only: candidate ids a recruiter may reset from the console
 export SCREENING_TWILIO_AUTH_TOKEN=...     # verifies X-Twilio-Signature on the webhook
 export SCREENING_TWILIO_WEBHOOK_URL=...    # the exact URL set in the Twilio console, see below
 export SCREENING_TWILIO_ACCOUNT_SID=...    # outbound: opener and nudges, used in the Messages URL
 export SCREENING_TWILIO_API_KEY_SID=SK...  # outbound REST auth (API key, not the auth token)
-# export SCREENING_DEMO_PHONES='["+34600111222"]'   # demo only: candidate ids a recruiter may reset from the console
 export SCREENING_TWILIO_API_KEY_SECRET=...
 export SCREENING_TWILIO_WHATSAPP_FROM=+14155238886
 export SCREENING_TWILIO_OPENER_CONTENT_SID=HX...   # approved opener template; plain text fallback in sandbox
@@ -37,7 +41,7 @@ export SCREENING_CANDIDATE_HASH_SECRET=... # keys the candidate id in traces; un
 export SCREENING_DATABASE_URL=mongodb://localhost:27017/screening
 ```
 
-Docker: copy `.env.example` to `.env`, fill the secrets, then `docker compose up --build`. The stack runs the API on port 8000, a sweep loop and MongoDB with a named volume. Add `--profile tunnel` to also run the `ngrok` service, which publishes the API at the account's fixed ngrok dev domain (`NGROK_AUTHTOKEN`, `NGROK_URL`); set `SCREENING_PUBLIC_URL` and `SCREENING_TWILIO_WEBHOOK_URL` to that domain. Without the profile no tunnel starts. Tests also need Docker: pytest starts a throwaway `mongo:7` container and skips the repository-backed tests when no Docker socket is present.
+Docker: copy `.env.example` to `.env`, fill the secrets, then `docker compose up --build`. The stack runs the API on port 8000, a sweep loop and MongoDB with a named volume. Add `--profile tunnel` to also run the `ngrok` service, which publishes the API at the account's fixed ngrok dev domain (`NGROK_AUTHTOKEN`, `NGROK_URL`); set `SCREENING_PUBLIC_URL` and `SCREENING_TWILIO_WEBHOOK_URL` to that domain. Without the profile no tunnel starts. `api` and `sweep` bind-mount `./screening_agent` read-only and `api` runs `uvicorn --reload`, so source edits apply without a rebuild. `docker compose up -d` does not rebuild the image; add `--build` after a change to `pyproject.toml` or the `Dockerfile`. Tests also need Docker: pytest starts a throwaway `mongo:7` container and skips the repository-backed tests when no Docker socket is present.
 
 Configuration is read from `SCREENING_*` environment variables or `.env`. See `screening_agent/config.py` for every setting and its default.
 
@@ -89,7 +93,7 @@ pytest                               # unit and flow tests, no LLM calls
 python -m evals.run_evals            # persona evals against the configured models, PASS/FAIL per persona on stderr
 python -m evals.run_evals --models anthropic:claude-sonnet-5-5,openai:gpt-6.1-sol,mistralai:mistral-medium-3-5 \
     --guardrail-models anthropic:claude-haiku-5-5,openai:gpt-6-luna,mistralai:mistral-small-2603 \
-    --judge --out docs            # bake-off: writes docs/bakeoff.json and bakeoff.html
+    --judge --out docs            # bake-off: needs .[evals], all three provider keys and a Mongo; overwrites docs/bakeoff.json and bakeoff.html
 python -m evals.render_report docs/bakeoff.json   # rebuild bakeoff.html from saved results, no LLM calls
 ruff check . && ruff format .
 pyright                              # standard mode, config in pyproject.toml
@@ -200,7 +204,7 @@ Recruiters open a web page. There is no password. They type their work email and
 
 ### What is not built yet
 
-The voice-call channel, the silence scheduler inside the API, the recruiter console, the public intake page and the queue-backed worker are not built. Each has its rationale and tradeoffs in `docs/process-design.md` ("Designed, not built"). SMS is dropped. The unknown-number reply, candidate ids that are not phone numbers and the applicant name with its mismatch review are planned in `PLAN.md` and not built. The list of restaurant cities is sample data, not the client's real list of 45 locations. The test that compares AI models has not produced a valid run yet (see LLM choice). Remaining work is tracked in `docs/STATUS.md`.
+The voice-call channel, the silence scheduler inside the API, the recruiter console, the public intake page and the queue-backed worker are not built. Each has its rationale and tradeoffs in `docs/process-design.md` ("Designed, not built"). SMS is dropped. Candidate ids that are not phone numbers and the applicant name with its mismatch review are planned in `PLAN.md` and not built. The list of restaurant cities is sample data, not the client's real list of 45 locations. The test that compares AI models has not produced a valid run yet (see LLM choice). Remaining work is tracked in `docs/STATUS.md`.
 
 ## Architecture
 
@@ -295,7 +299,7 @@ flowchart TB
 
 ### Runtime view: one inbound WhatsApp message
 
-Two diagrams. The first is the request path and the three outcomes `handle` can return. The second is the inside of one turn.
+Two diagrams. The first is the request path, the unknown-number check and the three outcomes `handle` can return. The second is the inside of one turn.
 
 ```mermaid
 sequenceDiagram
@@ -306,6 +310,10 @@ sequenceDiagram
 
     T->>A: POST /webhook/whatsapp, signed form
     A->>A: verify X-Twilio-Signature
+    A->>M: candidate exists for phone?
+    alt unknown number
+        A-->>T: TwiML fixed reply, no candidate, no model call
+    end
     A->>E: handle(phone, text, "whatsapp", message_id)
     E->>E: take per-candidate lock
     E->>M: transcript holds message_id?
@@ -419,11 +427,13 @@ sequenceDiagram
 - **Every turn explains itself.** The inbound transcript entry carries a turn record: stage before and after, guardrail category, tools exposed and called, why each call was accepted or rejected, where the reply came from, the model text a template replaced, tokens, latency and the trace id. It is written in the same update as the turn, so a turn that is not saved leaves no record. The recruiter candidate page shows it under every answered message. Traces in Logfire carry metadata only: no message text, phone numbers or emails.
 - **Model replies are checked before sending.** One question, one emoji, a length limit, no markdown or links, the candidate's language. A reply that breaks a rule is replaced by the fixed question for the current stage, with no second AI call. The guardrail call also reads the candidate's tone, and a confused or frustrated candidate gets a calmer instruction for that turn.
 - **Guardrail fails open.** One structured-output classification before each turn. A classifier outage allows the message and logs an event. It never blocks a candidate.
+- **Unknown numbers get a fixed reply, not a screening.** The webhook answers a number with no application with one bilingual message that names the assistant, says it is an AI and says no application was found. No candidate is stored and no model call runs, so the first message a candidate ever receives is the opener with its disclosure and strangers cannot spend model calls.
+- **Demo reset archives, never deletes.** A recruiter can reset a candidate whose id is in `SCREENING_DEMO_PHONES`, an allowlist separate from dev mode so no real candidate can be reset. The document and its events move under a new id (`<phone>~<suffix>`) with `archived_at` and `archived_by`, a `demo_reset` event records the actor, and the phone is free for a new screening. Standalone Mongo has no transactions, so the move is a fenced, idempotent sequence: a pipeline update sets the archive id once and bumps `version`, the copy is an upsert, the events are re-keyed, and the delete is keyed on that version. A turn that lands between the fence and the delete makes the delete miss, and the sequence repeats from the fence, at most three times. Archived copies are hidden from the list, the funnel and the silence sweep, and stay readable at their own page.
+- **One home for rationale on unbuilt work.** Why an item is not built, and what building it would cost, is written once, in `docs/process-design.md` under "Designed, not built". The stage tables and outcome rows there do not change for planned work such as the applicant name match, the unknown-number reply or GUID candidate ids. Splitting the rationale between a section and the tables would let the two drift. The one exception is the demo reset, which makes the "append-only" event log wording false, so that wording names the exception.
 - **Silence is a cron sweep.** No long-lived timers, so a restart loses nothing and the policy is a pure function over stored timestamps. Mechanism in Architecture, runtime view.
 - **Provider is configuration.** `SCREENING_LIVE_MODEL`, `SCREENING_SUMMARY_MODEL` and `SCREENING_GUARDRAIL_MODEL` take any `provider:model` id supported by LangChain. `llm/models.py` is the single constructor. Provider keys come from settings, so `.env` works outside Docker too: `PROJECT_ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `MISTRAL_API_KEY`. A missing key fails closed, so a shell `ANTHROPIC_API_KEY` is never billed by accident. Anthropic and OpenAI ids get no sampling parameters, Mistral runs at temperature 0, Bedrock and Vertex use their cloud credentials.
 - **Evals grade outputs, the judge grades words.** Personas are scripted turns because the stage order is fixed. Code graders check the final JSON, outcome and turn count. Reply style uses the same rules as the live reply policy (`flow/reply_policy.py`), applied to the raw model text, not to the fixed question that replaced it. The report shows the policy fallback rate per model. A fixed Haiku judge scores tone and summary usefulness so the bake-off compares models on the same yardstick.
-- **The bake-off fails loudly.** The run exits 1 when any persona fails or any scored guardrail classifier is below `--guardrail-min-accuracy` (default 0.9) or above `--guardrail-max-latency-seconds` at p95 (default 2.5), or below `--tone-min-accuracy` on the candidate-tone cases (default 0.8). An unavailable classifier scores zero and fails. Every turn, summary, guardrail and judge model id is constructed before the first paid call, so a missing key or unknown provider is a usage error, not a lost run. Eval databases live on `SCREENING_EVAL_DATABASE_URL` (default local Mongo), never on the app's `SCREENING_DATABASE_URL`. `--out` writes `bakeoff.json` (the results contract, with a `schema_version`) and `bakeoff.html`. The HTML report is self-contained, no JavaScript: per-model bar charts, a persona pass matrix, guardrail gates with threshold markers, and side-by-side transcripts with style flags, judge scores and summaries. Rebuild the report from the JSON with `python -m evals.render_report`. Cost per screening averages only personas that finished without an error, and a model with no replies shows n/a. p95 is the inclusive percentile over answered classifier calls, so failed calls never flatter the latency gate.
-- **Demo reset archives, never deletes.** A recruiter can reset a candidate whose id is in `SCREENING_DEMO_PHONES`, an allowlist separate from dev mode so no real candidate can be reset. The document and its events move under a new id (`<phone>~<suffix>`) with `archived_at` and `archived_by`, a `demo_reset` event records the actor, and the phone is free for a new screening. Standalone Mongo has no transactions, so the move is a fenced, idempotent sequence: a pipeline update sets the archive id once and bumps `version`, the copy is an upsert, the events are re-keyed, and the delete is keyed on that version. A turn that lands between the fence and the delete makes the delete miss, and the sequence repeats from the fence, at most three times. Archived copies are hidden from the list, the funnel and the silence sweep, and stay readable at their own page.
+- **The bake-off fails loudly.** The run exits 1 when any persona fails or any scored guardrail classifier is below `--guardrail-min-accuracy` (default 0.9) or above `--guardrail-max-latency-seconds` at p95 (default 2.5), or below `--tone-min-accuracy` on the candidate-tone cases (default 0.8). An unavailable classifier scores zero and fails. Every turn, summary, guardrail and judge model id is constructed before the first paid call, so a missing key or unknown provider is a usage error, not a lost run. Eval databases live on `SCREENING_EVAL_DATABASE_URL` (default local Mongo), never on the app's `SCREENING_DATABASE_URL`. `--out` writes `bakeoff.json` (the results contract, with a `schema_version`) and `bakeoff.html`. The HTML report has no JavaScript and loads its fonts from Google Fonts, with system fallbacks: per-model bar charts, a persona pass matrix, guardrail gates with threshold markers, and side-by-side transcripts with style flags, judge scores and summaries. Rebuild the report from the JSON with `python -m evals.render_report`. Cost per screening averages only personas that finished without an error, and a model with no replies shows n/a. p95 is the inclusive percentile over answered classifier calls, so failed calls never flatter the latency gate.
 
 ## LLM choice
 
@@ -449,14 +459,17 @@ Monitoring. Logfire holds the spans: `handle`, `guardrail`, `turn`, `summary`, `
 - Guardrail failure rate (`guardrail_failed` events). The guardrail fails open, so a provider outage shows here before it shows anywhere else.
 - Policy fallback rate per model. A rise means the prompt or the model drifted and candidates are getting fixed questions instead of replies.
 - Failed nudges (`nudge_failed` events) and sweep lag. Both mean silent candidates are not being followed up.
-- Turn latency p95 over the webhook. Twilio retries a webhook that takes too long, which the dedupe absorbs but the candidate still waits.
+- Turn latency p95 over the webhook. Twilio waits 15 s for the response and by default retries only a failed connection, not a slow or failing response (Twilio webhook connection overrides). A turn over 15 s loses its TwiML reply and is not retried.
 
 Scaling to 10K candidates a week. 10K a week is about one candidate a minute on average and a few a second at peak, with roughly 10 messages each. The limits, in the order they are hit:
 
 1. The per-candidate lock is process-local. Two API processes can run the same candidate's turn at once; the version check on the document turns the loser into a retry, so it is correct but wasteful. The next step is a lease per candidate in MongoDB, the same single-write pattern the login throttle uses, so any number of API replicas serialise one candidate.
-2. The silence sweep is one process over every open conversation. At 10K a week with a 24 h abandon window that is tens of thousands of documents per tick, fine for Mongo with the existing indexes, but one sweep must not run beside another. The deferred design in `docs/STATUS.md` moves the sweep into the API process behind a lease, with a claim per nudge so a nudge is sent at most once across replicas and restarts.
+2. The silence sweep is one process over every open conversation. At 10K a week with a 24 h abandon window that is tens of thousands of documents per tick, fine for Mongo with the existing indexes, but one sweep must not run beside another. The design in `docs/process-design.md` moves the sweep into the API process behind a lease, with a claim per nudge so a nudge is sent at most once across replicas and restarts.
 3. LLM rate limits. Two calls per message at peak is a few calls a second, inside provider limits, but a provider incident stalls every conversation at once. The model id is a setting, so the first mitigation is a second provider configured and tested in the bake-off, switched by redeploy.
 4. MongoDB. One document per candidate with the transcript embedded stays under the 16 MB limit by a wide margin for a 10-message screening. Reads on the recruiter list are paged and indexed on `status` and `updated_at`. The next index is on events `(kind, created_at)` when the analytics series land.
+5. Webhook latency. The model call runs inside the webhook request, so a slow turn can pass Twilio's 15 s limit. Not built, designed in `docs/process-design.md` ("Async worker"). The webhook verifies the signature, dedupes on `MessageSid`, stores the inbound message and returns empty TwiML. A worker claims the candidate through the lease from item 1, runs the turn and replies through the REST sender. The reply is stored with `outbound_status = pending` in the same write as the turn and a relay marks it sent, so a crash resends at most once.
+
+Queue choice for that worker. Celery with Redis is the mature option: its docs advise idempotent tasks, `task_acks_late = True` and `worker_prefetch_multiplier = 1` for long tasks, and state no per-key ordering, so the per-candidate lease supplies the order. Dramatiq is a simpler swap without chains or groups. Arq is async-native and Redis only. Temporal gives one workflow per candidate with ordered signals and timers that replace the sweep, at the highest operating cost. A Mongo inbox with the lease needs no new infrastructure but needs its own polling and backoff. The ordering claims for Dramatiq, Arq and Temporal are reasoning, not sourced.
 
 Deployment shape at that scale: the API as a stateless replica set behind a load balancer, MongoDB as a managed replica set, the sweep inside the API behind the lease, Logfire for traces and alerts, secrets from the platform's secret store instead of `.env`. The webhook signature check and the dedupe already make the API safe to run more than once.
 
@@ -465,7 +478,7 @@ Deployment shape at that scale: the API as a stateless replica set behind a load
 In order of value for the client:
 
 1. **Run the bake-off to completion** with the workspace header fixed, then set the model defaults from the result instead of from design. The harness, the gates and the report exist.
-2. **Silence scheduler inside the API** with a sweep lease and per-nudge claims, so the compose `sweep` service and its one-process limit go away. Designed under "Deferred past the deadline" in `docs/STATUS.md`, not built.
+2. **Silence scheduler inside the API** with a sweep lease and per-nudge claims, so the compose `sweep` service and its one-process limit go away. Designed in `docs/process-design.md` ("Silence scheduler inside the API"), not built.
 3. **Realistic personas and the real 45 locations.** The eval personas are clean scripted turns. Candidates write with typos, slang and one-word answers, and the service-area list is a 16-city sample.
 4. **Analytics series**: completion rate, drop-off stage and average duration, from timestamps the documents already carry. The funnel today counts by status and stage only.
 5. **Interview scheduling** as the step after `qualified`, as one more tool at the outcome stage.

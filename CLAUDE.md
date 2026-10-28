@@ -11,9 +11,9 @@ Take-home case study for Orbio: an AI candidate-screening agent for Grupo Sazón
 | Owns | File |
 |---|---|
 | Requirements | `docs/Orbio-Assignment.md` |
-| Phase 1 design intent: stages, validation, outcomes, tone | `docs/process-design.md` |
+| Phase 1 design intent: stages, validation, outcomes, tone. Designed-not-built items with rationale and tradeoffs | `docs/process-design.md` |
 | As-built: setup, architecture, design decisions, LLM choice, scaling, improvements | `README.md` |
-| Open work: remaining steps, requirements coverage, known gaps, open questions, deferred designs | `docs/STATUS.md` |
+| Open work: remaining steps, requirements coverage, known gaps, open questions, designs for planned work | `docs/STATUS.md` |
 | Demo runbook, commands run, common failures, tech debt | `TROUBLESHOOTING.md` |
 | Current behaviour | the code |
 
@@ -38,7 +38,7 @@ screening-cli                       # chat loop against the graph, needs PROJECT
 uvicorn screening_agent.api.app:app --reload    # needs a Mongo at SCREENING_DATABASE_URL
 screening-nudge                     # silence sweep, run from cron every few minutes
 screening-admin invite <email>           # also recruiters, deactivate, reactivate, create-api-key <label>, api-keys, revoke-api-key
-docker compose up --build           # api + sweep + mongo; add --profile tunnel for the ngrok public URL (NGROK_AUTHTOKEN, NGROK_URL)
+docker compose up --build           # api and sweep bind-mount screening_agent and api reloads on edits; --build only after pyproject.toml or Dockerfile changes; api + sweep + mongo; add --profile tunnel for the ngrok public URL (NGROK_AUTHTOKEN, NGROK_URL)
 python -m evals.run_evals           # persona evals; --models a,b --judge --guardrail-models c,d --out docs for the bake-off (json, html); eval databases go to SCREENING_EVAL_DATABASE_URL, never SCREENING_DATABASE_URL
 python -m evals.render_report docs/bakeoff.json   # re-render html from saved results, no LLM calls
 firefox --headless --profile /tmp/ffprof --no-remote --window-size=1400,3600 --screenshot /tmp/bakeoff.png "file://$PWD/docs/bakeoff.html"   # add user_pref("ui.prefersReducedMotion", 1) (and ui.systemUsesDarkTheme) to /tmp/ffprof/user.js; no node, so no palette validator
@@ -61,6 +61,7 @@ The README "Architecture" and "Key design decisions" sections describe the syste
 - Never an automated no on a judgement call. Anything ambiguous goes to `needs_recruiter_review`.
 - Every channel calls `ScreeningEngine.handle(candidate_id, text, channel, external_id)`. When `HandleResult.terminal` is true the channel calls `engine.summarize_outcome` after replying, outside the lock. The graph passes the `TurnRecord` through a transient `turn` state key that the engine pops before saving; tone travels the same way.
 - A turn is one conditional `update_one` on the candidate document, keyed on `version` and a `$ne` on the transcript external id. A stale version raises `StaleStateError` (`handle` re-runs once, the sweep skips); a lost dedupe race raises `DuplicateMessageError` from the write itself. No multi-document transactions.
+- At most `settings.max_unanswered_agent_messages` agent messages go unanswered, and silence nudges do not count. `Repository._commit` enforces it for any outbound-only write through `_enforce_unanswered_limit` and raises `UnansweredLimitError`. Transcript entries carry `MessageKind` (`reply`, `opener`, `nudge`); a stored `out` entry without a kind counts. No current path can trip it.
 - Rate limits and claims use a single atomic Mongo write (`find_one_and_update` with upsert, or an upsert that collides on `_id`), never count-then-insert.
 - Never put an email, phone, candidate id, IP, message text or login link in a log line or an exception message. The root logger feeds Logfire, and Logfire never scrubs `logfire.msg`, `exception.message`, `exception.stacktrace` or URL attributes. Candidate ids are rewritten out of URL attributes twice: a span processor at `on_start` and the FastAPI `server_request_hook`. `configure_observability` resets `app.middleware_stack` because Starlette builds it before the lifespan runs; the no-PII test pins the processor order.
 - Never build an emailed or redirect URL from the request `Host` header; take it from settings and fail closed (503) when unset outside dev mode (`deps.login_base_url`). `SCREENING_LOGIN_EMAIL_REDIRECT_TO` is honoured in dev mode only and answers 503 otherwise.

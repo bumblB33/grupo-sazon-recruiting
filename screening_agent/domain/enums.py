@@ -19,6 +19,21 @@ class Language(StrEnum):
     EN = "en"
 
 
+class MessageKind(StrEnum):
+    REPLY = "reply"
+    OPENER = "opener"
+    NUDGE = "nudge"
+
+
+class ConsentDecision(StrEnum):
+    """Only an explicit agreement opens the screening; a bare no is unclear until the candidate says which."""
+
+    AGREED = "agreed"
+    DECLINED = "declined"
+    NOT_NOW = "not_now"
+    UNCLEAR = "unclear"
+
+
 class Status(StrEnum):
     IN_PROGRESS = "in_progress"
     QUALIFIED = "qualified"
@@ -40,6 +55,10 @@ class ReviewReason(StrEnum):
     LOW_CONFIDENCE_ZONE = "low_confidence_zone"
     REPEATED_INVALID_ANSWER = "repeated_invalid_answer"
     OFF_TOPIC_CLOSE = "off_topic_close"
+    NAME_MISMATCH = "name_mismatch"
+    STOP_REQUESTED = "stop_requested"
+    # Every answer is valid but the candidate said something a recruiter must check before an interview.
+    RECRUITER_CHECK = "recruiter_check"
 
 
 class Stage(StrEnum):

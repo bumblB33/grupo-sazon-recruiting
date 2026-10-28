@@ -10,6 +10,7 @@ PRICE_PER_MILLION: dict[str, tuple[float, float]] = {
     "openai:gpt-6.1-sol": (2.00, 10.00),
     "openai:gpt-6-luna": (0.10, 0.50),
     "mistralai:mistral-medium-latest": (1.50, 7.50),
+    "mistralai:mistral-medium-3-5": (1.50, 7.50),
     "mistralai:mistral-small-latest": (0.15, 0.60),
 }
 

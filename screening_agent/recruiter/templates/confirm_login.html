@@ -1,0 +1,12 @@
+{% extends "login_base.html" %}
+{% block title %}{{ t.title_confirm }}{% endblock %}
+{% block content %}
+<div class="login card ticket reveal">
+  <p class="kicker">{{ t.kicker }}</p>
+  <h1>{{ t.heading_login }}</h1>
+  <p>{{ t.confirm_body }}</p>
+  <form method="post" action="{{ action }}">
+    <button type="submit">{{ t.button_sign_in }}</button>
+  </form>
+</div>
+{% endblock %}

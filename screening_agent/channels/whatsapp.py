@@ -1,6 +1,7 @@
 import base64
 import hashlib
 import hmac
+import json
 from collections.abc import Mapping
 from urllib.parse import urlsplit, urlunsplit
 from xml.sax.saxutils import escape
@@ -115,11 +116,14 @@ class TwilioWhatsAppSender:
     def send_text(self, candidate_id: str, text: str) -> None:
         self._post(candidate_id, {"Body": text})
 
-    def send_opener(self, candidate_id: str, text: str) -> None:
-        if self.opener_content_sid:
-            self._post(candidate_id, {"ContentSid": self.opener_content_sid})
-        else:
+    def send_opener(self, candidate_id: str, text: str, first_name: str | None = None) -> None:
+        if not self.opener_content_sid:
             self._post(candidate_id, {"Body": text})
+            return
+        content = {"ContentSid": self.opener_content_sid}
+        if first_name:
+            content["ContentVariables"] = json.dumps({"1": first_name})
+        self._post(candidate_id, content)
 
     def _post(self, candidate_id: str, content: Mapping[str, str]) -> None:
         form = {

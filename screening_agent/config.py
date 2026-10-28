@@ -25,6 +25,10 @@ class Settings(BaseSettings):
     llm_timeout_seconds: float = 15.0
     llm_max_retries: int = 2
     reask_limit: int = 2
+    # Similarity (0 to 1) between the name the candidate gives and the applicant name below which
+    # the agent asks the candidate to confirm who they are.
+    name_match_threshold: float = 0.8
+    max_unanswered_agent_messages: int = 2
     database_url: str = "mongodb://localhost:27017/screening"
     # Separate from database_url so evals never write to, or drop databases on, the app's cluster.
     eval_database_url: str = "mongodb://localhost:27017/screening"
@@ -46,6 +50,9 @@ class Settings(BaseSettings):
     # Login links go out through Twilio SendGrid.
     sendgrid_api_key: SecretStr | None = None
     login_email_from: str | None = None
+    # Dev mode only: every login email is delivered to this address instead of the recruiter's,
+    # so a demo can type a company address and still receive the link.
+    login_email_redirect_to: str | None = None
     twilio_auth_token: SecretStr | None = None
     # Twilio signs the URL configured in its console; set this when a proxy rewrites the request URL.
     twilio_webhook_url: str | None = None
@@ -62,8 +69,19 @@ class Settings(BaseSettings):
     opener_abandon_hours: float = 48.0
     silence_nudge_hours: list[float] = [2.0, 23.0]
     silence_abandon_hours: float = 24.0
+    # Logfire reads LOGFIRE_TOKEN from the process env only, and pydantic-settings does not export .env.
+    logfire_token: SecretStr | None = None
+    # Keys the candidate hash in traces; a plain hash of a phone number is reversible by enumeration.
+    candidate_hash_secret: SecretStr | None = None
+    # The recruiter candidate page polls for new turns at this interval while the conversation is open; 0 disables it.
+    candidate_page_refresh_seconds: int = 5
+    # How long a closed conversation keeps polling for the summary the background task writes after the outcome.
+    candidate_page_summary_wait_seconds: int = 120
     # Only dev mode lets the API run without a recruiter key or webhook secret.
     dev_mode: bool = False
+    # Candidate ids a recruiter may archive and reopen from the console. Separate from dev_mode so
+    # no real candidate can be reset by a stray flag.
+    demo_phones: list[str] = []
 
 
 settings = Settings()

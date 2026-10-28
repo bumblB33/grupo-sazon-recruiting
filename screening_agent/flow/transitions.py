@@ -4,8 +4,16 @@ from typing import Any
 
 from pydantic import ValidationError
 
+from screening_agent.config import settings
 from screening_agent.domain.clock import candidate_today
-from screening_agent.domain.enums import DisqualifyReason, ReviewReason, Stage, Status
+from screening_agent.domain.enums import (
+    ConsentDecision,
+    DisqualifyReason,
+    ReviewReason,
+    Stage,
+    Status,
+)
+from screening_agent.domain.names import name_similarity
 from screening_agent.domain.profile import REQUIRED_FIELD_ORDER, CandidateProfile
 from screening_agent.domain.service_areas import match_zone
 
@@ -23,6 +31,10 @@ class Transition:
     error: str | None = None
     failed_stage: Stage | None = None
     confirm_area: str | None = None
+    # Set when the stated name must be confirmed against the applicant name; the reply is a template.
+    confirm_name: str | None = None
+    # The candidate agreed in principle but not now; nothing changes and the reply says the chat waits.
+    consent_deferred: bool = False
     candidate_fault: bool = True
 
     @classmethod
@@ -31,37 +43,62 @@ class Transition:
 
 
 def apply_patch(state: dict[str, Any], patch: dict[str, Any]) -> Transition:
-    if "consent" in patch:
-        return _apply_consent(patch["consent"])
+    if "consent_decision" in patch:
+        return _apply_consent(ConsentDecision(patch["consent_decision"]))
+    if "stop" in patch:
+        return Transition(
+            updates={
+                "status": Status.NEEDS_RECRUITER_REVIEW,
+                "review_reason": ReviewReason.STOP_REQUESTED,
+            }
+        )
+    if "concern" in patch:
+        return Transition(updates={"concerns": [*state.get("concerns", []), patch["concern"]]})
+    if "questions" in patch:
+        return Transition(updates={"candidate_questions": list(patch["questions"])})
     if "zone_query" in patch:
         return _apply_zone_query(patch["zone_query"])
     if "zone_confirmed" in patch:
         return _apply_zone_confirmation(state, patch["zone_confirmed"])
+    if "name_confirmed" in patch:
+        return _apply_name_confirmation(state, patch["name_confirmed"])
     return _apply_profile_fields(state, patch)
 
 
 def qualify_if_complete(state: dict[str, Any]) -> dict[str, Any]:
-    """Single owner of the qualified transition; runs after every accepted patch regardless of tool order."""
+    """Single owner of the qualified transition; runs after every accepted patch regardless of tool
+    order. A complete profile with a flagged concern goes to a recruiter instead: never an automated
+    yes on a judgement call either."""
     if state.get("status", Status.IN_PROGRESS) != Status.IN_PROGRESS or not state.get("consent"):
         return {}
-    if state.get("pending_zone"):
+    if state.get("pending_zone") or state.get("pending_name"):
         return {}
     profile = CandidateProfile.model_validate(state.get("profile", {}))
-    if profile.current_stage() == Stage.OUTCOME:
-        return {"status": Status.QUALIFIED}
-    return {}
-
-
-def _apply_consent(accepted: bool) -> Transition:
-    if accepted:
-        return Transition(updates={"consent": True})
-    return Transition(
-        updates={
-            "consent": False,
+    if profile.current_stage() != Stage.OUTCOME:
+        return {}
+    if state.get("concerns"):
+        return {
             "status": Status.NEEDS_RECRUITER_REVIEW,
-            "review_reason": ReviewReason.CONSENT_DECLINED,
+            "review_reason": ReviewReason.RECRUITER_CHECK,
         }
-    )
+    return {"status": Status.QUALIFIED}
+
+
+def _apply_consent(decision: ConsentDecision) -> Transition:
+    if decision == ConsentDecision.AGREED:
+        return Transition(updates={"consent": True})
+    if decision == ConsentDecision.DECLINED:
+        return Transition(
+            updates={
+                "consent": False,
+                "status": Status.NEEDS_RECRUITER_REVIEW,
+                "review_reason": ReviewReason.CONSENT_DECLINED,
+            }
+        )
+    if decision == ConsentDecision.NOT_NOW:
+        return Transition(consent_deferred=True)
+    # An unclear answer is re-asked and counts like an invalid one, so the flow cannot loop.
+    return Transition.rejected(Stage.CONSENT, "consent answer unclear: not now, or not at all?")
 
 
 def _apply_zone_query(city: str) -> Transition:
@@ -91,6 +128,26 @@ def _apply_zone_confirmation(state: dict[str, Any], confirmed: bool) -> Transiti
     )
 
 
+def _apply_name_confirmation(state: dict[str, Any], confirmed: bool) -> Transition:
+    pending = state.get("pending_name")
+    if confirmed and pending:
+        return Transition(updates={"pending_name": None, "profile": {"full_name": pending}})
+    return Transition(
+        updates={
+            "pending_name": None,
+            "status": Status.NEEDS_RECRUITER_REVIEW,
+            "review_reason": ReviewReason.NAME_MISMATCH,
+        }
+    )
+
+
+def _name_needs_confirmation(state: dict[str, Any], full_name: str) -> bool:
+    applicant = state.get("applicant_name")
+    if not applicant:
+        return False
+    return name_similarity(full_name, applicant) < settings.name_match_threshold
+
+
 def _apply_profile_fields(state: dict[str, Any], patch: dict[str, Any]) -> Transition:
     current_profile = state.get("profile", {})
     if "start_date" in patch:
@@ -104,6 +161,11 @@ def _apply_profile_fields(state: dict[str, Any], patch: dict[str, Any]) -> Trans
         field_name = str(first["loc"][0]) if first["loc"] else next(iter(patch))
         return Transition.rejected(PATCH_STAGE.get(field_name, Stage.FULL_NAME), first["msg"])
     updates: dict[str, Any] = {"profile": profile.model_dump(mode="json", exclude_none=True)}
+    if "full_name" in patch and _name_needs_confirmation(state, str(profile.full_name)):
+        # The name stays out of the profile until confirmed, so the stage stays full_name.
+        updates["profile"].pop("full_name", None)
+        updates["pending_name"] = profile.full_name
+        return Transition(updates=updates, confirm_name=str(state.get("applicant_name")))
     if profile.has_licence is False:
         updates["status"] = Status.DISQUALIFIED
         updates["disqualify_reason"] = DisqualifyReason.NO_LICENCE

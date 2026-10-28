@@ -3,10 +3,10 @@ import sys
 from pathlib import Path
 
 from evals.html_report import render_html
-from evals.report import render
-from evals.results import BakeoffResults
+from evals.results import BakeoffResults, IncompatibleResultsError
 
 RESULTS_NAME = "bakeoff.json"
+REPORT_NAME = "bakeoff.html"
 
 
 def write_reports(results: BakeoffResults, out_dir: Path) -> list[Path]:
@@ -14,23 +14,25 @@ def write_reports(results: BakeoffResults, out_dir: Path) -> list[Path]:
     out_dir.mkdir(parents=True, exist_ok=True)
     results_path = out_dir / RESULTS_NAME
     results.save(results_path)
-    markdown_path = out_dir / "bakeoff.md"
-    markdown_path.write_text(render(results))
-    html_path = out_dir / "bakeoff.html"
+    html_path = out_dir / REPORT_NAME
     html_path.write_text(render_html(results))
-    return [results_path, markdown_path, html_path]
+    return [results_path, html_path]
 
 
 def main() -> int:
+    """Exit status reports the rendering, not the bake-off verdict, which the report shows."""
     parser = argparse.ArgumentParser(
-        description="Rebuild bakeoff.md and bakeoff.html from a saved bakeoff.json without live calls."
+        description="Rebuild bakeoff.html from a saved bakeoff.json without live calls."
     )
     parser.add_argument("results", type=Path, help="path to bakeoff.json")
     args = parser.parse_args()
-    results = BakeoffResults.load(args.results)
+    try:
+        results = BakeoffResults.load(args.results)
+    except IncompatibleResultsError as exc:
+        parser.error(str(exc))
     for path in write_reports(results, args.results.parent):
         print(f"written {path}", file=sys.stderr)
-    return 0 if results.passed else 1
+    return 0
 
 
 if __name__ == "__main__":

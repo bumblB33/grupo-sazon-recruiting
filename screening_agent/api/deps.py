@@ -1,12 +1,22 @@
+import logging
 from functools import cache
 
 from fastapi import Cookie, Depends, Header, HTTPException, Request
 
-from screening_agent.api.auth import Principal, read_session, secret_matches, split_api_key
+from screening_agent.api.auth import (
+    Principal,
+    PrincipalKind,
+    client_from_api_key,
+    csrf_matches,
+    csrf_token,
+    is_valid_email,
+    recruiter_from_session,
+)
 from screening_agent.channels.email import (
     EmailNotConfiguredError,
     EmailSender,
     LoggingEmailSender,
+    RedirectingEmailSender,
     SendGridEmailSender,
 )
 from screening_agent.channels.whatsapp import OutboundNotConfiguredError, TwilioWhatsAppSender
@@ -14,8 +24,11 @@ from screening_agent.config import settings
 from screening_agent.flow.engine import OutboundChannel, ScreeningEngine
 from screening_agent.storage.repository import Repository
 
+logger = logging.getLogger(__name__)
+
 RECRUITER_COOKIE = "recruiter_session"
-DEV_PRINCIPAL = Principal("dev", "dev-mode")
+CSRF_HEADER = "X-CSRF-Token"
+DEV_PRINCIPAL = Principal(PrincipalKind.DEV, "dev-mode")
 
 
 @cache
@@ -45,18 +58,35 @@ def get_whatsapp_outbound() -> OutboundChannel:
 @cache
 def email_sender() -> EmailSender:
     try:
-        return SendGridEmailSender.from_settings()
+        sender: EmailSender = SendGridEmailSender.from_settings()
     except EmailNotConfiguredError:
-        if settings.dev_mode:
-            return LoggingEmailSender()
-        raise
+        if not settings.dev_mode:
+            raise
+        sender = LoggingEmailSender()
+    return redirect_login_email(sender)
+
+
+def redirect_login_email(sender: EmailSender) -> EmailSender:
+    """A redirect outside dev mode would send every recruiter's link to one mailbox, so it fails closed."""
+    redirect_to = settings.login_email_redirect_to
+    if redirect_to is None:
+        return sender
+    if not settings.dev_mode:
+        raise EmailNotConfiguredError(
+            "SCREENING_LOGIN_EMAIL_REDIRECT_TO is allowed in dev mode only"
+        )
+    if not is_valid_email(redirect_to):
+        raise EmailNotConfiguredError("SCREENING_LOGIN_EMAIL_REDIRECT_TO is not an email address")
+    return RedirectingEmailSender(sender, redirect_to)
 
 
 def get_email_sender() -> EmailSender:
     try:
         return email_sender()
     except EmailNotConfiguredError as exc:
-        raise HTTPException(status_code=503, detail=f"login email not configured: {exc}") from exc
+        # The login form is public, so the missing setting names go to the log, not the response.
+        logger.error("login email not configured: %s", exc)
+        raise HTTPException(status_code=503, detail="login email not configured") from exc
 
 
 def session_secret() -> str | None:
@@ -77,32 +107,34 @@ def login_base_url(request: Request) -> str:
     raise HTTPException(status_code=503, detail="public url not configured")
 
 
+def secure_cookies(request: Request) -> bool:
+    """Follows the public URL scheme, not the request's, which is plain http behind a TLS proxy."""
+    return login_base_url(request).startswith("https://")
+
+
 def recruiter_from_cookie(cookie: str | None, repository: Repository) -> Principal | None:
-    """Dev mode without a secret admits everyone. Otherwise the cookie must verify and the
-    recruiter must still be active, so deactivation takes effect on the next request."""
+    """Dev mode without a secret admits everyone; otherwise the cookie must hold a live session."""
     secret = session_secret()
     if secret is None:
         return DEV_PRINCIPAL
-    email = read_session(cookie, secret)
-    if email is None:
-        return None
-    recruiter = repository.get_recruiter(email)
-    if recruiter is None or not recruiter.active:
-        return None
-    return Principal("recruiter", email)
+    return recruiter_from_session(cookie, secret, settings.recruiter_email_domains, repository)
 
 
-def client_from_api_key(presented: str | None, repository: Repository) -> Principal | None:
-    if not presented:
+def session_csrf_token(principal: Principal, cookie: str | None) -> str | None:
+    """Only a cookie session has a token; an API key or the dev principal is never sent ambiently."""
+    if principal.kind is not PrincipalKind.RECRUITER or not cookie:
         return None
-    parts = split_api_key(presented)
-    if parts is None:
-        return None
-    key_id, secret = parts
-    stored = repository.api_key_hash(key_id)
-    if stored is None or not secret_matches(secret, stored[1]):
-        return None
-    return Principal("api_key", stored[0])
+    secret = session_secret()
+    return None if secret is None else csrf_token(cookie, secret)
+
+
+def verify_csrf(principal: Principal, presented: str, cookie: str | None) -> None:
+    """Fails closed: a cookie principal whose token cannot be derived is refused."""
+    if principal.kind is not PrincipalKind.RECRUITER:
+        return
+    expected = session_csrf_token(principal, cookie)
+    if expected is None or not csrf_matches(presented, expected):
+        raise HTTPException(status_code=403, detail="csrf token missing or invalid")
 
 
 def require_recruiter(
@@ -116,4 +148,15 @@ def require_recruiter(
     )
     if principal is None:
         raise HTTPException(status_code=401, detail="recruiter login or api key required")
+    return principal
+
+
+def require_recruiter_write(
+    principal: Principal = Depends(require_recruiter),
+    recruiter_session: str | None = Cookie(default=None, alias=RECRUITER_COOKIE),
+    presented_csrf: str = Header(default="", alias=CSRF_HEADER),
+) -> Principal:
+    """SameSite=Lax still sends the cookie from sibling subdomains, so a cookie writer must also
+    echo the CSRF token."""
+    verify_csrf(principal, presented_csrf, recruiter_session)
     return principal

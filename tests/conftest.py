@@ -6,13 +6,20 @@ import pytest
 from fastapi.testclient import TestClient
 from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
 from langchain_core.messages import AIMessage
+from langchain_core.runnables import RunnableLambda
 
 from screening_agent.api import app as api
 from screening_agent.api.deps import get_email_sender
 from screening_agent.config import settings
+from screening_agent.domain.enums import Language
 from screening_agent.flow.engine import ScreeningEngine
 from screening_agent.flow.graph import build_graph
-from screening_agent.llm.guardrail import GuardrailVerdict, permit_all
+from screening_agent.llm.guardrail import (
+    Classification,
+    GuardrailCategory,
+    GuardrailVerdict,
+    permit_all,
+)
 from screening_agent.recruiter.router import LOGIN_PATH
 from screening_agent.storage.repository import Repository
 
@@ -29,7 +36,12 @@ class ScriptedToolModel(GenericFakeChatModel):
 
     def invoke(self, input, config=None, **kwargs):
         self.seen_inputs.append(list(input))
-        return super().invoke(input, config=config, **kwargs)
+        try:
+            return super().invoke(input, config=config, **kwargs)
+        except StopIteration:
+            raise AssertionError(
+                "scripted model called more times than the test scripted"
+            ) from None
 
 
 def ai(
@@ -95,7 +107,7 @@ def make_engine(repository: Repository):
         engine = ScreeningEngine(
             repository,
             graph,
-            summarizer=lambda profile, status, msgs: "summary",
+            summarizer=lambda state: AIMessage(content="summary"),
             guardrail=guardrail,
         )
         return engine, repository, model
@@ -108,27 +120,39 @@ class FakeOutbound:
 
     def __init__(self) -> None:
         self.texts: list[tuple[str, str]] = []
-        self.openers: list[tuple[str, str]] = []
+        self.openers: list[tuple[str, str, str | None]] = []
 
     def send_text(self, candidate_id: str, text: str) -> None:
         self.texts.append((candidate_id, text))
 
-    def send_opener(self, candidate_id: str, text: str) -> None:
-        self.openers.append((candidate_id, text))
+    def send_opener(self, candidate_id: str, text: str, first_name: str | None = None) -> None:
+        self.openers.append((candidate_id, text, first_name))
 
 
-NO_LICENCE_TURNS = ["sí", "Ana García", "no tengo carnet"]
-# One no-licence screening, then one consent so a test can open a second candidate.
+def classifier(category: GuardrailCategory, raw: AIMessage | None = None) -> RunnableLambda:
+    """Fakes a structured-output model built with include_raw=True."""
+    output = {
+        "raw": raw or AIMessage(content=""),
+        "parsed": Classification(category=category),
+        "parsing_error": None,
+    }
+    return RunnableLambda(lambda messages: output)
+
+
+NO_LICENCE_TURNS = ["sí", "Ana García", "no tengo carnet", "no, ninguna"]
+# One no-licence screening with its wrap-up reply, then one consent so a test can open a second candidate.
 API_SCRIPT = [
-    ai("Hola", "record_consent", {"accepted": True}),
+    ai("Hola", "record_consent", {"decision": "agreed"}),
     ai("¿Nombre?", "record_full_name", {"full_name": "Ana García"}),
     ai("¿Carnet?", "record_licence", {"has_licence": False}),
-    ai("Hola", "record_consent", {"accepted": True}),
+    ai("", "record_questions", {"questions": []}),
+    ai("Hola", "record_consent", {"decision": "agreed"}),
 ]
 
 
 SECRET_SETTINGS = (
     "anthropic_api_key",
+    "anthropic_workspace_id",
     "openai_api_key",
     "mistral_api_key",
     "session_secret",
@@ -142,6 +166,8 @@ SECRET_SETTINGS = (
     "twilio_api_key_secret",
     "twilio_whatsapp_from",
     "twilio_opener_content_sid",
+    "logfire_token",
+    "candidate_hash_secret",
 )
 
 
@@ -188,7 +214,14 @@ def twilio_form(sid: str, phone: str, body: str) -> dict[str, str]:
     return {"MessageSid": sid, "From": f"whatsapp:{phone}", "To": "whatsapp:+1555", "Body": body}
 
 
+def open_candidate(phone: str, language: Language = Language.ES) -> None:
+    """The webhook only answers known numbers, so API tests open the candidate like POST /candidates."""
+    engine = api.app.dependency_overrides[api.get_engine]()
+    engine.start_conversation(phone, "whatsapp", language, FakeOutbound())
+
+
 def screen_no_licence(client: TestClient, phone: str) -> None:
+    open_candidate(phone)
     for index, text in enumerate(NO_LICENCE_TURNS):
         client.post("/webhook/whatsapp", data=twilio_form(f"{phone}-{index}", phone, text))
 
@@ -196,8 +229,13 @@ def screen_no_licence(client: TestClient, phone: str) -> None:
 RECRUITER_EMAIL = "ana@gruposazon.com"
 
 
+def invite(address: str = RECRUITER_EMAIL) -> None:
+    api.app.dependency_overrides[api.get_repository]().invite_recruiter(address)
+
+
 def log_in(client: TestClient, email: FakeEmail, address: str = RECRUITER_EMAIL) -> None:
-    """Requests a link for an allowed address and follows it; the session cookie lands on the client."""
+    """Invites the address, requests a link and confirms it; the session cookie lands on the client."""
+    invite(address)
     client.post(LOGIN_PATH, data={"email": address})
-    response = client.get(email.last_link(), follow_redirects=False)
+    response = client.post(email.last_link(), follow_redirects=False)
     assert response.status_code == 303, response.text

@@ -1,4 +1,7 @@
 import pytest
+from langchain_anthropic import ChatAnthropic
+from langchain_mistralai import ChatMistralAI
+from langchain_openai import ChatOpenAI
 from pydantic import SecretStr
 
 from screening_agent.config import Settings, settings
@@ -10,6 +13,7 @@ def test_anthropic_model_uses_project_key_not_the_shell_key(monkeypatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "shell-key")
     monkeypatch.setattr(settings, "anthropic_api_key", SecretStr("project-key"))
     model = chat_model("anthropic:claude-haiku-5-5")
+    assert isinstance(model, ChatAnthropic)
     assert model.anthropic_api_key.get_secret_value() == "project-key"
     assert model.temperature is None
 
@@ -27,6 +31,9 @@ def test_openai_and_mistral_keys_come_from_settings_not_only_the_shell(monkeypat
     monkeypatch.setattr(settings, "mistral_api_key", SecretStr("mistral-from-env-file"))
     openai = chat_model("openai:gpt-6-luna")
     mistral = chat_model("mistralai:mistral-small-latest")
+    assert isinstance(openai, ChatOpenAI) and isinstance(mistral, ChatMistralAI)
+    assert isinstance(openai.openai_api_key, SecretStr)
+    assert isinstance(mistral.mistral_api_key, SecretStr)
     assert openai.openai_api_key.get_secret_value() == "openai-from-env-file"
     assert mistral.mistral_api_key.get_secret_value() == "mistral-from-env-file"
     assert openai.temperature is None and mistral.temperature == 0
@@ -51,14 +58,17 @@ def test_claude_on_bedrock_gets_no_sampling_parameters_and_no_anthropic_key(monk
 def test_empty_env_assignment_is_treated_as_unset(monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "")
     monkeypatch.setenv("SCREENING_SESSION_SECRET", "")
-    fresh = Settings(_env_file=None)
+    fresh = Settings(_env_file=None)  # pyright: ignore[reportCallIssue]  # pydantic-settings init kwarg, not a field
     assert fresh.openai_api_key is None and fresh.session_secret is None
 
 
 def test_anthropic_model_sends_workspace_header_only_when_configured(monkeypatch):
     monkeypatch.setattr(settings, "anthropic_api_key", SecretStr("project-key"))
-    assert chat_model("anthropic:claude-haiku-5-5").default_headers is None
+    without_workspace = chat_model("anthropic:claude-haiku-5-5")
+    assert isinstance(without_workspace, ChatAnthropic)
+    assert without_workspace.default_headers is None
     monkeypatch.setattr(settings, "anthropic_workspace_id", "wrkspc_test")
     model = chat_model("anthropic:claude-haiku-5-5")
+    assert isinstance(model, ChatAnthropic)
     assert model.default_headers == {"anthropic-workspace-id": "wrkspc_test"}
     assert model._client.default_headers["anthropic-workspace-id"] == "wrkspc_test"

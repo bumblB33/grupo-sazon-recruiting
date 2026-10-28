@@ -50,6 +50,14 @@ def test_opener_uses_content_template_when_configured():
     assert "Body" not in form
 
 
+def test_opener_template_carries_the_first_name_as_a_content_variable():
+    sender, requests = make_sender("HX42")
+    sender.send_opener("+34600", "hola", first_name="Ana")
+    form = form_of(requests[0])
+    assert form["ContentSid"] == "HX42"
+    assert form["ContentVariables"] == '{"1": "Ana"}'
+
+
 def test_opener_sends_text_without_template():
     sender, requests = make_sender()
     sender.send_opener("+34600", "hola")

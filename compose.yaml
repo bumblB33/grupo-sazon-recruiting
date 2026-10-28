@@ -1,11 +1,15 @@
 services:
   api:
     build: .
+    command: ["uvicorn", "screening_agent.api.app:app", "--host", "0.0.0.0", "--port", "8000", "--reload", "--reload-dir", "/app/screening_agent"]
+    volumes:
+      - ./screening_agent:/app/screening_agent:ro
     ports:
       - "8000:8000"
     env_file: .env
     environment:
       SCREENING_DATABASE_URL: mongodb://mongo:27017/screening
+      FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-127.0.0.1}
     depends_on:
       mongo:
         condition: service_healthy
@@ -18,6 +22,8 @@ services:
 
   sweep:
     build: .
+    volumes:
+      - ./screening_agent:/app/screening_agent:ro
     env_file: .env
     environment:
       SCREENING_DATABASE_URL: mongodb://mongo:27017/screening
@@ -37,6 +43,20 @@ services:
       timeout: 5s
       retries: 5
       start_period: 10s
+
+  # Public URL for the stack. Opt in with `docker compose --profile tunnel up`.
+  # ngrok's free plan gives each account one fixed dev domain; NGROK_URL is that domain.
+  ngrok:
+    image: ngrok/ngrok:3
+    profiles: ["tunnel"]
+    command: ["http", "api:8000", "--url", "${NGROK_URL:?set NGROK_URL to the account's dev domain}"]
+    environment:
+      NGROK_AUTHTOKEN: ${NGROK_AUTHTOKEN:?set NGROK_AUTHTOKEN from dashboard.ngrok.com}
+    ports:
+      - "127.0.0.1:4040:4040"
+    depends_on:
+      api:
+        condition: service_healthy
 
 volumes:
   mongo-data:

@@ -9,11 +9,11 @@ from evals.guardrail_cases import score_guardrail
 from evals.judge import JUDGE_MODEL, Judge
 from evals.personas.text_personas import PERSONAS
 from evals.render_report import write_reports
-from evals.report import render
 from evals.results import BakeoffResults, Gates
 from evals.runner import ModelSet, PersonaRun, build_engine, run_persona
 from screening_agent.config import settings
 from screening_agent.flow.engine import ScreeningEngine
+from screening_agent.llm.models import chat_model
 from screening_agent.storage.repository import Repository
 
 
@@ -36,7 +36,8 @@ def main() -> int:
     guardrails = [score_guardrail(model_id) for model_id in args.guardrail_models]
     for score in guardrails:
         print(
-            f"guardrail {score.model} {score.correct}/{score.total} p95 {score.latency_p95:.2f}s",
+            f"guardrail {score.model} {score.correct}/{score.total} "
+            f"tone {score.tone_accuracy:.0%} p95 {score.latency_p95:.2f}s",
             file=sys.stderr,
         )
     results = BakeoffResults.from_runs(
@@ -48,6 +49,7 @@ def main() -> int:
         gates=Gates(
             guardrail_min_accuracy=args.guardrail_min_accuracy,
             guardrail_max_latency_seconds=args.guardrail_max_latency_seconds,
+            tone_min_accuracy=args.tone_min_accuracy,
         ),
     )
     for failure in results.guardrail_failures:
@@ -55,8 +57,7 @@ def main() -> int:
     if args.out:
         for path in write_reports(results, Path(args.out)):
             print(f"written {path}", file=sys.stderr)
-    else:
-        print(render(results))
+    print("PASS" if results.passed else "FAIL", file=sys.stderr)
     return 0 if results.passed else 1
 
 
@@ -117,6 +118,12 @@ def _parse() -> argparse.Namespace:
         help="a scored classifier below this accuracy fails the run",
     )
     parser.add_argument(
+        "--tone-min-accuracy",
+        type=float,
+        default=0.8,
+        help="a scored classifier whose candidate-tone accuracy is below this fails the run",
+    )
+    parser.add_argument(
         "--guardrail-max-latency-seconds",
         type=float,
         default=2.5,
@@ -125,9 +132,13 @@ def _parse() -> argparse.Namespace:
     parser.add_argument(
         "--out",
         default=None,
-        help="directory for bakeoff.json, bakeoff.md and bakeoff.html; without it the markdown goes to stdout",
+        help="directory for bakeoff.json and bakeoff.html; without it only the verdict is printed",
     )
-    parser.add_argument("--db", default=settings.database_url)
+    parser.add_argument(
+        "--db",
+        default=settings.eval_database_url,
+        help="Mongo for throwaway eval databases; never the app's SCREENING_DATABASE_URL",
+    )
     parser.add_argument(
         "--keep-db", action="store_true", help="keep each eval database to inspect transcripts"
     )
@@ -136,7 +147,19 @@ def _parse() -> argparse.Namespace:
         parser.error("--models needs at least one model id")
     if not urlsplit(args.db).path.strip("/"):
         parser.error("--db must name a database, e.g. mongodb://host:27017/screening")
+    for model_id in _models_used_in_runs(args):
+        try:
+            chat_model(model_id)
+        except Exception as exc:
+            parser.error(f"{model_id}: {type(exc).__name__}: {exc}")
     return args
+
+
+def _models_used_in_runs(args: argparse.Namespace) -> list[str]:
+    """Checked before any paid call: a bad id mid-run would end it before results are written.
+    Scored guardrail models are left out, an unusable one scores zero instead."""
+    judge = [args.judge_model] if args.judge else []
+    return [*args.models, args.summary_model, args.guardrail_model, *judge]
 
 
 def _csv(value: str) -> list[str]:

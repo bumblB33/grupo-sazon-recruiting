@@ -1,0 +1,3 @@
+<nav class="locales" aria-label="Language">
+  {% for option in locales %}{% if option == locale %}<span aria-current="true">{{ strings[option].locale_name }}</span>{% else %}<a href="/recruiter/login?lang={{ option.value }}" hreflang="{{ option.value }}">{{ strings[option].locale_name }}</a>{% endif %}{% if not loop.last %} · {% endif %}{% endfor %}
+</nav>

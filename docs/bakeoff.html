@@ -1,0 +1,2625 @@
+
+
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Model bake-off · Grupo Sazón screening agent</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root {
+  color-scheme: light;
+  --paper: #f5f5f2; --paper-2: #ebebe6; --surface: #ffffff; --ink: #15191c; --ink-2: #475058; --muted: #66707a;
+  --rule: #dcdcd5; --rule-2: #c3c3ba; --border: rgba(21,25,28,0.10);
+  --accent: #0f6b5c; --accent-ink: #0a5246; --highlight: #c77d0a; --highlight-ink: #8f5500;
+  --good: #17794a; --good-bg: #dcf1e5; --critical: #b4281c; --critical-bg: #fbe0dc; --neutral-bg: #e6e6df;
+  --series-1: #0072b2; --series-2: #d55e00; --series-3: #009e73; --series-4: #e69f00;
+  --series-5: #cc79a7; --series-6: #56b4e9; --series-7: #6a4fb3; --series-8: #6b7280;
+  --bubble-agent: #eef0f2; --bubble-candidate: #dcefe9;
+  --display: "Fraunces", "Iowan Old Style", Georgia, serif;
+  --body: "Inter", "Segoe UI", system-ui, sans-serif;
+  --mono: "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --paper: #101417; --paper-2: #171c20; --surface: #1b2126; --ink: #eceff1; --ink-2: #b4bcc3; --muted: #8c969e;
+    --rule: #2a3238; --rule-2: #3a444c; --border: rgba(236,239,241,0.10);
+    --accent: #3fc2a8; --accent-ink: #6fd8c3; --highlight: #f0b429; --highlight-ink: #f0b429;
+    --good: #4cc98a; --good-bg: #163a29; --critical: #f2796b; --critical-bg: #43211e; --neutral-bg: #263037;
+    --series-1: #4aa3e0; --series-2: #f0824a; --series-3: #2fc99a; --series-4: #f0b429;
+    --series-5: #e08fbd; --series-6: #7cc7f2; --series-7: #a690ec; --series-8: #9aa3ad;
+    --bubble-agent: #232b31; --bubble-candidate: #153a33;
+  }
+}
+* { box-sizing: border-box; }
+html { background: var(--paper); }
+body {
+  margin: 0; color: var(--ink); font: 15px/1.5 var(--body);
+  background:
+    radial-gradient(60rem 28rem at 105% -12%, color-mix(in oklab, var(--accent) 14%, transparent), transparent 70%),
+    linear-gradient(color-mix(in oklab, var(--rule) 45%, transparent) 1px, transparent 1px) 0 0 / 100% 32px,
+    var(--paper);
+  background-attachment: fixed;
+}
+main { max-width: 1240px; margin: 0 auto; padding: 48px 28px 96px; }
+/* accordion sections: summary is the heading, the body slides open */
+.panel { margin-top: 28px; border-top: 1px solid var(--rule-2); padding-top: 8px; interpolate-size: allow-keywords; }
+.panel > summary { list-style: none; cursor: pointer; display: flex; align-items: baseline; gap: 14px; padding: 14px 0; background: none; border: 0; border-radius: 0; }
+.panel > summary::-webkit-details-marker { display: none; }
+.panel > summary h2 { margin: 0; }
+.panel > summary .chev { margin-left: auto; width: 12px; height: 12px; border-right: 2px solid var(--accent); border-bottom: 2px solid var(--accent); transform: rotate(-45deg); transition: transform .3s ease; align-self: center; }
+.panel[open] > summary .chev { transform: rotate(45deg); }
+.panel::details-content { block-size: 0; overflow: hidden; transition: block-size .35s cubic-bezier(.2,.7,.2,1), content-visibility .35s allow-discrete; }
+.panel[open]::details-content { block-size: auto; }
+.panel .body { padding-bottom: 12px; }
+@media (prefers-reduced-motion: no-preference) {
+  .panel[open] .body { animation: slide .35s cubic-bezier(.2,.7,.2,1); }
+  @keyframes slide { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
+}
+
+h1, h2 { font-family: var(--display); font-weight: 600; letter-spacing: -0.02em; }
+h1 { font-size: clamp(40px, 6vw, 64px); line-height: 1; margin: 0; }
+h2 { font-size: 26px; margin: 0 0 6px; }
+.lede { margin: 0 0 18px; color: var(--ink-2); max-width: 70ch; }
+.eyebrow { font-family: var(--mono); font-size: 12px; letter-spacing: .14em; text-transform: uppercase; color: var(--accent-ink); margin: 0 0 14px; }
+.num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+/* masthead */
+.masthead { margin-bottom: 20px; display: grid; grid-template-columns: 1fr auto; gap: 24px 40px; align-items: end; padding-bottom: 28px; border-bottom: 2px solid var(--ink); }
+.ticket { display: grid; grid-template-columns: max-content 1fr; gap: 4px 18px; margin: 22px 0 0; font-size: 13px; }
+.ticket dt { color: var(--muted); font-family: var(--mono); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; align-self: center; }
+.ticket dd { margin: 0; font-family: var(--mono); }
+.stamp { display: inline-block; font-family: var(--mono); font-weight: 600; font-size: 12px; letter-spacing: .12em; padding: 3px 10px; border: 2px solid currentColor; border-radius: 4px; }
+.stamp.pass { color: var(--good); } .stamp.fail { color: var(--critical); }
+.stamp.big { font-size: 28px; padding: 10px 22px; border-width: 3px; transform: rotate(-2deg); box-shadow: 0 0 0 4px var(--paper), 0 0 0 5px currentColor; opacity: .92; }
+
+/* issues */
+.issues { margin: 0; padding: 0; list-style: none; display: grid; gap: 10px; }
+.issues li { display: grid; grid-template-columns: 220px 1fr; gap: 14px; padding: 12px 16px; background: var(--surface); border-left: 4px solid var(--critical); border-radius: 0 8px 8px 0; font-size: 14px; }
+.issues .scope { font-family: var(--mono); font-size: 13px; color: var(--ink-2); word-break: break-word; }
+.issues .count { display: inline-block; margin-right: 8px; padding: 1px 8px; border-radius: 999px; background: var(--critical-bg); color: var(--critical); font-family: var(--mono); font-size: 12px; font-weight: 600; }
+.issues code { font-family: var(--mono); font-size: 12.5px; word-break: break-word; }
+
+/* scoreboard */
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 18px 20px; box-shadow: 0 1px 0 var(--border), 0 12px 30px -24px rgba(0,0,0,.4); }
+.card { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--rule); vertical-align: middle; }
+th { color: var(--ink-2); font-weight: 500; font-size: 13px; }
+th small { display: block; color: var(--muted); font-weight: 400; font-size: 11px; font-family: var(--mono); letter-spacing: .02em; }
+tbody tr:last-child td { border-bottom: 0; }
+.model { font-family: var(--mono); font-size: 13px; white-space: nowrap; }
+.swatch { display: inline-block; width: 10px; height: 10px; border-radius: 3px; background: var(--c); margin-right: 8px; vertical-align: -1px; }
+.cell { display: grid; grid-template-columns: 1fr; gap: 4px; min-width: 110px; }
+.cell .num { font-size: 15px; }
+.cell .num.na { color: var(--muted); }
+.meter { height: 6px; background: var(--paper-2); border-radius: 3px; overflow: hidden; }
+.meter i { display: block; height: 100%; width: var(--w); background: var(--ink-2); border-radius: 0 3px 3px 0; min-width: 2px; }
+tr.best-row .meter i { background: var(--c); }
+.best { color: var(--highlight-ink); font-size: 11px; font-family: var(--mono); letter-spacing: .08em; text-transform: uppercase; margin-left: 6px; }
+td.unavailable { color: var(--ink-2); font-size: 13px; }
+td.unavailable code { font-family: var(--mono); font-size: 12px; color: var(--critical); word-break: break-word; }
+
+/* matrix */
+.matrix { display: grid; gap: 4px; font-size: 13px; align-items: center; }
+.matrix .head { font-family: var(--mono); font-size: 12px; color: var(--ink-2); padding: 0 0 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.matrix .persona { padding-right: 12px; }
+.matrix .persona small { display: block; color: var(--muted); font-family: var(--mono); font-size: 11px; }
+.matrix a { display: flex; align-items: center; justify-content: center; height: 34px; border-radius: 6px; text-decoration: none; font-family: var(--mono); font-size: 12px; font-weight: 600; transition: transform .12s ease; }
+.matrix a:hover { transform: scale(1.04); }
+.matrix a.pass { background: var(--good-bg); color: var(--good); }
+.matrix a.fail { background: var(--critical-bg); color: var(--critical); }
+.matrix a.error { background: repeating-linear-gradient(135deg, var(--neutral-bg) 0 6px, transparent 6px 10px); color: var(--muted); border: 1px dashed var(--rule-2); }
+.matrix a.none { background: transparent; color: var(--muted); border: 1px dashed var(--rule); }
+.key { display: flex; gap: 18px; flex-wrap: wrap; margin: 14px 0 0; font-size: 12px; color: var(--ink-2); font-family: var(--mono); }
+.key span::before { content: ""; display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 6px; vertical-align: -2px; background: var(--k); border: 1px solid var(--kb, transparent); }
+
+/* latency strips */
+.strips { display: grid; gap: 14px; }
+.strip { display: grid; grid-template-columns: 200px 1fr 90px; align-items: center; gap: 14px; }
+.strip .label { font-family: var(--mono); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.track { position: relative; height: 28px; border-bottom: 1px solid var(--rule-2); }
+.dot { position: absolute; top: 50%; width: 9px; height: 9px; margin: -4.5px 0 0 -4.5px; border-radius: 50%; background: var(--c); opacity: .55; box-shadow: 0 0 0 2px var(--surface); transition: transform .12s ease, opacity .12s ease; }
+.dot:hover { opacity: 1; transform: scale(1.5); z-index: 1; }
+.p50 { position: absolute; top: 2px; bottom: -1px; width: 2px; margin-left: -1px; background: var(--ink); }
+.strip .num { color: var(--ink-2); font-size: 13px; text-align: right; }
+.axis { display: grid; grid-template-columns: 200px 1fr 90px; gap: 14px; margin-top: 4px; }
+.axis .ticks { position: relative; height: 16px; }
+.axis .ticks span { position: absolute; transform: translateX(-50%); font-family: var(--mono); font-size: 11px; color: var(--muted); }
+
+/* guardrail */
+.gate { display: grid; grid-template-columns: 1fr 64px; align-items: center; gap: 10px; min-width: 180px; }
+.gate-track { position: relative; height: 10px; background: var(--paper-2); border-radius: 4px; }
+.gate-fill { height: 100%; border-radius: 4px; }
+.gate-fill.ok { background: var(--good); } .gate-fill.bad { background: var(--critical); }
+.gate-line { position: absolute; top: -5px; bottom: -5px; border-left: 2px dashed var(--ink); }
+.misses { margin: 12px 0 0; padding: 0; list-style: none; font-size: 13px; color: var(--ink-2); display: grid; gap: 6px; }
+.misses li { display: grid; grid-template-columns: 220px 1fr; gap: 14px; }
+.misses .count { color: var(--critical); font-family: var(--mono); font-weight: 600; margin-right: 6px; }
+
+/* transcripts */
+details { margin: 10px 0; }
+summary { cursor: pointer; padding: 12px 16px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; display: flex; align-items: center; gap: 14px; }
+summary .name { font-family: var(--mono); font-weight: 600; }
+summary .expected { color: var(--muted); font-size: 13px; }
+summary .counts { margin-left: auto; font-family: var(--mono); font-size: 12px; color: var(--ink-2); }
+.compare { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 14px; margin-top: 10px; }
+.column h4 { margin: 0 0 12px; font-size: 13px; font-family: var(--mono); font-weight: 400; display: flex; align-items: center; gap: 10px; }
+.chat { display: flex; flex-direction: column; gap: 6px; }
+.msg { max-width: 92%; padding: 8px 12px; border-radius: 14px; font-size: 14px; white-space: pre-wrap; }
+.msg.candidate { align-self: flex-end; background: var(--bubble-candidate); border-bottom-right-radius: 4px; }
+.msg.agent { align-self: flex-start; background: var(--bubble-agent); border-bottom-left-radius: 4px; }
+.msg .latency { display: block; color: var(--muted); font-size: 11px; margin-top: 3px; font-family: var(--mono); }
+.tags { align-self: flex-start; display: flex; gap: 4px; flex-wrap: wrap; }
+.tag { font-size: 11px; padding: 1px 7px; border-radius: 999px; background: var(--critical-bg); color: var(--critical); font-family: var(--mono); }
+.judge { margin-top: 10px; font-size: 13px; color: var(--ink-2); }
+.judge b { color: var(--ink); }
+.summary-text { margin-top: 8px; padding: 10px; border-left: 3px solid var(--highlight); font-size: 13px; white-space: pre-wrap; }
+.failures { margin: 0 0 10px; padding-left: 18px; color: var(--critical); font-size: 13px; }
+.error-note { color: var(--ink-2); font-size: 13px; }
+.error-note code { font-family: var(--mono); font-size: 12px; color: var(--critical); word-break: break-word; }
+pre { font-family: var(--mono); font-size: 12px; background: var(--paper); padding: 10px; border-radius: 6px; overflow: auto; }
+.note { color: var(--muted); font-size: 12px; }
+@media (max-width: 760px) {
+  .masthead { grid-template-columns: 1fr; }
+  .issues li, .misses li { grid-template-columns: 1fr; }
+  .strip, .axis { grid-template-columns: 1fr; }
+  .axis .ticks { display: none; }
+}
+</style>
+</head>
+<body>
+<main>
+<header class="masthead">
+  <div>
+    <p class="eyebrow">Grupo Sazón · screening agent · model bake-off</p>
+    <h1>Which model takes the turn?</h1>
+    <dl class="ticket">
+      <dt>run</dt><dd>2026-10-28 02:47 UTC</dd>
+      <dt>turn models</dt><dd>3 · 12 personas each</dd>
+      <dt>summary</dt><dd>anthropic:claude-haiku-5-5</dd>
+      <dt>guardrail in runs</dt><dd>anthropic:claude-haiku-5-5</dd>
+      <dt>judge</dt><dd>anthropic:claude-haiku-5-5</dd>
+    </dl>
+  </div>
+  <span class="stamp fail big">✗ FAIL</span>
+</header>
+
+
+<details class="panel" open>
+  <summary><h2>Why the run fails</h2><i class="chev"></i></summary>
+  <div class="body">
+  <p class="lede">Identical errors are folded into one line. A count shows how many personas or cases hit it.</p>
+  <ul class="issues">
+    
+    <li><span class="scope">anthropic:claude-sonnet-5-5</span><span><code>qualified_en: status needs_recruiter_review != qualified; profile.zone None != &#39;Ciudad de México&#39;; profile.availability None != [&#39;weekends&#39;]; profile.schedule None != &#39;evening&#39;; profile.experience_years None != 0</code></span></li>
+    
+    <li><span class="scope">anthropic:claude-sonnet-5-5</span><span><code>fuzzy_zone_denied: status in_progress != needs_recruiter_review; review None != low_confidence_zone</code></span></li>
+    
+    <li><span class="scope">anthropic:claude-sonnet-5-5</span><span><code>invalid_name_twice: status in_progress != needs_recruiter_review; review None != repeated_invalid_answer</code></span></li>
+    
+    <li><span class="scope">mistralai:mistral-medium-3-5</span><span><code>fuzzy_zone_denied: status in_progress != needs_recruiter_review; review None != low_confidence_zone</code></span></li>
+    
+    <li><span class="scope">mistralai:mistral-medium-3-5</span><span><code>invalid_name_twice: status in_progress != needs_recruiter_review; review None != repeated_invalid_answer</code></span></li>
+    
+  </ul>
+  </div>
+</details>
+
+
+<details class="panel" open>
+  <summary><h2>Scoreboard</h2><i class="chev"></i></summary>
+  <div class="body">
+  <p class="lede">One row per turn model. Each bar is scaled to the column, the best value in a column is marked. A model that never answered shows its error instead of zeros.</p>
+  <div class="card">
+  <table>
+    <thead><tr><th>Model</th><th>Personas passed<small>higher is better</small></th><th>Style failures<small>model text breaking the reply rules · lower is better</small></th><th>Policy fallbacks<small>share of turns sent as the fixed question · lower is better</small></th><th>Tone<small>judge, 1-5 · higher is better</small></th><th>Summary<small>judge, 1-5 · higher is better</small></th><th>p50 latency<small>per reply · lower is better</small></th><th>Cost<small>turn model, per screening · lower is better</small></th></tr></thead>
+    <tbody>
+    
+    <tr style="--c: var(--series-1)">
+      <td class="model"><i class="swatch" style="--c: var(--series-1)"></i>anthropic:claude-sonnet-5-5</td>
+      
+      
+      <td><div class="cell"><span class="num">9/12</span><div class="meter"><i style="--w: 75.0%; "></i></div></div></td>
+      
+      <td><div class="cell"><span class="num">1</span><div class="meter"><i style="--w: 50.0%; "></i></div></div></td>
+      
+      <td><div class="cell"><span class="num">0%<span class="best">best</span></span><div class="meter"><i style="--w: 0.0%; background: var(--c)"></i></div></div></td>
+      
+      <td><div class="cell"><span class="num">3.6<span class="best">best</span></span><div class="meter"><i style="--w: 71.7%; background: var(--c)"></i></div></div></td>
+      
+      <td><div class="cell"><span class="num">3.6<span class="best">best</span></span><div class="meter"><i style="--w: 71.1%; background: var(--c)"></i></div></div></td>
+      
+      <td><div class="cell"><span class="num">2.4s</span><div class="meter"><i style="--w: 87.1%; "></i></div></div></td>
+      
+      <td><div class="cell"><span class="num">$0.0215</span><div class="meter"><i style="--w: 100.0%; "></i></div></div></td>
+      
+      
+    </tr>
+    
+    <tr style="--c: var(--series-2)">
+      <td class="model"><i class="swatch" style="--c: var(--series-2)"></i>openai:gpt-6.1-sol</td>
+      
+      
+      <td><div class="cell"><span class="num">12/12<span class="best">best</span></span><div class="meter"><i style="--w: 100.0%; background: var(--c)"></i></div></div></td>
+      
+      <td><div class="cell"><span class="num">0<span class="best">best</span></span><div class="meter"><i style="--w: 0.0%; background: var(--c)"></i></div></div></td>
+      
+      <td><div class="cell"><span class="num">0%<span class="best">best</span></span><div class="meter"><i style="--w: 0.0%; background: var(--c)"></i></div></div></td>
+      
+      <td><div class="cell"><span class="num">3.4</span><div class="meter"><i style="--w: 68.3%; "></i></div></div></td>
+      
+      <td><div class="cell"><span class="num">3.5</span><div class="meter"><i style="--w: 70.9%; "></i></div></div></td>
+      
+      <td><div class="cell"><span class="num">2.8s</span><div class="meter"><i style="--w: 100.0%; "></i></div></div></td>
+      
+      <td><div class="cell"><span class="num">$0.0084</span><div class="meter"><i style="--w: 39.0%; "></i></div></div></td>
+      
+      
+    </tr>
+    
+    <tr style="--c: var(--series-3)">
+      <td class="model"><i class="swatch" style="--c: var(--series-3)"></i>mistralai:mistral-medium-3-5</td>
+      
+      
+      <td><div class="cell"><span class="num">10/12</span><div class="meter"><i style="--w: 83.3%; "></i></div></div></td>
+      
+      <td><div class="cell"><span class="num">2</span><div class="meter"><i style="--w: 100.0%; "></i></div></div></td>
+      
+      <td><div class="cell"><span class="num">3%</span><div class="meter"><i style="--w: 2.7%; "></i></div></div></td>
+      
+      <td><div class="cell"><span class="num">3.5</span><div class="meter"><i style="--w: 70.0%; "></i></div></div></td>
+      
+      <td><div class="cell"><span class="num">3.4</span><div class="meter"><i style="--w: 68.9%; "></i></div></div></td>
+      
+      <td><div class="cell"><span class="num">1.5s<span class="best">best</span></span><div class="meter"><i style="--w: 55.5%; background: var(--c)"></i></div></div></td>
+      
+      <td><div class="cell"><span class="num">$0.0066<span class="best">best</span></span><div class="meter"><i style="--w: 30.6%; background: var(--c)"></i></div></div></td>
+      
+      
+    </tr>
+    
+    </tbody>
+  </table>
+  </div>
+  </div>
+</details>
+
+<details class="panel" open>
+  <summary><h2>Outcome per persona</h2><i class="chev"></i></summary>
+  <div class="body">
+  <p class="lede">Each cell is one scripted conversation. Hover for the grading reason, click to open the transcript.</p>
+  <div class="card">
+  <div class="matrix" style="grid-template-columns: minmax(180px, 1.2fr) repeat(3, 1fr)">
+    <div class="head">persona · expected</div>
+    <div class="head"><i class="swatch" style="--c: var(--series-1)"></i>claude-sonnet-5-5</div><div class="head"><i class="swatch" style="--c: var(--series-2)"></i>gpt-6.1-sol</div><div class="head"><i class="swatch" style="--c: var(--series-3)"></i>mistral-medium-3-5</div>
+    
+    <div class="persona">qualified_es<small>qualified</small></div>
+    
+      <div><a class="pass" href="#persona-qualified_es" title="pass, ended qualified">✓</a></div>
+    
+      <div><a class="pass" href="#persona-qualified_es" title="pass, ended qualified">✓</a></div>
+    
+      <div><a class="pass" href="#persona-qualified_es" title="pass, ended qualified">✓</a></div>
+    
+    
+    <div class="persona">qualified_en<small>qualified</small></div>
+    
+      <div><a class="fail" href="#persona-qualified_en" title="status needs_recruiter_review != qualified; profile.zone None != &#39;Ciudad de México&#39;; profile.availability None != [&#39;weekends&#39;]; profile.schedule None != &#39;evening&#39;; profile.experience_years None != 0">✗</a></div>
+    
+      <div><a class="pass" href="#persona-qualified_en" title="pass, ended qualified">✓</a></div>
+    
+      <div><a class="pass" href="#persona-qualified_en" title="pass, ended qualified">✓</a></div>
+    
+    
+    <div class="persona">multi_answer<small>qualified</small></div>
+    
+      <div><a class="pass" href="#persona-multi_answer" title="pass, ended qualified">✓</a></div>
+    
+      <div><a class="pass" href="#persona-multi_answer" title="pass, ended qualified">✓</a></div>
+    
+      <div><a class="pass" href="#persona-multi_answer" title="pass, ended qualified">✓</a></div>
+    
+    
+    <div class="persona">language_switch<small>qualified</small></div>
+    
+      <div><a class="pass" href="#persona-language_switch" title="pass, ended qualified">✓</a></div>
+    
+      <div><a class="pass" href="#persona-language_switch" title="pass, ended qualified">✓</a></div>
+    
+      <div><a class="pass" href="#persona-language_switch" title="pass, ended qualified">✓</a></div>
+    
+    
+    <div class="persona">no_licence<small>disqualified</small></div>
+    
+      <div><a class="pass" href="#persona-no_licence" title="pass, ended disqualified">✓</a></div>
+    
+      <div><a class="pass" href="#persona-no_licence" title="pass, ended disqualified">✓</a></div>
+    
+      <div><a class="pass" href="#persona-no_licence" title="pass, ended disqualified">✓</a></div>
+    
+    
+    <div class="persona">wrong_city<small>disqualified</small></div>
+    
+      <div><a class="pass" href="#persona-wrong_city" title="pass, ended disqualified">✓</a></div>
+    
+      <div><a class="pass" href="#persona-wrong_city" title="pass, ended disqualified">✓</a></div>
+    
+      <div><a class="pass" href="#persona-wrong_city" title="pass, ended disqualified">✓</a></div>
+    
+    
+    <div class="persona">fuzzy_zone_confirmed<small>in_progress</small></div>
+    
+      <div><a class="pass" href="#persona-fuzzy_zone_confirmed" title="pass, ended in_progress">✓</a></div>
+    
+      <div><a class="pass" href="#persona-fuzzy_zone_confirmed" title="pass, ended in_progress">✓</a></div>
+    
+      <div><a class="pass" href="#persona-fuzzy_zone_confirmed" title="pass, ended in_progress">✓</a></div>
+    
+    
+    <div class="persona">fuzzy_zone_denied<small>needs_recruiter_review</small></div>
+    
+      <div><a class="fail" href="#persona-fuzzy_zone_denied" title="status in_progress != needs_recruiter_review; review None != low_confidence_zone">✗</a></div>
+    
+      <div><a class="pass" href="#persona-fuzzy_zone_denied" title="pass, ended needs_recruiter_review">✓</a></div>
+    
+      <div><a class="fail" href="#persona-fuzzy_zone_denied" title="status in_progress != needs_recruiter_review; review None != low_confidence_zone">✗</a></div>
+    
+    
+    <div class="persona">consent_declined<small>needs_recruiter_review</small></div>
+    
+      <div><a class="pass" href="#persona-consent_declined" title="pass, ended needs_recruiter_review">✓</a></div>
+    
+      <div><a class="pass" href="#persona-consent_declined" title="pass, ended needs_recruiter_review">✓</a></div>
+    
+      <div><a class="pass" href="#persona-consent_declined" title="pass, ended needs_recruiter_review">✓</a></div>
+    
+    
+    <div class="persona">invalid_name_twice<small>needs_recruiter_review</small></div>
+    
+      <div><a class="fail" href="#persona-invalid_name_twice" title="status in_progress != needs_recruiter_review; review None != repeated_invalid_answer">✗</a></div>
+    
+      <div><a class="pass" href="#persona-invalid_name_twice" title="pass, ended needs_recruiter_review">✓</a></div>
+    
+      <div><a class="fail" href="#persona-invalid_name_twice" title="status in_progress != needs_recruiter_review; review None != repeated_invalid_answer">✗</a></div>
+    
+    
+    <div class="persona">past_start_date<small>qualified</small></div>
+    
+      <div><a class="pass" href="#persona-past_start_date" title="pass, ended qualified">✓</a></div>
+    
+      <div><a class="pass" href="#persona-past_start_date" title="pass, ended qualified">✓</a></div>
+    
+      <div><a class="pass" href="#persona-past_start_date" title="pass, ended qualified">✓</a></div>
+    
+    
+    <div class="persona">off_topic_twice<small>needs_recruiter_review</small></div>
+    
+      <div><a class="pass" href="#persona-off_topic_twice" title="pass, ended needs_recruiter_review">✓</a></div>
+    
+      <div><a class="pass" href="#persona-off_topic_twice" title="pass, ended needs_recruiter_review">✓</a></div>
+    
+      <div><a class="pass" href="#persona-off_topic_twice" title="pass, ended needs_recruiter_review">✓</a></div>
+    
+    
+  </div>
+  <p class="key">
+    <span style="--k: var(--good-bg)">pass</span>
+    <span style="--k: var(--critical-bg)">fail on grading</span>
+    <span style="--k: var(--neutral-bg); --kb: var(--rule-2)">provider error, no conversation</span>
+    <span style="--k: transparent; --kb: var(--rule)">not run</span>
+  </p>
+  </div>
+  </div>
+</details>
+
+<details class="panel" open>
+  <summary><h2>Reply latency</h2><i class="chev"></i></summary>
+  <div class="body">
+  <p class="lede">Every reply as a dot, the median as a bar. A wide spread matters as much as the median: the candidate waits for the slow tail.</p>
+  <div class="card">
+  <div class="strips">
+    
+    <div class="strip" style="--c: var(--series-1)">
+      <span class="label"><i class="swatch" style="--c: var(--series-1)"></i>claude-sonnet-5-5</span>
+      <div class="track">
+        <i class="dot" style="left: 8.0%" title="0.72s"></i><i class="dot" style="left: 10.2%" title="0.92s"></i><i class="dot" style="left: 19.1%" title="1.72s"></i><i class="dot" style="left: 19.3%" title="1.74s"></i><i class="dot" style="left: 19.3%" title="1.74s"></i><i class="dot" style="left: 19.5%" title="1.76s"></i><i class="dot" style="left: 19.6%" title="1.77s"></i><i class="dot" style="left: 20.5%" title="1.85s"></i><i class="dot" style="left: 20.8%" title="1.87s"></i><i class="dot" style="left: 21.4%" title="1.93s"></i><i class="dot" style="left: 21.5%" title="1.93s"></i><i class="dot" style="left: 21.6%" title="1.94s"></i><i class="dot" style="left: 21.7%" title="1.95s"></i><i class="dot" style="left: 21.8%" title="1.97s"></i><i class="dot" style="left: 22.3%" title="2.01s"></i><i class="dot" style="left: 22.6%" title="2.03s"></i><i class="dot" style="left: 22.9%" title="2.06s"></i><i class="dot" style="left: 23.0%" title="2.07s"></i><i class="dot" style="left: 23.2%" title="2.09s"></i><i class="dot" style="left: 23.2%" title="2.09s"></i><i class="dot" style="left: 23.7%" title="2.13s"></i><i class="dot" style="left: 23.7%" title="2.14s"></i><i class="dot" style="left: 24.1%" title="2.17s"></i><i class="dot" style="left: 24.3%" title="2.19s"></i><i class="dot" style="left: 24.5%" title="2.20s"></i><i class="dot" style="left: 25.0%" title="2.25s"></i><i class="dot" style="left: 25.0%" title="2.25s"></i><i class="dot" style="left: 25.2%" title="2.27s"></i><i class="dot" style="left: 25.4%" title="2.29s"></i><i class="dot" style="left: 25.9%" title="2.33s"></i><i class="dot" style="left: 26.1%" title="2.35s"></i><i class="dot" style="left: 26.1%" title="2.35s"></i><i class="dot" style="left: 26.4%" title="2.37s"></i><i class="dot" style="left: 27.3%" title="2.46s"></i><i class="dot" style="left: 27.4%" title="2.47s"></i><i class="dot" style="left: 29.0%" title="2.61s"></i><i class="dot" style="left: 30.2%" title="2.72s"></i><i class="dot" style="left: 30.4%" title="2.73s"></i><i class="dot" style="left: 30.6%" title="2.75s"></i><i class="dot" style="left: 31.2%" title="2.80s"></i><i class="dot" style="left: 32.3%" title="2.91s"></i><i class="dot" style="left: 34.6%" title="3.11s"></i><i class="dot" style="left: 36.7%" title="3.30s"></i><i class="dot" style="left: 37.6%" title="3.38s"></i><i class="dot" style="left: 38.0%" title="3.42s"></i><i class="dot" style="left: 38.9%" title="3.50s"></i><i class="dot" style="left: 39.5%" title="3.56s"></i><i class="dot" style="left: 39.7%" title="3.57s"></i><i class="dot" style="left: 40.6%" title="3.66s"></i><i class="dot" style="left: 41.3%" title="3.71s"></i><i class="dot" style="left: 42.2%" title="3.80s"></i><i class="dot" style="left: 43.5%" title="3.91s"></i><i class="dot" style="left: 44.8%" title="4.03s"></i><i class="dot" style="left: 46.9%" title="4.22s"></i><i class="dot" style="left: 47.4%" title="4.27s"></i><i class="dot" style="left: 49.5%" title="4.45s"></i><i class="dot" style="left: 49.8%" title="4.48s"></i><i class="dot" style="left: 50.3%" title="4.53s"></i><i class="dot" style="left: 56.9%" title="5.12s"></i><i class="dot" style="left: 57.4%" title="5.16s"></i><i class="dot" style="left: 58.0%" title="5.22s"></i><i class="dot" style="left: 59.7%" title="5.37s"></i><i class="dot" style="left: 63.2%" title="5.68s"></i><i class="dot" style="left: 68.4%" title="6.15s"></i><i class="dot" style="left: 69.0%" title="6.21s"></i><i class="dot" style="left: 73.3%" title="6.60s"></i>
+        <i class="p50" style="left: 26.8%"></i>
+      </div>
+      <span class="num">p50 2.4s</span>
+    </div>
+    
+    <div class="strip" style="--c: var(--series-2)">
+      <span class="label"><i class="swatch" style="--c: var(--series-2)"></i>gpt-6.1-sol</span>
+      <div class="track">
+        <i class="dot" style="left: 8.3%" title="0.75s"></i><i class="dot" style="left: 9.3%" title="0.83s"></i><i class="dot" style="left: 22.5%" title="2.03s"></i><i class="dot" style="left: 24.0%" title="2.16s"></i><i class="dot" style="left: 24.3%" title="2.19s"></i><i class="dot" style="left: 24.8%" title="2.23s"></i><i class="dot" style="left: 25.3%" title="2.28s"></i><i class="dot" style="left: 25.5%" title="2.29s"></i><i class="dot" style="left: 25.9%" title="2.33s"></i><i class="dot" style="left: 26.1%" title="2.35s"></i><i class="dot" style="left: 26.2%" title="2.36s"></i><i class="dot" style="left: 26.7%" title="2.40s"></i><i class="dot" style="left: 26.8%" title="2.41s"></i><i class="dot" style="left: 27.1%" title="2.43s"></i><i class="dot" style="left: 27.7%" title="2.49s"></i><i class="dot" style="left: 28.0%" title="2.52s"></i><i class="dot" style="left: 28.0%" title="2.52s"></i><i class="dot" style="left: 28.3%" title="2.55s"></i><i class="dot" style="left: 28.3%" title="2.55s"></i><i class="dot" style="left: 28.6%" title="2.57s"></i><i class="dot" style="left: 28.6%" title="2.58s"></i><i class="dot" style="left: 28.7%" title="2.58s"></i><i class="dot" style="left: 28.8%" title="2.59s"></i><i class="dot" style="left: 29.1%" title="2.62s"></i><i class="dot" style="left: 29.3%" title="2.64s"></i><i class="dot" style="left: 29.4%" title="2.65s"></i><i class="dot" style="left: 29.5%" title="2.65s"></i><i class="dot" style="left: 29.6%" title="2.66s"></i><i class="dot" style="left: 29.9%" title="2.69s"></i><i class="dot" style="left: 30.0%" title="2.70s"></i><i class="dot" style="left: 30.3%" title="2.73s"></i><i class="dot" style="left: 30.4%" title="2.74s"></i><i class="dot" style="left: 30.7%" title="2.76s"></i><i class="dot" style="left: 30.7%" title="2.76s"></i><i class="dot" style="left: 30.7%" title="2.76s"></i><i class="dot" style="left: 30.7%" title="2.76s"></i><i class="dot" style="left: 30.8%" title="2.77s"></i><i class="dot" style="left: 30.9%" title="2.78s"></i><i class="dot" style="left: 31.1%" title="2.80s"></i><i class="dot" style="left: 31.5%" title="2.83s"></i><i class="dot" style="left: 31.6%" title="2.85s"></i><i class="dot" style="left: 32.1%" title="2.89s"></i><i class="dot" style="left: 32.1%" title="2.89s"></i><i class="dot" style="left: 32.2%" title="2.90s"></i><i class="dot" style="left: 32.2%" title="2.90s"></i><i class="dot" style="left: 32.8%" title="2.95s"></i><i class="dot" style="left: 33.6%" title="3.02s"></i><i class="dot" style="left: 34.0%" title="3.06s"></i><i class="dot" style="left: 34.2%" title="3.08s"></i><i class="dot" style="left: 34.3%" title="3.09s"></i><i class="dot" style="left: 34.4%" title="3.09s"></i><i class="dot" style="left: 34.4%" title="3.10s"></i><i class="dot" style="left: 34.5%" title="3.10s"></i><i class="dot" style="left: 34.6%" title="3.12s"></i><i class="dot" style="left: 35.0%" title="3.15s"></i><i class="dot" style="left: 35.4%" title="3.19s"></i><i class="dot" style="left: 35.5%" title="3.20s"></i><i class="dot" style="left: 35.7%" title="3.21s"></i><i class="dot" style="left: 36.1%" title="3.25s"></i><i class="dot" style="left: 36.4%" title="3.28s"></i><i class="dot" style="left: 37.3%" title="3.35s"></i><i class="dot" style="left: 38.4%" title="3.46s"></i><i class="dot" style="left: 38.8%" title="3.49s"></i><i class="dot" style="left: 39.5%" title="3.55s"></i><i class="dot" style="left: 42.4%" title="3.81s"></i><i class="dot" style="left: 43.2%" title="3.88s"></i><i class="dot" style="left: 43.9%" title="3.95s"></i><i class="dot" style="left: 44.2%" title="3.97s"></i><i class="dot" style="left: 44.8%" title="4.04s"></i><i class="dot" style="left: 45.9%" title="4.13s"></i><i class="dot" style="left: 48.0%" title="4.32s"></i><i class="dot" style="left: 49.7%" title="4.47s"></i><i class="dot" style="left: 53.6%" title="4.82s"></i><i class="dot" style="left: 70.3%" title="6.33s"></i>
+        <i class="p50" style="left: 30.8%"></i>
+      </div>
+      <span class="num">p50 2.8s</span>
+    </div>
+    
+    <div class="strip" style="--c: var(--series-3)">
+      <span class="label"><i class="swatch" style="--c: var(--series-3)"></i>mistral-medium-3-5</span>
+      <div class="track">
+        <i class="dot" style="left: 9.6%" title="0.86s"></i><i class="dot" style="left: 11.2%" title="1.01s"></i><i class="dot" style="left: 13.4%" title="1.21s"></i><i class="dot" style="left: 13.4%" title="1.21s"></i><i class="dot" style="left: 13.5%" title="1.22s"></i><i class="dot" style="left: 13.7%" title="1.23s"></i><i class="dot" style="left: 14.5%" title="1.30s"></i><i class="dot" style="left: 14.8%" title="1.33s"></i><i class="dot" style="left: 14.8%" title="1.33s"></i><i class="dot" style="left: 14.9%" title="1.34s"></i><i class="dot" style="left: 15.0%" title="1.35s"></i><i class="dot" style="left: 15.3%" title="1.38s"></i><i class="dot" style="left: 15.3%" title="1.38s"></i><i class="dot" style="left: 15.4%" title="1.38s"></i><i class="dot" style="left: 15.7%" title="1.41s"></i><i class="dot" style="left: 15.8%" title="1.42s"></i><i class="dot" style="left: 15.8%" title="1.42s"></i><i class="dot" style="left: 15.8%" title="1.43s"></i><i class="dot" style="left: 15.9%" title="1.44s"></i><i class="dot" style="left: 16.0%" title="1.44s"></i><i class="dot" style="left: 16.1%" title="1.45s"></i><i class="dot" style="left: 16.1%" title="1.45s"></i><i class="dot" style="left: 16.2%" title="1.45s"></i><i class="dot" style="left: 16.2%" title="1.46s"></i><i class="dot" style="left: 16.3%" title="1.46s"></i><i class="dot" style="left: 16.3%" title="1.47s"></i><i class="dot" style="left: 16.4%" title="1.47s"></i><i class="dot" style="left: 16.6%" title="1.49s"></i><i class="dot" style="left: 16.8%" title="1.51s"></i><i class="dot" style="left: 16.9%" title="1.52s"></i><i class="dot" style="left: 16.9%" title="1.52s"></i><i class="dot" style="left: 16.9%" title="1.52s"></i><i class="dot" style="left: 17.0%" title="1.53s"></i><i class="dot" style="left: 17.0%" title="1.53s"></i><i class="dot" style="left: 17.0%" title="1.53s"></i><i class="dot" style="left: 17.1%" title="1.54s"></i><i class="dot" style="left: 17.1%" title="1.54s"></i><i class="dot" style="left: 17.1%" title="1.54s"></i><i class="dot" style="left: 17.4%" title="1.57s"></i><i class="dot" style="left: 17.8%" title="1.61s"></i><i class="dot" style="left: 17.8%" title="1.61s"></i><i class="dot" style="left: 18.1%" title="1.63s"></i><i class="dot" style="left: 18.5%" title="1.67s"></i><i class="dot" style="left: 18.6%" title="1.67s"></i><i class="dot" style="left: 18.6%" title="1.67s"></i><i class="dot" style="left: 18.8%" title="1.69s"></i><i class="dot" style="left: 19.0%" title="1.71s"></i><i class="dot" style="left: 19.3%" title="1.74s"></i><i class="dot" style="left: 19.4%" title="1.75s"></i><i class="dot" style="left: 19.9%" title="1.79s"></i><i class="dot" style="left: 19.9%" title="1.79s"></i><i class="dot" style="left: 20.4%" title="1.84s"></i><i class="dot" style="left: 20.5%" title="1.85s"></i><i class="dot" style="left: 20.6%" title="1.86s"></i><i class="dot" style="left: 20.9%" title="1.88s"></i><i class="dot" style="left: 21.0%" title="1.89s"></i><i class="dot" style="left: 21.6%" title="1.94s"></i><i class="dot" style="left: 23.2%" title="2.09s"></i><i class="dot" style="left: 24.0%" title="2.16s"></i><i class="dot" style="left: 24.6%" title="2.21s"></i><i class="dot" style="left: 25.4%" title="2.29s"></i><i class="dot" style="left: 26.0%" title="2.34s"></i><i class="dot" style="left: 26.1%" title="2.35s"></i><i class="dot" style="left: 26.6%" title="2.39s"></i><i class="dot" style="left: 27.3%" title="2.46s"></i><i class="dot" style="left: 27.5%" title="2.48s"></i><i class="dot" style="left: 28.2%" title="2.54s"></i><i class="dot" style="left: 31.2%" title="2.81s"></i><i class="dot" style="left: 31.6%" title="2.85s"></i><i class="dot" style="left: 32.7%" title="2.94s"></i><i class="dot" style="left: 33.9%" title="3.05s"></i><i class="dot" style="left: 34.0%" title="3.06s"></i><i class="dot" style="left: 34.4%" title="3.09s"></i><i class="dot" style="left: 96.1%" title="8.65s"></i>
+        <i class="p50" style="left: 17.1%"></i>
+      </div>
+      <span class="num">p50 1.5s</span>
+    </div>
+    
+  </div>
+  <div class="axis"><span></span><div class="ticks"><span style="left: 0.0%">0s</span><span style="left: 11.1%">1s</span><span style="left: 22.2%">2s</span><span style="left: 33.3%">3s</span><span style="left: 44.4%">4s</span><span style="left: 55.6%">5s</span><span style="left: 66.7%">6s</span><span style="left: 77.8%">7s</span><span style="left: 88.9%">8s</span><span style="left: 100.0%">9s</span></div><span></span></div>
+  </div>
+  </div>
+</details>
+
+
+<details class="panel" open>
+  <summary><h2>Guardrail classifier</h2><i class="chev"></i></summary>
+  <div class="body">
+  <p class="lede">Gate: accuracy at least 90% and p95 latency at most 2.5s. The dashed line on each bar is the gate.</p>
+  <div class="card">
+  <table>
+    <thead><tr><th>Model</th><th>Correct</th><th>Accuracy<small>gate >= 90%</small></th><th>p95 latency<small>gate <= 2.5s</small></th><th>p50</th><th>Gate</th></tr></thead>
+    <tbody>
+    
+    <tr>
+      <td class="model"><i class="swatch" style="--c: var(--series-1)"></i>anthropic:claude-haiku-5-5</td>
+      <td class="num">26/26</td>
+      <td><div class="gate" title="gate &gt;= 90%">
+  <div class="gate-track"><div class="gate-fill ok" style="width: 100.0%"></div><i class="gate-line" style="left: 90.0%"></i></div>
+  <span class="num">100%</span>
+</div></td>
+      <td><div class="gate" title="gate &lt;= 2.5s">
+  <div class="gate-track"><div class="gate-fill ok" style="width: 63.4%"></div><i class="gate-line" style="left: 87.0%"></i></div>
+  <span class="num">1.82s</span>
+</div></td>
+      <td class="num">0.85s</td>
+      <td><span class="stamp pass">✓ PASS</span></td>
+    </tr>
+    
+    <tr>
+      <td class="model"><i class="swatch" style="--c: var(--series-2)"></i>openai:gpt-6-luna</td>
+      <td class="num">26/26</td>
+      <td><div class="gate" title="gate &gt;= 90%">
+  <div class="gate-track"><div class="gate-fill ok" style="width: 100.0%"></div><i class="gate-line" style="left: 90.0%"></i></div>
+  <span class="num">100%</span>
+</div></td>
+      <td><div class="gate" title="gate &lt;= 2.5s">
+  <div class="gate-track"><div class="gate-fill ok" style="width: 58.2%"></div><i class="gate-line" style="left: 87.0%"></i></div>
+  <span class="num">1.67s</span>
+</div></td>
+      <td class="num">1.18s</td>
+      <td><span class="stamp pass">✓ PASS</span></td>
+    </tr>
+    
+    <tr>
+      <td class="model"><i class="swatch" style="--c: var(--series-3)"></i>mistralai:mistral-small-2603</td>
+      <td class="num">26/26</td>
+      <td><div class="gate" title="gate &gt;= 90%">
+  <div class="gate-track"><div class="gate-fill ok" style="width: 100.0%"></div><i class="gate-line" style="left: 90.0%"></i></div>
+  <span class="num">100%</span>
+</div></td>
+      <td><div class="gate" title="gate &lt;= 2.5s">
+  <div class="gate-track"><div class="gate-fill ok" style="width: 22.4%"></div><i class="gate-line" style="left: 87.0%"></i></div>
+  <span class="num">0.64s</span>
+</div></td>
+      <td class="num">0.51s</td>
+      <td><span class="stamp pass">✓ PASS</span></td>
+    </tr>
+    
+    </tbody>
+  </table>
+  
+  
+  </div>
+  </div>
+</details>
+
+
+<details class="panel" open>
+  <summary><h2>Transcripts, side by side</h2><i class="chev"></i></summary>
+  <div class="body">
+  <p class="lede">Open a persona to read every model's conversation. Red tags under a reply name the style rule it broke.</p>
+  
+  <details id="persona-qualified_es">
+    <summary><span class="name">qualified_es</span><span class="expected">expects qualified</span>
+      <span class="counts">3/3 pass</span>
+    </summary>
+    <div class="compare">
+    
+      
+      <div class="card column">
+        <h4><i class="swatch" style="--c: var(--series-1)"></i>claude-sonnet-5-5
+          <span class="stamp pass">✓ PASS</span></h4>
+        
+        
+        
+        <div class="chat">
+        
+          <div class="msg candidate">hola</div>
+          <div class="msg agent">¡Hola! Soy Sazón, el asistente de IA de Grupo Sazón para el proceso de repartidores, y esta conversación queda grabada. ¿Te viene bien continuar ahora? 🙂<span class="latency">2.9s</span></div>
+          
+        
+          <div class="msg candidate">sí, dime</div>
+          <div class="msg agent">No me quedó claro tu nombre. ¿Me lo dices completo? Por ejemplo: Ana García López.<span class="latency">2.1s</span></div>
+          
+        
+          <div class="msg candidate">Ana García López</div>
+          <div class="msg agent">Solo para confirmar: ¿tienes carnet de conducir vigente? Sí o no.<span class="latency">2.3s</span></div>
+          
+        
+          <div class="msg candidate">sí, tengo carnet</div>
+          <div class="msg agent">¿En qué ciudad vives? Así veo si tenemos restaurante cerca.<span class="latency">3.5s</span></div>
+          
+        
+          <div class="msg candidate">vivo en Madrid</div>
+          <div class="msg agent">¿Qué disponibilidad tienes: jornada completa, media jornada o fines de semana?<span class="latency">2.0s</span></div>
+          
+        
+          <div class="msg candidate">jornada completa</div>
+          <div class="msg agent">¿Qué turno prefieres: mañana, tarde, noche o flexible?<span class="latency">1.7s</span></div>
+          
+        
+          <div class="msg candidate">por la mañana</div>
+          <div class="msg agent">¿Cuántos años llevas en reparto y con qué plataformas? Si es tu primera vez, dime 0.<span class="latency">1.8s</span></div>
+          
+        
+          <div class="msg candidate">2 años con Glovo y Uber Eats</div>
+          <div class="msg agent">¿Cuándo podrías empezar? Dame una fecha, por ejemplo el 3 de noviembre.<span class="latency">2.3s</span></div>
+          
+        
+          <div class="msg candidate">en dos semanas</div>
+          <div class="msg agent">¡Listo, Ana! Cumples lo que buscamos. Un reclutador te escribirá para agendar una entrevista corta.<span class="latency">2.1s</span></div>
+          
+        
+        </div>
+        
+        <p class="judge"><b>Tone 5/5.</b> Every agent message is brief, warm, informal-professional in Spanish, asks one question at a time with a short reason or example, avoids email register, and identifies itself as an AI assistant without claiming to be human.</p>
+        
+        <div class="summary-text">Cualificada: cumple los requisitos de carnet, zona Madrid, jornada completa, turno de mañana y experiencia previa con plataformas.
+Ana García López, Madrid, carnet vigente, 2 años con Glovo y Uber Eats, jornada completa, turno de mañana, incorporación indicada como &#34;en dos semanas&#34;.
+Revisar la fecha de inicio: en la transcripción dijo &#34;en dos semanas&#34; y el perfil registra 2026-11-11, una fecha que no aparece en la conversación; confirmar cuál es la correcta. Verificar también el carnet y la experiencia declarada.
+Próximo paso: contactarla para agendar la entrevista corta y confirmar la fecha exacta de incorporación.</div>
+        <p class="judge"><b>Summary 3/5.</b> The summary gets the core facts right (licence, Madrid, full-time, mornings, 2 years with Glovo and Uber Eats) and correctly flags the start-date mismatch, but it does not state the outcome clearly and it misses that the candidate&#39;s &#34;2 años&#34; was self-reported and unverified in the chat.</p>
+        
+        <details><summary class="note" style="border: 0; padding: 6px 0; background: none">Final status qualified · 12969 in / 667 out tokens</summary>
+          <pre>{
+  "availability": [
+    "full_time"
+  ],
+  "experience_platforms": [
+    "Glovo",
+    "Uber Eats"
+  ],
+  "experience_years": 2,
+  "full_name": "Ana Garc\u00eda L\u00f3pez",
+  "has_licence": true,
+  "schedule": "morning",
+  "start_date": "2026-11-11",
+  "zone": "Madrid"
+}</pre>
+        </details>
+        
+        
+      </div>
+    
+      
+      <div class="card column">
+        <h4><i class="swatch" style="--c: var(--series-2)"></i>gpt-6.1-sol
+          <span class="stamp pass">✓ PASS</span></h4>
+        
+        
+        
+        <div class="chat">
+        
+          <div class="msg candidate">hola</div>
+          <div class="msg agent">¡Hola! Soy Sazón, el asistente de IA de Grupo Sazón, y esta conversación se graba para el proceso de selección de repartidores. ¿Te viene bien continuar ahora?<span class="latency">6.3s</span></div>
+          
+        
+          <div class="msg candidate">sí, dime</div>
+          <div class="msg agent">No me quedó claro tu nombre. ¿Me lo dices completo? Por ejemplo: Ana García López.<span class="latency">2.6s</span></div>
+          
+        
+          <div class="msg candidate">Ana García López</div>
+          <div class="msg agent">Solo para confirmar: ¿tienes carnet de conducir vigente? Sí o no.<span class="latency">2.6s</span></div>
+          
+        
+          <div class="msg candidate">sí, tengo carnet</div>
+          <div class="msg agent">¿En qué ciudad vives? Así veo si tenemos restaurante cerca.<span class="latency">2.7s</span></div>
+          
+        
+          <div class="msg candidate">vivo en Madrid</div>
+          <div class="msg agent">¿Qué disponibilidad tienes: jornada completa, media jornada o fines de semana?<span class="latency">4.5s</span></div>
+          
+        
+          <div class="msg candidate">jornada completa</div>
+          <div class="msg agent">¿Qué turno prefieres: mañana, tarde, noche o flexible?<span class="latency">3.5s</span></div>
+          
+        
+          <div class="msg candidate">por la mañana</div>
+          <div class="msg agent">¿Cuántos años llevas en reparto y con qué plataformas? Si es tu primera vez, dime 0.<span class="latency">3.9s</span></div>
+          
+        
+          <div class="msg candidate">2 años con Glovo y Uber Eats</div>
+          <div class="msg agent">¿Cuándo podrías empezar? Dame una fecha, por ejemplo el 3 de noviembre.<span class="latency">2.9s</span></div>
+          
+        
+          <div class="msg candidate">en dos semanas</div>
+          <div class="msg agent">¡Listo, Ana! Cumples lo que buscamos. Un reclutador te escribirá para agendar una entrevista corta.<span class="latency">3.1s</span></div>
+          
+        
+        </div>
+        
+        <p class="judge"><b>Tone 5/5.</b> Every agent message is brief, warm, informal-professional in Spanish, asks one question at a time with a short reason or example, and discloses it is an AI assistant without pretending to be human.</p>
+        
+        <div class="summary-text">Cualificada: cumple los requisitos básicos (carnet, zona Madrid, jornada completa, turno de mañana y experiencia previa en reparto).
+Ana García López, Madrid, carnet declarado, disponibilidad a jornada completa por la mañana, 2 años con Glovo y Uber Eats, inicio previsto el 11/11/2026 según el perfil.
+La fecha de inicio no la dio ella: dijo &#34;en dos semanas&#34; y el sistema la convirtió en 11/11/2026 sin confirmarla, así que conviene verificarla. El carnet también es autodeclarado: confirma el tipo de permiso y su vigencia si el puesto lo requiere.
+Contactarla para agendar la entrevista corta y aprovechar para confirmar la fecha exacta de incorporación y el tipo de vehículo que usaría.</div>
+        <p class="judge"><b>Summary 4/5.</b> The summary gets the outcome, zone, availability, shift, platforms and experience right, and it correctly flags that the start date (11/11/2026) was inferred from &#34;en dos semanas&#34; and that the licence is self-declared; it could have noted that the vehicle type was never asked, though it does suggest confirming it.</p>
+        
+        <details><summary class="note" style="border: 0; padding: 6px 0; background: none">Final status qualified · 5585 in / 219 out tokens</summary>
+          <pre>{
+  "availability": [
+    "full_time"
+  ],
+  "experience_platforms": [
+    "Glovo",
+    "Uber Eats"
+  ],
+  "experience_years": 2,
+  "full_name": "Ana Garc\u00eda L\u00f3pez",
+  "has_licence": true,
+  "schedule": "morning",
+  "start_date": "2026-11-11",
+  "zone": "Madrid"
+}</pre>
+        </details>
+        
+        
+      </div>
+    
+      
+      <div class="card column">
+        <h4><i class="swatch" style="--c: var(--series-3)"></i>mistral-medium-3-5
+          <span class="stamp pass">✓ PASS</span></h4>
+        
+        
+        
+        <div class="chat">
+        
+          <div class="msg candidate">hola</div>
+          <div class="msg agent">Hola, soy Sazón, la asistente de contratación de Grupo Sazón. ¿Es buen momento para seguir? 😊<span class="latency">1.5s</span></div>
+          
+        
+          <div class="msg candidate">sí, dime</div>
+          <div class="msg agent">No me quedó claro tu nombre. ¿Me lo dices completo? Por ejemplo: Ana García López.<span class="latency">1.5s</span></div>
+          
+        
+          <div class="msg candidate">Ana García López</div>
+          <div class="msg agent">Solo para confirmar: ¿tienes carnet de conducir vigente? Sí o no.<span class="latency">1.5s</span></div>
+          
+        
+          <div class="msg candidate">sí, tengo carnet</div>
+          <div class="msg agent">¿En qué ciudad vives? Así veo si tenemos restaurante cerca.<span class="latency">1.5s</span></div>
+          
+        
+          <div class="msg candidate">vivo en Madrid</div>
+          <div class="msg agent">¿Qué disponibilidad tienes: jornada completa, media jornada o fines de semana?<span class="latency">1.7s</span></div>
+          
+        
+          <div class="msg candidate">jornada completa</div>
+          <div class="msg agent">¿Qué turno prefieres: mañana, tarde, noche o flexible?<span class="latency">1.5s</span></div>
+          
+        
+          <div class="msg candidate">por la mañana</div>
+          <div class="msg agent">¿Cuántos años llevas en reparto y con qué plataformas? Si es tu primera vez, dime 0.<span class="latency">1.5s</span></div>
+          
+        
+          <div class="msg candidate">2 años con Glovo y Uber Eats</div>
+          <div class="msg agent">¿Cuándo podrías empezar? Dame una fecha, por ejemplo el 3 de noviembre.<span class="latency">1.3s</span></div>
+          
+        
+          <div class="msg candidate">en dos semanas</div>
+          <div class="msg agent">¡Listo, Ana! Cumples lo que buscamos. Un reclutador te escribirá para agendar una entrevista corta.<span class="latency">3.1s</span></div>
+          
+        
+        </div>
+        
+        <p class="judge"><b>Tone 4/5.</b> The agent stays warm and brief, asks one question per message, explains why it asks, and never claims to be human, though the closing message is a bit abrupt and the &#34;Sí o no&#34; and &#34;dime 0&#34; phrasing is slightly curt.</p>
+        
+        <div class="summary-text">Cualificada: cumple los requisitos básicos (carnet, zona Madrid, jornada completa, turno de mañana) y tiene 2 años de experiencia en reparto con Glovo y Uber Eats.
+Ana García López, Madrid, carnet vigente, disponibilidad a jornada completa por la mañana, experiencia de 2 años en Glovo y Uber Eats, incorporación en dos semanas (profile: 2026-11-11).
+Confirma la fecha exacta de incorporación, porque el perfil la registra como 2026-11-11 a partir de &#34;en dos semanas&#34; y no de una fecha dada por ella. Verifica también la categoría del carnet y si tiene vehículo (moto o coche), ya que la transcripción no lo aclara.
+Agendar la entrevista corta que el bot le ha anunciado y cerrar en ella la fecha de inicio, la categoría del carnet y el tipo de vehículo.</div>
+        <p class="judge"><b>Summary 4/5.</b> The summary gets the outcome, the core profile facts (Madrid, carnet, full-time mornings, 2 years on Glovo and Uber Eats) and the open items right, but it leaves unflagged that the start date 2026-11-11 is inferred from &#34;en dos semanas&#34; with no stated date, and it does not mention that the transcript never asked about vehicle type or licence category.</p>
+        
+        <details><summary class="note" style="border: 0; padding: 6px 0; background: none">Final status qualified · 6096 in / 157 out tokens</summary>
+          <pre>{
+  "availability": [
+    "full_time"
+  ],
+  "experience_platforms": [
+    "Glovo",
+    "Uber Eats"
+  ],
+  "experience_years": 2,
+  "full_name": "Ana Garc\u00eda L\u00f3pez",
+  "has_licence": true,
+  "schedule": "morning",
+  "start_date": "2026-11-11",
+  "zone": "Madrid"
+}</pre>
+        </details>
+        
+        
+      </div>
+    
+    </div>
+  </details>
+  
+  <details id="persona-qualified_en">
+    <summary><span class="name">qualified_en</span><span class="expected">expects qualified</span>
+      <span class="counts">2/3 pass</span>
+    </summary>
+    <div class="compare">
+    
+      
+      <div class="card column">
+        <h4><i class="swatch" style="--c: var(--series-1)"></i>claude-sonnet-5-5
+          <span class="stamp fail">✗ FAIL</span></h4>
+        
+        
+        <ul class="failures"><li>status needs_recruiter_review != qualified</li><li>profile.zone None != &#39;Ciudad de México&#39;</li><li>profile.availability None != [&#39;weekends&#39;]</li><li>profile.schedule None != &#39;evening&#39;</li><li>profile.experience_years None != 0</li></ul>
+        <div class="chat">
+        
+          <div class="msg candidate">hello</div>
+          <div class="msg agent">Understood, we&#39;ll stop here. A recruiter from the team will get in touch with you.<span class="latency">2.4s</span></div>
+          <div class="tags"><span class="tag">reply not in en</span></div>
+        
+        </div>
+        
+        <p class="judge"><b>Tone 2/5.</b> The agent&#39;s single message is a terse, abrupt closing that doesn&#39;t greet the candidate warmly, explain why it&#39;s stopping, or match the informal-professional WhatsApp tone the screening should use.</p>
+        
+        <div class="summary-text">Sin resultado de screening: la conversación se cerró tras el saludo inicial, el candidato no respondió a ninguna pregunta y no hay motivo registrado para el cierre, por lo que queda pendiente de revisión humana.
+El perfil está vacío: no hay datos de experiencia, licencia de conducir, disponibilidad ni zona de reparto.
+Revisa por qué el asistente terminó la conversación, ya que el último mensaje está en inglés aunque el chat era en español, y confirma si el candidato llegó a dar su consentimiento a la grabación.
+Contacta al candidato en español para confirmar su interés y reanudar las preguntas del puesto de repartidor.</div>
+        <p class="judge"><b>Summary 4/5.</b> The summary correctly reflects a transcript with only a greeting, an empty profile, and no outcome, and it flags the English closing line and missing consent; it loses a point for not stating that the chat was closed by the agent and for recommending re-contact without evidence the candidate&#39;s language preference was ever set.</p>
+        
+        <details><summary class="note" style="border: 0; padding: 6px 0; background: none">Final status needs_recruiter_review · 744 in / 131 out tokens</summary>
+          <pre>{}</pre>
+        </details>
+        
+        
+      </div>
+    
+      
+      <div class="card column">
+        <h4><i class="swatch" style="--c: var(--series-2)"></i>gpt-6.1-sol
+          <span class="stamp pass">✓ PASS</span></h4>
+        
+        
+        
+        <div class="chat">
+        
+          <div class="msg candidate">hello</div>
+          <div class="msg agent">Hi, I’m Sazón, Grupo Sazón’s AI hiring assistant, and this conversation is recorded for your application screening. Is now a good time to continue?<span class="latency">2.8s</span></div>
+          
+        
+          <div class="msg candidate">yes, go ahead</div>
+          <div class="msg agent">I didn&#39;t catch your name. Could you give me your full name? For example: Ana García López.<span class="latency">2.6s</span></div>
+          
+        
+          <div class="msg candidate">John Smith</div>
+          <div class="msg agent">Just to confirm: do you have a valid driving licence? Yes or no.<span class="latency">2.9s</span></div>
+          
+        
+          <div class="msg candidate">yes I have a licence</div>
+          <div class="msg agent">Which city do you live in? I&#39;ll check if we have a restaurant nearby.<span class="latency">2.6s</span></div>
+          
+        
+          <div class="msg candidate">Mexico City</div>
+          <div class="msg agent">What availability do you have: full-time, part-time, or weekends?<span class="latency">2.5s</span></div>
+          
+        
+          <div class="msg candidate">weekends only</div>
+          <div class="msg agent">Which shift do you prefer: morning, afternoon, evening, or flexible?<span class="latency">2.6s</span></div>
+          
+        
+          <div class="msg candidate">evening</div>
+          <div class="msg agent">How many years of delivery experience do you have, and on which platforms? Say 0 if none.<span class="latency">3.2s</span></div>
+          
+        
+          <div class="msg candidate">never done delivery</div>
+          <div class="msg agent">When could you start? Give me a date, for example 3 November.<span class="latency">2.8s</span></div>
+          
+        
+          <div class="msg candidate">next Monday</div>
+          <div class="msg agent">All set, John! You meet what we&#39;re looking for. A recruiter will message you to book a short interview.<span class="latency">2.7s</span></div>
+          
+        
+        </div>
+        
+        <p class="judge"><b>Tone 3/5.</b> The agent is brief, asks one question per message, and explains some reasons, but it never says why it asks for licence or availability and its opener and closing read as stiff rather than warm, and &#34;All set... You meet what we&#39;re looking for&#34; is an overclaim.</p>
+        
+        <div class="summary-text">Qualified: John Smith meets the screening criteria (valid licence, Mexico City location, weekend evening availability), and the assistant has told him a recruiter will contact him.
+Profile: Mexico City, valid licence (self-reported), weekends only, evening shift, no delivery experience, proposed start date 2 November 2026.
+Double-check: the start date was inferred from &#34;next Monday&#34; and should be confirmed with him directly. Confirm that weekends-only availability and zero experience are acceptable for the role, and verify the licence at interview.
+Next step: book the short interview, confirm the start date and weekend-only availability, and request licence documentation.</div>
+        <p class="judge"><b>Summary 3/5.</b> Core facts (name, Mexico City, weekend evenings, no experience, licence) match the transcript and it flags the inferred start date, but it wrongly states the licence is verified, omits that &#34;next Monday&#34; was never confirmed as a date, and does not flag that the agent told him he &#34;meets what we&#39;re looking for&#34; before any recruiter review.</p>
+        
+        <details><summary class="note" style="border: 0; padding: 6px 0; background: none">Final status qualified · 5533 in / 207 out tokens</summary>
+          <pre>{
+  "availability": [
+    "weekends"
+  ],
+  "experience_platforms": [],
+  "experience_years": 0,
+  "full_name": "John Smith",
+  "has_licence": true,
+  "schedule": "evening",
+  "start_date": "2026-11-02",
+  "zone": "Ciudad de M\u00e9xico"
+}</pre>
+        </details>
+        
+        
+      </div>
+    
+      
+      <div class="card column">
+        <h4><i class="swatch" style="--c: var(--series-3)"></i>mistral-medium-3-5
+          <span class="stamp pass">✓ PASS</span></h4>
+        
+        
+        
+        <div class="chat">
+        
+          <div class="msg candidate">hello</div>
+          <div class="msg agent">I&#39;m an AI assistant for Grupo Sazón and this conversation is recorded. Is it okay if we continue? Yes or no.<span class="latency">1.8s</span></div>
+          <div class="tags"><span class="tag">reply not in en</span></div>
+        
+          <div class="msg candidate">yes, go ahead</div>
+          <div class="msg agent">I didn&#39;t catch your name. Could you give me your full name? For example: Ana García López.<span class="latency">1.3s</span></div>
+          
+        
+          <div class="msg candidate">John Smith</div>
+          <div class="msg agent">Just to confirm: do you have a valid driving licence? Yes or no.<span class="latency">3.1s</span></div>
+          
+        
+          <div class="msg candidate">yes I have a licence</div>
+          <div class="msg agent">Which city do you live in? I&#39;ll check if we have a restaurant nearby.<span class="latency">1.5s</span></div>
+          
+        
+          <div class="msg candidate">Mexico City</div>
+          <div class="msg agent">What availability do you have: full-time, part-time, or weekends?<span class="latency">1.5s</span></div>
+          
+        
+          <div class="msg candidate">weekends only</div>
+          <div class="msg agent">Which shift do you prefer: morning, afternoon, evening, or flexible?<span class="latency">2.4s</span></div>
+          
+        
+          <div class="msg candidate">evening</div>
+          <div class="msg agent">How many years of delivery experience do you have, and on which platforms? Say 0 if none.<span class="latency">1.6s</span></div>
+          
+        
+          <div class="msg candidate">never done delivery</div>
+          <div class="msg agent">When could you start? Give me a date, for example 3 November.<span class="latency">2.3s</span></div>
+          
+        
+          <div class="msg candidate">next Monday</div>
+          <div class="msg agent">All set, John! You meet what we&#39;re looking for. A recruiter will message you to book a short interview.<span class="latency">1.5s</span></div>
+          
+        
+        </div>
+        
+        <p class="judge"><b>Tone 2/5.</b> The agent&#39;s questions are brief and one per message, but its tone is cold and form-like (e.g., &#34;Yes or no.&#34; demands, &#34;Just to confirm,&#34; email-style phrasing), it rarely explains why it asks, and the opening disclosure reads as a stiff script rather than warm conversation.</p>
+        
+        <div class="summary-text">Qualified: John Smith has a driving licence, lives in Mexico City, and is available on weekends for evening shifts, so he meets the stated criteria.
+Profile: 0 years of delivery experience with no platforms listed; availability is weekends only, evening shift; start date recorded as 2026-11-02 from &#34;next Monday.&#34;
+Double-check: confirm the exact start date, since &#34;next Monday&#34; was converted without a reference date, and confirm the team accepts a candidate with no delivery experience and weekend-only availability.
+Next step: a recruiter should message John to book the short interview and confirm his weekend evening availability and start date.</div>
+        <p class="judge"><b>Summary 3/5.</b> The summary matches the transcript on licence, city, weekend evening availability, and zero experience, and it flags the start-date ambiguity; however, it claims he &#34;meets the stated criteria&#34; when the transcript shows no explicit confirmation of the team&#39;s criteria, and it does not flag that the agent told him he meets requirements without verifying the no-experience or weekend-only fit.</p>
+        
+        <details><summary class="note" style="border: 0; padding: 6px 0; background: none">Final status qualified · 6272 in / 155 out tokens</summary>
+          <pre>{
+  "availability": [
+    "weekends"
+  ],
+  "experience_platforms": [],
+  "experience_years": 0,
+  "full_name": "John Smith",
+  "has_licence": true,
+  "schedule": "evening",
+  "start_date": "2026-11-02",
+  "zone": "Ciudad de M\u00e9xico"
+}</pre>
+        </details>
+        
+        
+      </div>
+    
+    </div>
+  </details>
+  
+  <details id="persona-multi_answer">
+    <summary><span class="name">multi_answer</span><span class="expected">expects qualified</span>
+      <span class="counts">3/3 pass</span>
+    </summary>
+    <div class="compare">
+    
+      
+      <div class="card column">
+        <h4><i class="swatch" style="--c: var(--series-1)"></i>claude-sonnet-5-5
+          <span class="stamp pass">✓ PASS</span></h4>
+        
+        
+        
+        <div class="chat">
+        
+          <div class="msg candidate">hola</div>
+          <div class="msg agent">¡Hola! Soy Sazón, el asistente de IA de Grupo Sazón, y esta conversación queda grabada. ¿Te viene bien continuar ahora con unas preguntas para el puesto de repartidor/a? 🙂<span class="latency">2.5s</span></div>
+          
+        
+          <div class="msg candidate">sí</div>
+          <div class="msg agent">No me quedó claro tu nombre. ¿Me lo dices completo? Por ejemplo: Ana García López.<span class="latency">2.1s</span></div>
+          
+        
+          <div class="msg candidate">Soy Luis Pérez, tengo carnet y vivo en Barcelona</div>
+          <div class="msg agent">¿Qué disponibilidad tienes: jornada completa, media jornada o fines de semana?<span class="latency">2.4s</span></div>
+          
+        
+          <div class="msg candidate">media jornada o fines de semana, turno de tarde</div>
+          <div class="msg agent">¿Cuántos años llevas en reparto y con qué plataformas? Si es tu primera vez, dime 0.<span class="latency">2.1s</span></div>
+          
+        
+          <div class="msg candidate">ninguna experiencia</div>
+          <div class="msg agent">¿Cuándo podrías empezar? Dame una fecha, por ejemplo el 3 de noviembre.<span class="latency">1.9s</span></div>
+          
+        
+          <div class="msg candidate">mañana mismo</div>
+          <div class="msg agent">¡Listo, Luis! Cumples lo que buscamos. Un reclutador te escribirá para agendar una entrevista corta.<span class="latency">2.3s</span></div>
+          
+        
+        </div>
+        
+        <p class="judge"><b>Tone 4/5.</b> The agent is warm, informal, identifies itself as an AI and states recording, and asks one question per message, but it sometimes omits brief reasons for asking (e.g., why the name or experience is needed) and the closing message is a bit abrupt.</p>
+        
+        <div class="summary-text">Cualificado: cumple los requisitos básicos del puesto (carnet, residencia en Barcelona y disponibilidad en media jornada o fines de semana), aunque no tiene experiencia previa en reparto.
+Perfil: Luis Pérez, Barcelona, con carnet, sin experiencia en plataformas, disponible en media jornada o fines de semana en turno de tarde.
+Revisar: la fecha de inicio registrada es 29/10/2026, pero el candidato respondió &#34;mañana mismo&#34;, así que hay que confirmar cuándo puede empezar realmente. Revisar también si la disponibilidad de tarde y fin de semana encaja con las necesidades de cobertura.
+Siguiente paso: programar la entrevista corta con el candidato, confirmar la fecha de incorporación y comentar la ausencia de experiencia en la entrevista.</div>
+        <p class="judge"><b>Summary 4/5.</b> The summary matches the transcript and profile on name, licence, Barcelona, part-time/weekend afternoon availability, and zero experience, and it correctly flags the start-date conflict (recorded 29/10/2026 vs. &#34;mañana mismo&#34;); it loses a point because it doesn&#39;t say the 29/10 date is unexplained by anything the candidate said.</p>
+        
+        <details><summary class="note" style="border: 0; padding: 6px 0; background: none">Final status qualified · 7901 in / 525 out tokens</summary>
+          <pre>{
+  "availability": [
+    "part_time",
+    "weekends"
+  ],
+  "experience_platforms": [],
+  "experience_years": 0,
+  "full_name": "Luis P\u00e9rez",
+  "has_licence": true,
+  "schedule": "afternoon",
+  "start_date": "2026-10-29",
+  "zone": "Barcelona"
+}</pre>
+        </details>
+        
+        
+      </div>
+    
+      
+      <div class="card column">
+        <h4><i class="swatch" style="--c: var(--series-2)"></i>gpt-6.1-sol
+          <span class="stamp pass">✓ PASS</span></h4>
+        
+        
+        
+        <div class="chat">
+        
+          <div class="msg candidate">hola</div>
+          <div class="msg agent">¡Hola! Soy Sazón, el asistente de IA de Grupo Sazón; esta conversación se graba para el proceso de selección de repartidores. ¿Te viene bien continuar ahora?<span class="latency">3.6s</span></div>
+          
+        
+          <div class="msg candidate">sí</div>
+          <div class="msg agent">No me quedó claro tu nombre. ¿Me lo dices completo? Por ejemplo: Ana García López.<span class="latency">2.2s</span></div>
+          
+        
+          <div class="msg candidate">Soy Luis Pérez, tengo carnet y vivo en Barcelona</div>
+          <div class="msg agent">¿Qué disponibilidad tienes: jornada completa, media jornada o fines de semana?<span class="latency">2.6s</span></div>
+          
+        
+          <div class="msg candidate">media jornada o fines de semana, turno de tarde</div>
+          <div class="msg agent">¿Cuántos años llevas en reparto y con qué plataformas? Si es tu primera vez, dime 0.<span class="latency">3.0s</span></div>
+          
+        
+          <div class="msg candidate">ninguna experiencia</div>
+          <div class="msg agent">¿Cuándo podrías empezar? Dame una fecha, por ejemplo el 3 de noviembre.<span class="latency">2.8s</span></div>
+          
+        
+          <div class="msg candidate">mañana mismo</div>
+          <div class="msg agent">¡Listo, Luis! Cumples lo que buscamos. Un reclutador te escribirá para agendar una entrevista corta.<span class="latency">2.9s</span></div>
+          
+        
+        </div>
+        
+        <p class="judge"><b>Tone 3/5.</b> The agent stays warm and mostly brief with one question per message and discloses it is an AI, but it asks for the name with an email-like &#34;dime completo&#34; and gives an example format, skips saying why it asks for availability and experience, and the closing line overpromises (&#34;Cumples lo que buscamos&#34;) without a clear reason.</p>
+        
+        <div class="summary-text">Cualificado: cumple los requisitos básicos (carnet, zona Barcelona, disponibilidad de media jornada o fines de semana en turno de tarde) aunque no tiene experiencia previa.
+Luis Pérez, carnet sí, Barcelona, disponible media jornada o fines de semana, turno de tarde, 0 años de experiencia y sin plataformas, puede empezar &#34;mañana mismo&#34;.
+Confirma la fecha de inicio exacta, porque &#34;mañana mismo&#34; se registró como 2026-10-29 sin que el candidato diera una fecha concreta. Verifica también que la falta de experiencia no sea un problema para el puesto.
+Pasa el perfil a un reclutador para agendar la entrevista corta y pregunta en ella la fecha de inicio y su disponibilidad real.</div>
+        <p class="judge"><b>Summary 4/5.</b> The summary matches the transcript on name, licence, Barcelona, part-time/weekend afternoon availability, zero experience and no platforms, and it correctly flags that &#34;mañana mismo&#34; was turned into a fixed date (2026-10-29) without the candidate giving one. It loses a point because it doesn&#39;t say whether the agent ever confirmed the start date, and it adds the claim that the role is OK without experience, which the transcript never establishes.</p>
+        
+        <details><summary class="note" style="border: 0; padding: 6px 0; background: none">Final status qualified · 3346 in / 234 out tokens</summary>
+          <pre>{
+  "availability": [
+    "part_time",
+    "weekends"
+  ],
+  "experience_platforms": [],
+  "experience_years": 0,
+  "full_name": "Luis P\u00e9rez",
+  "has_licence": true,
+  "schedule": "afternoon",
+  "start_date": "2026-10-29",
+  "zone": "Barcelona"
+}</pre>
+        </details>
+        
+        
+      </div>
+    
+      
+      <div class="card column">
+        <h4><i class="swatch" style="--c: var(--series-3)"></i>mistral-medium-3-5
+          <span class="stamp pass">✓ PASS</span></h4>
+        
+        
+        
+        <div class="chat">
+        
+          <div class="msg candidate">hola</div>
+          <div class="msg agent">Hola, soy Sazón, la asistente de contratación de Grupo Sazón. ¿Es buen momento para seguir? 😊<span class="latency">2.2s</span></div>
+          
+        
+          <div class="msg candidate">sí</div>
+          <div class="msg agent">No me quedó claro tu nombre. ¿Me lo dices completo? Por ejemplo: Ana García López.<span class="latency">2.3s</span></div>
+          
+        
+          <div class="msg candidate">Soy Luis Pérez, tengo carnet y vivo en Barcelona</div>
+          <div class="msg agent">¿Qué disponibilidad tienes: jornada completa, media jornada o fines de semana?<span class="latency">1.7s</span></div>
+          
+        
+          <div class="msg candidate">media jornada o fines de semana, turno de tarde</div>
+          <div class="msg agent">¿Cuántos años llevas en reparto y con qué plataformas? Si es tu primera vez, dime 0.<span class="latency">1.7s</span></div>
+          
+        
+          <div class="msg candidate">ninguna experiencia</div>
+          <div class="msg agent">¿Cuándo podrías empezar? Dame una fecha, por ejemplo el 3 de noviembre.<span class="latency">1.9s</span></div>
+          
+        
+          <div class="msg candidate">mañana mismo</div>
+          <div class="msg agent">¡Listo, Luis! Cumples lo que buscamos. Un reclutador te escribirá para agendar una entrevista corta.<span class="latency">1.5s</span></div>
+          
+        
+        </div>
+        
+        <p class="judge"><b>Tone 4/5.</b> The agent stays warm and informal, asks one question per message, and identifies itself as an assistant without claiming to be human, but it doesn&#39;t always say why it is asking (e.g., the name and availability questions) and the closing message is slightly formal and brief, so it falls short of a full 5.</p>
+        
+        <div class="summary-text">Calificado: Luis cumple los requisitos básicos (carnet, vive en Barcelona, disponibilidad compatible) y el reclutador le contactará para una entrevista corta.
+Perfil: Luis Pérez, Barcelona, con carnet, disponible en media jornada o fines de semana, turno de tarde, sin experiencia en reparto previa.
+Revisar: la fecha de inicio registrada es 29/10/2026, pero el candidato dijo &#34;mañana mismo&#34;; confirmar cuándo puede empezar realmente. Tampoco tiene experiencia en plataformas, así que valorar si el puesto admite perfiles sin experiencia.
+Siguiente paso: agendar la entrevista corta y aclarar en ella la fecha de inicio y la disponibilidad exacta del turno de tarde.</div>
+        <p class="judge"><b>Summary 4/5.</b> The summary correctly reflects the transcript&#39;s facts (Luis Pérez, Barcelona, licence, part-time/weekends, afternoons, no experience) and flags the start-date conflict and lack of platform experience, though it wrongly implies he was asked for a date he never gave and doesn&#39;t note that the 29/10/2026 date may just be the system&#39;s default.</p>
+        
+        <details><summary class="note" style="border: 0; padding: 6px 0; background: none">Final status qualified · 3541 in / 148 out tokens</summary>
+          <pre>{
+  "availability": [
+    "part_time",
+    "weekends"
+  ],
+  "experience_platforms": [],
+  "experience_years": 0,
+  "full_name": "Luis P\u00e9rez",
+  "has_licence": true,
+  "schedule": "afternoon",
+  "start_date": "2026-10-29",
+  "zone": "Barcelona"
+}</pre>
+        </details>
+        
+        
+      </div>
+    
+    </div>
+  </details>
+  
+  <details id="persona-language_switch">
+    <summary><span class="name">language_switch</span><span class="expected">expects qualified</span>
+      <span class="counts">3/3 pass</span>
+    </summary>
+    <div class="compare">
+    
+      
+      <div class="card column">
+        <h4><i class="swatch" style="--c: var(--series-1)"></i>claude-sonnet-5-5
+          <span class="stamp pass">✓ PASS</span></h4>
+        
+        
+        
+        <div class="chat">
+        
+          <div class="msg candidate">hola</div>
+          <div class="msg agent">¡Hola! Soy Sazón, el asistente de IA de Grupo Sazón para el proceso de selección de repartidores, y esta conversación queda grabada. 🙂 ¿Te viene bien continuar ahora?<span class="latency">2.4s</span></div>
+          
+        
+          <div class="msg candidate">sí</div>
+          <div class="msg agent">No me quedó claro tu nombre. ¿Me lo dices completo? Por ejemplo: Ana García López.<span class="latency">6.6s</span></div>
+          
+        
+          <div class="msg candidate">Carmen Ortiz Ruiz</div>
+          <div class="msg agent">Solo para confirmar: ¿tienes carnet de conducir vigente? Sí o no.<span class="latency">2.0s</span></div>
+          
+        
+          <div class="msg candidate">yes I have a driving licence</div>
+          <div class="msg agent">Which city do you live in? I&#39;ll check if we have a restaurant nearby.<span class="latency">3.7s</span></div>
+          
+        
+          <div class="msg candidate">I live in Valencia</div>
+          <div class="msg agent">What availability do you have: full-time, part-time, or weekends?<span class="latency">3.9s</span></div>
+          
+        
+          <div class="msg candidate">full-time</div>
+          <div class="msg agent">Which shift do you prefer: morning, afternoon, evening, or flexible?<span class="latency">2.2s</span></div>
+          
+        
+          <div class="msg candidate">flexible</div>
+          <div class="msg agent">How many years of delivery experience do you have, and on which platforms? Say 0 if none.<span class="latency">6.2s</span></div>
+          
+        
+          <div class="msg candidate">1 year with Glovo</div>
+          <div class="msg agent">When could you start? Give me a date, for example 3 November.<span class="latency">2.2s</span></div>
+          
+        
+          <div class="msg candidate">en una semana</div>
+          <div class="msg agent">¡Listo, Carmen! Cumples lo que buscamos. Un reclutador te escribirá para agendar una entrevista corta.<span class="latency">5.2s</span></div>
+          
+        
+        </div>
+        
+        <p class="judge"><b>Tone 2/5.</b> The agent opens warmly in Spanish and asks one question at a time, but it switches to English (&#34;Which city do you live in?&#34;, &#34;What availability...&#34;, &#34;Which shift...&#34;) after the candidate writes in English, and several messages skip the brief reason for asking (e.g., the availability and experience questions), so most of its messages fall short of the bar.</p>
+        
+        <div class="summary-text">Cualificada: tiene carnet, vive en Valencia, está disponible a jornada completa con horario flexible y tiene 1 año de experiencia en Glovo.
+Perfil: Carmen Ortiz Ruiz; carnet vigente; zona Valencia; disponibilidad completa; horario flexible; experiencia 1 año (Glovo); incorporación indicada como &#34;en una semana&#34;.
+Revisar: la fecha de inicio 2026-11-04 no aparece en la conversación; se ha inferido de &#34;en una semana&#34; y conviene confirmarla con ella. La respuesta sobre el carnet llegó en inglés, pero se entendió bien.
+Siguiente paso: contactarla para agendar la entrevista corta y confirmar la fecha exacta de incorporación.</div>
+        <p class="judge"><b>Summary 3/5.</b> The outcome, licence, zone, availability, schedule and Glovo experience are all correct, but the start date 2026-11-04 is not in the transcript (the candidate only said &#34;en una semana&#34;) and the summary does not clearly separate that inference from a confirmed fact, though it does flag it for confirmation.</p>
+        
+        <details><summary class="note" style="border: 0; padding: 6px 0; background: none">Final status qualified · 15666 in / 1807 out tokens</summary>
+          <pre>{
+  "availability": [
+    "full_time"
+  ],
+  "experience_platforms": [
+    "Glovo"
+  ],
+  "experience_years": 1,
+  "full_name": "Carmen Ortiz Ruiz",
+  "has_licence": true,
+  "schedule": "flexible",
+  "start_date": "2026-11-04",
+  "zone": "Valencia"
+}</pre>
+        </details>
+        
+        
+      </div>
+    
+      
+      <div class="card column">
+        <h4><i class="swatch" style="--c: var(--series-2)"></i>gpt-6.1-sol
+          <span class="stamp pass">✓ PASS</span></h4>
+        
+        
+        
+        <div class="chat">
+        
+          <div class="msg candidate">hola</div>
+          <div class="msg agent">¡Hola! Soy Sazón, el asistente de IA de Grupo Sazón; esta conversación se graba para el proceso de selección de repartidores. ¿Te viene bien continuar ahora?<span class="latency">4.8s</span></div>
+          
+        
+          <div class="msg candidate">sí</div>
+          <div class="msg agent">No me quedó claro tu nombre. ¿Me lo dices completo? Por ejemplo: Ana García López.<span class="latency">3.1s</span></div>
+          
+        
+          <div class="msg candidate">Carmen Ortiz Ruiz</div>
+          <div class="msg agent">Solo para confirmar: ¿tienes carnet de conducir vigente? Sí o no.<span class="latency">2.6s</span></div>
+          
+        
+          <div class="msg candidate">yes I have a driving licence</div>
+          <div class="msg agent">Which city do you live in? I&#39;ll check if we have a restaurant nearby.<span class="latency">3.2s</span></div>
+          
+        
+          <div class="msg candidate">I live in Valencia</div>
+          <div class="msg agent">What availability do you have: full-time, part-time, or weekends?<span class="latency">2.5s</span></div>
+          
+        
+          <div class="msg candidate">full-time</div>
+          <div class="msg agent">Which shift do you prefer: morning, afternoon, evening, or flexible?<span class="latency">2.8s</span></div>
+          
+        
+          <div class="msg candidate">flexible</div>
+          <div class="msg agent">How many years of delivery experience do you have, and on which platforms? Say 0 if none.<span class="latency">2.8s</span></div>
+          
+        
+          <div class="msg candidate">1 year with Glovo</div>
+          <div class="msg agent">When could you start? Give me a date, for example 3 November.<span class="latency">2.7s</span></div>
+          
+        
+          <div class="msg candidate">en una semana</div>
+          <div class="msg agent">¡Listo, Carmen! Cumples lo que buscamos. Un reclutador te escribirá para agendar una entrevista corta.<span class="latency">3.0s</span></div>
+          
+        
+        </div>
+        
+        <p class="judge"><b>Tone 2/5.</b> The agent switches to English mid-conversation for three questions even though the candidate wrote in Spanish, and several messages ask without giving a reason, so the tone bar is not met across the chat.</p>
+        
+        <div class="summary-text">Cualificada: cumple los requisitos básicos (carnet, zona Valencia, disponibilidad a jornada completa) y tiene 1 año de experiencia con Glovo.
+Perfil: Carmen Ortiz Ruiz; Valencia; carnet de conducir sí; jornada completa con horario flexible; experiencia de 1 año en Glovo; incorporación indicada como &#34;en una semana&#34; (fecha registrada: 4/11/2026).
+Revisar: la fecha de incorporación se registró como 4/11/2026, pero la candidata solo dijo &#34;en una semana&#34;, así que hay que confirmar la fecha exacta. Tampoco consta que se verificara si hay restaurante cerca de su zona.
+Siguiente paso: contactar a la candidata para agendar la entrevista corta, confirmar la fecha de inicio y comprobar la cobertura de zona antes de la entrevista.</div>
+        <p class="judge"><b>Summary 3/5.</b> The summary gets the core facts right (licence, Valencia, full-time, flexible schedule, 1 year Glovo) and flags the start date issue, but it states the 4/11/2026 start date as a registered fact even though the candidate only said &#34;en una semana&#34; and the agent never asked for a date, so it presents an unconfirmed date as if it were data.</p>
+        
+        <details><summary class="note" style="border: 0; padding: 6px 0; background: none">Final status qualified · 5588 in / 217 out tokens</summary>
+          <pre>{
+  "availability": [
+    "full_time"
+  ],
+  "experience_platforms": [
+    "Glovo"
+  ],
+  "experience_years": 1,
+  "full_name": "Carmen Ortiz Ruiz",
+  "has_licence": true,
+  "schedule": "flexible",
+  "start_date": "2026-11-04",
+  "zone": "Valencia"
+}</pre>
+        </details>
+        
+        
+      </div>
+    
+      
+      <div class="card column">
+        <h4><i class="swatch" style="--c: var(--series-3)"></i>mistral-medium-3-5
+          <span class="stamp pass">✓ PASS</span></h4>
+        
+        
+        
+        <div class="chat">
+        
+          <div class="msg candidate">hola</div>
+          <div class="msg agent">Hola, soy Sazón, la asistente de contratación de Grupo Sazón. ¿Es buen momento para seguir? 😊<span class="latency">1.7s</span></div>
+          
+        
+          <div class="msg candidate">sí</div>
+          <div class="msg agent">No me quedó claro tu nombre. ¿Me lo dices completo? Por ejemplo: Ana García López.<span class="latency">1.2s</span></div>
+          
+        
+          <div class="msg candidate">Carmen Ortiz Ruiz</div>
+          <div class="msg agent">Solo para confirmar: ¿tienes carnet de conducir vigente? Sí o no.<span class="latency">1.3s</span></div>
+          
+        
+          <div class="msg candidate">yes I have a driving licence</div>
+          <div class="msg agent">Which city do you live in? I&#39;ll check if we have a restaurant nearby.<span class="latency">1.5s</span></div>
+          
+        
+          <div class="msg candidate">I live in Valencia</div>
+          <div class="msg agent">What availability do you have: full-time, part-time, or weekends?<span class="latency">1.6s</span></div>
+          
+        
+          <div class="msg candidate">full-time</div>
+          <div class="msg agent">Which shift do you prefer: morning, afternoon, evening, or flexible?<span class="latency">1.4s</span></div>
+          
+        
+          <div class="msg candidate">flexible</div>
+          <div class="msg agent">How many years of delivery experience do you have, and on which platforms? Say 0 if none.<span class="latency">1.4s</span></div>
+          
+        
+          <div class="msg candidate">1 year with Glovo</div>
+          <div class="msg agent">When could you start? Give me a date, for example 3 November.<span class="latency">2.2s</span></div>
+          
+        
+          <div class="msg candidate">en una semana</div>
+          <div class="msg agent">¡Listo, Carmen! Cumples lo que buscamos. Un reclutador te escribirá para agendar una entrevista corta.<span class="latency">1.5s</span></div>
+          
+        
+        </div>
+        
+        <p class="judge"><b>Tone 2/5.</b> The agent switches to English mid-conversation for several messages despite a Spanish-speaking candidate, its questions often lack a brief explanation of why they are asked, and the &#34;Which city&#34; and &#34;What availability&#34; questions read as formal survey prompts rather than warm WhatsApp chat, though the agent does identify itself as an assistant and asks one question at a time.</p>
+        
+        <div class="summary-text">Calificada: cumple los requisitos básicos (carnet, zona Valencia, disponibilidad a jornada completa y experiencia previa en Glovo).
+Carmen Ortiz Ruiz, Valencia, carnet vigente, 1 año con Glovo, disponibilidad a jornada completa, horario flexible, incorporación indicada como 4 de noviembre de 2026.
+Verifica la fecha de incorporación: ella dijo &#34;en una semana&#34; y el sistema registró el 4 de noviembre de 2026 sin confirmarlo con ella. Confirma también que el carnet sea de categoría B y esté vigente.
+Agenda la entrevista corta y confirma en ella la fecha exacta de inicio y la disponibilidad real.</div>
+        <p class="judge"><b>Summary 2/5.</b> The outcome, name, Valencia, full-time, flexible schedule and Glovo experience are correct, but the summary misses that the 4 November 2026 start date was never confirmed with the candidate (she said &#34;en una semana&#34;) and it wrongly says she has a valid licence in category B, which the transcript never states (she only said &#34;yes I have a driving licence&#34;).</p>
+        
+        <details><summary class="note" style="border: 0; padding: 6px 0; background: none">Final status qualified · 6064 in / 153 out tokens</summary>
+          <pre>{
+  "availability": [
+    "full_time"
+  ],
+  "experience_platforms": [
+    "Glovo"
+  ],
+  "experience_years": 1,
+  "full_name": "Carmen Ortiz Ruiz",
+  "has_licence": true,
+  "schedule": "flexible",
+  "start_date": "2026-11-04",
+  "zone": "Valencia"
+}</pre>
+        </details>
+        
+        
+      </div>
+    
+    </div>
+  </details>
+  
+  <details id="persona-no_licence">
+    <summary><span class="name">no_licence</span><span class="expected">expects disqualified</span>
+      <span class="counts">3/3 pass</span>
+    </summary>
+    <div class="compare">
+    
+      
+      <div class="card column">
+        <h4><i class="swatch" style="--c: var(--series-1)"></i>claude-sonnet-5-5
+          <span class="stamp pass">✓ PASS</span></h4>
+        
+        
+        
+        <div class="chat">
+        
+          <div class="msg candidate">hola</div>
+          <div class="msg agent">¡Hola! Soy Sazón, el asistente de IA de Grupo Sazón para las vacantes de repartidor. Esta conversación queda grabada. ¿Te viene bien continuar ahora? 🙂<span class="latency">4.5s</span></div>
+          
+        
+          <div class="msg candidate">sí</div>
+          <div class="msg agent">No me quedó claro tu nombre. ¿Me lo dices completo? Por ejemplo: Ana García López.<span class="latency">2.7s</span></div>
+          
+        
+          <div class="msg candidate">Luis Hernández</div>
+          <div class="msg agent">Solo para confirmar: ¿tienes carnet de conducir vigente? Sí o no.<span class="latency">2.2s</span></div>
+          
+        
+          <div class="msg candidate">no tengo carnet</div>
+          <div class="msg agent">Gracias por tu tiempo. Para repartir necesitamos carnet de conducir vigente, así que por ahora no podemos avanzar. Guardamos tu solicitud por si cambia tu situación.<span class="latency">2.1s</span></div>
+          
+        
+        </div>
+        
+        <p class="judge"><b>Tone 4/5.</b> The agent is warm and informal-professional, identifies itself as an AI, asks one question per message, and briefly explains why it needs the driver&#39;s license, but its messages are a bit formal in places (e.g., &#34;Solo para confirmar&#34;, &#34;Gracias por tu tiempo&#34; closing) and the name request gives an example that reads like a form field.</p>
+        
+        <div class="summary-text">Línea 1: Descalificado por no tener carnet de conducir vigente, requisito para repartir.
+Línea 2: Luis Hernández; sin experiencia en plataformas de reparto registrada; indicó explícitamente que no tiene carnet.
+Línea 3: Verificar que la negativa sea clara y no un malentendido, ya que la respuesta fue breve; confirmar que no tiene carnet en trámite si el puesto admite esa situación; revisar que la solicitud guardada no quede activa para vacantes que sí exigen licencia.
+Línea 4: Enviar un mensaje cordial informando la decisión y, si el perfil interesa para otros puestos sin conducción (por ejemplo, reparto a pie o en bicicleta, si existen), ofrecer esa alternativa; de lo contrario, cerrar la solicitud.</div>
+        <p class="judge"><b>Summary 4/5.</b> The summary correctly states the disqualification (no valid licence, no platform experience) and the profile matches the transcript, but it adds unsupported suggestions: it says the candidate&#39;s answer may be a misunderstanding, though he was clear, and it proposes alternative roles (bike/foot delivery) that the transcript never mentions.</p>
+        
+        <details><summary class="note" style="border: 0; padding: 6px 0; background: none">Final status disqualified · 4611 in / 288 out tokens</summary>
+          <pre>{
+  "experience_platforms": [],
+  "full_name": "Luis Hern\u00e1ndez",
+  "has_licence": false
+}</pre>
+        </details>
+        
+        
+      </div>
+    
+      
+      <div class="card column">
+        <h4><i class="swatch" style="--c: var(--series-2)"></i>gpt-6.1-sol
+          <span class="stamp pass">✓ PASS</span></h4>
+        
+        
+        
+        <div class="chat">
+        
+          <div class="msg candidate">hola</div>
+          <div class="msg agent">¡Hola! Soy Sazón, el asistente de IA de Grupo Sazón, y esta conversación se graba como parte del proceso de selección para repartidores. ¿Te viene bien continuar ahora?<span class="latency">4.0s</span></div>
+          
+        
+          <div class="msg candidate">sí</div>
+          <div class="msg agent">No me quedó claro tu nombre. ¿Me lo dices completo? Por ejemplo: Ana García López.<span class="latency">4.0s</span></div>
+          
+        
+          <div class="msg candidate">Luis Hernández</div>
+          <div class="msg agent">Solo para confirmar: ¿tienes carnet de conducir vigente? Sí o no.<span class="latency">2.9s</span></div>
+          
+        
+          <div class="msg candidate">no tengo carnet</div>
+          <div class="msg agent">Gracias por tu tiempo. Para repartir necesitamos carnet de conducir vigente, así que por ahora no podemos avanzar. Guardamos tu solicitud por si cambia tu situación.<span class="latency">3.1s</span></div>
+          
+        
+        </div>
+        
+        <p class="judge"><b>Tone 4/5.</b> The agent is brief, warm enough, asks one question at a time, discloses it is an AI, and gives a reason for the driver&#39;s-license question, though the closing message is a bit formal and the &#34;why&#34; is only stated after the candidate answers.</p>
+        
+        <div class="summary-text">Línea 1: Descalificado por no tener carnet de conducir vigente, requisito obligatorio para repartir.
+Línea 2: Luis Hernández, sin experiencia previa en plataformas de reparto, respondió &#34;no tengo carnet&#34; cuando se le preguntó directamente.
+Línea 3: La respuesta sobre el carnet fue breve y sin matices; conviene confirmar que no tiene una licencia en trámite o de otra categoría que pudiera aplicar, ya que la entrevista no lo preguntó. El nombre se confirmó tras una segunda petición.
+Línea 4: Cerrar el proceso para este puesto y, si el candidato lo desea, registrar su solicitud para una futura vacante que no requiera conducir.</div>
+        <p class="judge"><b>Summary 4/5.</b> The summary correctly states the outcome (disqualified for no valid driver&#39;s licence), the name, and the lack of platform experience, and it flags the unconfirmed possibility of a pending or other-category licence; the one minor issue is that it says the name was confirmed after a second request, when the transcript shows the candidate gave it on the first request after the agent asked.</p>
+        
+        <details><summary class="note" style="border: 0; padding: 6px 0; background: none">Final status disqualified · 1878 in / 107 out tokens</summary>
+          <pre>{
+  "experience_platforms": [],
+  "full_name": "Luis Hern\u00e1ndez",
+  "has_licence": false
+}</pre>
+        </details>
+        
+        
+      </div>
+    
+      
+      <div class="card column">
+        <h4><i class="swatch" style="--c: var(--series-3)"></i>mistral-medium-3-5
+          <span class="stamp pass">✓ PASS</span></h4>
+        
+        
+        
+        <div class="chat">
+        
+          <div class="msg candidate">hola</div>
+          <div class="msg agent">Hola, soy Sazón, la asistente de contratación de Grupo Sazón. Soy una IA y esta conversación está grabada. ¿Es buen momento para seguir?<span class="latency">1.9s</span></div>
+          
+        
+          <div class="msg candidate">sí</div>
+          <div class="msg agent">No me quedó claro tu nombre. ¿Me lo dices completo? Por ejemplo: Ana García López.<span class="latency">3.0s</span></div>
+          
+        
+          <div class="msg candidate">Luis Hernández</div>
+          <div class="msg agent">Solo para confirmar: ¿tienes carnet de conducir vigente? Sí o no.<span class="latency">1.4s</span></div>
+          
+        
+          <div class="msg candidate">no tengo carnet</div>
+          <div class="msg agent">Gracias por tu tiempo. Para repartir necesitamos carnet de conducir vigente, así que por ahora no podemos avanzar. Guardamos tu solicitud por si cambia tu situación.<span class="latency">1.4s</span></div>
+          
+        
+        </div>
+        
+        <p class="judge"><b>Tone 4/5.</b> The agent is warm and brief, asks one question at a time, discloses it is an AI, and explains why it asks about the license, though the closing message is a bit formal and its opening &#34;¿Es buen momento?&#34; is fine but the name request example is slightly stiff.</p>
+        
+        <div class="summary-text">Descartado: Luis Hernández no tiene carnet de conducir, requisito obligatorio para repartir.
+Perfil: no tiene carnet y no se registró experiencia en plataformas de reparto, porque la conversación terminó antes de preguntarlo.
+Revisar: confirmar que no tiene carnet (ni provisional o en trámite) y que el nombre coincide con su solicitud. La experiencia previa no se evaluó.
+Siguiente paso: mantener la solicitud archivada según lo comunicado y reabrirla solo si después presenta carnet vigente.</div>
+        <p class="judge"><b>Summary 3/5.</b> The outcome (no licence, disqualified) and name are correct, but the summary claims the candidate &#34;no tiene carnet&#34; and asks to confirm no provisional licence, which the transcript doesn&#39;t mention; it also says the archive note was communicated, which is accurate, but it adds an unverified &#34;ni provisional o en trámite&#34; check and omits that the chat ended before experience was asked, though it does flag that.</p>
+        
+        <details><summary class="note" style="border: 0; padding: 6px 0; background: none">Final status disqualified · 2384 in / 76 out tokens</summary>
+          <pre>{
+  "experience_platforms": [],
+  "full_name": "Luis Hern\u00e1ndez",
+  "has_licence": false
+}</pre>
+        </details>
+        
+        
+      </div>
+    
+    </div>
+  </details>
+  
+  <details id="persona-wrong_city">
+    <summary><span class="name">wrong_city</span><span class="expected">expects disqualified</span>
+      <span class="counts">3/3 pass</span>
+    </summary>
+    <div class="compare">
+    
+      
+      <div class="card column">
+        <h4><i class="swatch" style="--c: var(--series-1)"></i>claude-sonnet-5-5
+          <span class="stamp pass">✓ PASS</span></h4>
+        
+        
+        
+        <div class="chat">
+        
+          <div class="msg candidate">hola</div>
+          <div class="msg agent">¡Hola! 👋 Soy Sazón, el asistente de IA de Grupo Sazón para la contratación de repartidores. Esta conversación queda grabada. ¿Te parece bien continuar ahora?<span class="latency">2.3s</span></div>
+          
+        
+          <div class="msg candidate">sí</div>
+          <div class="msg agent">No me quedó claro tu nombre. ¿Me lo dices completo? Por ejemplo: Ana García López.<span class="latency">2.7s</span></div>
+          
+        
+          <div class="msg candidate">Marta Ruiz</div>
+          <div class="msg agent">Solo para confirmar: ¿tienes carnet de conducir vigente? Sí o no.<span class="latency">3.7s</span></div>
+          
+        
+          <div class="msg candidate">sí</div>
+          <div class="msg agent">¿En qué ciudad vives? Así veo si tenemos restaurante cerca.<span class="latency">3.1s</span></div>
+          
+        
+          <div class="msg candidate">vivo en Toledo</div>
+          <div class="msg agent">Gracias por tu tiempo. Ahora mismo no tenemos restaurante en tu zona, así que no podemos avanzar. Guardamos tu solicitud por si abrimos cerca.<span class="latency">4.5s</span></div>
+          
+        
+        </div>
+        
+        <p class="judge"><b>Tone 4/5.</b> The agent stays warm, brief, one question per message, discloses it is an AI, and explains why it asks for location, but the first message is a bit formal (&#34;Esta conversación queda grabada&#34;) and the closing message is somewhat stiff, though neither breaks the informal-professional tone badly.</p>
+        
+        <div class="summary-text">Descartada por ubicación: Grupo Sazón no tiene restaurante en la zona de Toledo, así que no puede avanzar en este momento.
+Perfil: Marta Ruiz, con carnet de conducir vigente, vive en Toledo y no tiene experiencia previa en plataformas de reparto (el campo aparece vacío, sin confirmar si se le preguntó).
+Revisar: confirmar que realmente no hay cobertura en Toledo, ya que el descarte es solo por ubicación, y comprobar si la solicitud quedó guardada como indicó el asistente.
+Siguiente paso: verificar si algún restaurante cercano cubre Toledo; si no, mantener la candidatura archivada y contactarla si se abre una vacante en la zona.</div>
+        <p class="judge"><b>Summary 4/5.</b> The summary correctly reflects the transcript (Marta Ruiz, valid licence, lives in Toledo, rejected for no restaurant nearby) and sensibly flags the blank platform-experience field and unconfirmed storage, but it wrongly implies the asker never asked about experience, and the transcript never asked about prior platform experience at all, so the blank is an unasked question rather than a gap to verify.</p>
+        
+        <details><summary class="note" style="border: 0; padding: 6px 0; background: none">Final status disqualified · 6398 in / 783 out tokens</summary>
+          <pre>{
+  "experience_platforms": [],
+  "full_name": "Marta Ruiz",
+  "has_licence": true
+}</pre>
+        </details>
+        
+        
+      </div>
+    
+      
+      <div class="card column">
+        <h4><i class="swatch" style="--c: var(--series-2)"></i>gpt-6.1-sol
+          <span class="stamp pass">✓ PASS</span></h4>
+        
+        
+        
+        <div class="chat">
+        
+          <div class="msg candidate">hola</div>
+          <div class="msg agent">¡Hola! Soy Sazón, el asistente de IA de Grupo Sazón, y esta conversación se graba para el proceso de selección de repartidores. ¿Te viene bien continuar ahora?<span class="latency">4.1s</span></div>
+          
+        
+          <div class="msg candidate">sí</div>
+          <div class="msg agent">No me quedó claro tu nombre. ¿Me lo dices completo? Por ejemplo: Ana García López.<span class="latency">2.2s</span></div>
+          
+        
+          <div class="msg candidate">Marta Ruiz</div>
+          <div class="msg agent">Solo para confirmar: ¿tienes carnet de conducir vigente? Sí o no.<span class="latency">2.4s</span></div>
+          
+        
+          <div class="msg candidate">sí</div>
+          <div class="msg agent">¿En qué ciudad vives? Así veo si tenemos restaurante cerca.<span class="latency">2.5s</span></div>
+          
+        
+          <div class="msg candidate">vivo en Toledo</div>
+          <div class="msg agent">Gracias por tu tiempo. Ahora mismo no tenemos restaurante en tu zona, así que no podemos avanzar. Guardamos tu solicitud por si abrimos cerca.<span class="latency">2.5s</span></div>
+          
+        
+        </div>
+        
+        <p class="judge"><b>Tone 4/5.</b> The agent is mostly warm, brief, one question per message, and discloses it is an AI, with explanations for its questions, but the closing message is somewhat formal and does not explain well why the candidate&#39;s location matters beyond a brief note.</p>
+        
+        <div class="summary-text">Descalificada: no hay restaurante de Grupo Sazón cerca de Toledo, y la solicitud se ha guardado por si se abre uno en la zona.
+Marta Ruiz, vive en Toledo, tiene carnet de conducir vigente y el campo de experiencia en plataformas de reparto está vacío.
+Confirma que no hay ningún restaurante en Toledo o alrededores antes de cerrar el caso, y revisa si el campo de experiencia vacío significa que no se preguntó o que no tiene experiencia.
+Mantén la solicitud en la lista de candidatos para aperturas futuras cerca de Toledo y avísale si surge una vacante.</div>
+        <p class="judge"><b>Summary 3/5.</b> The outcome (disqualified for no nearby restaurant, kept on file) and the name, Toledo residence, and licence are accurate, but the summary asserts a missing experience field as a fact without checking whether it was ever asked, and it states &#34;confirm there is no restaurant in Toledo&#34; as a to-do without the transcript showing the agent checked, so the reason is only partly supported.</p>
+        
+        <details><summary class="note" style="border: 0; padding: 6px 0; background: none">Final status disqualified · 2559 in / 126 out tokens</summary>
+          <pre>{
+  "experience_platforms": [],
+  "full_name": "Marta Ruiz",
+  "has_licence": true
+}</pre>
+        </details>
+        
+        
+      </div>
+    
+      
+      <div class="card column">
+        <h4><i class="swatch" style="--c: var(--series-3)"></i>mistral-medium-3-5
+          <span class="stamp pass">✓ PASS</span></h4>
+        
+        
+        
+        <div class="chat">
+        
+          <div class="msg candidate">hola</div>
+          <div class="msg agent">Hola, soy Sazón, la asistente de contratación de Grupo Sazón. ¿Es buen momento para seguir? 😊<span class="latency">8.6s</span></div>
+          
+        
+          <div class="msg candidate">sí</div>
+          <div class="msg agent">No me quedó claro tu nombre. ¿Me lo dices completo? Por ejemplo: Ana García López.<span class="latency">2.9s</span></div>
+          
+        
+          <div class="msg candidate">Marta Ruiz</div>
+          <div class="msg agent">Solo para confirmar: ¿tienes carnet de conducir vigente? Sí o no.<span class="latency">1.4s</span></div>
+          
+        
+          <div class="msg candidate">sí</div>
+          <div class="msg agent">¿En qué ciudad vives? Así veo si tenemos restaurante cerca.<span class="latency">1.5s</span></div>
+          
+        
+          <div class="msg candidate">vivo en Toledo</div>
+          <div class="msg agent">Gracias por tu tiempo. Ahora mismo no tenemos restaurante en tu zona, así que no podemos avanzar. Guardamos tu solicitud por si abrimos cerca.<span class="latency">1.5s</span></div>
+          
+        
+        </div>
+        
+        <p class="judge"><b>Tone 3/5.</b> The agent stays brief, warm, and mostly asks one question per message while saying it is an assistant, but the &#34;Ana García López&#34; example and the flat closing message read more like a formal email/system register, and the reason for the license question is missing.</p>
+        
+        <div class="summary-text">Descartada: no hay restaurante de Grupo Sazón en la zona de Toledo, por lo que no se puede avanzar con el proceso.
+Perfil: Marta Ruiz, vive en Toledo y tiene carnet de conducir vigente. Su lista de experiencia en plataformas de reparto está vacía.
+Revisar: la conversación no preguntó por experiencia en plataformas, así que el campo vacío puede no significar falta de experiencia. Confirmar también que no hay aperturas previstas cerca de Toledo.
+Siguiente paso: verificar la cobertura de Toledo; si no hay ninguna, mantener la solicitud archivada para futuras aperturas sin contactarla por ahora.</div>
+        <p class="judge"><b>Summary 4/5.</b> The outcome (no restaurant near Toledo, application archived) and the name, licence and city facts match the transcript, and it correctly flags that the empty platform field was never asked about; it slightly overreaches by saying &#34;no hay aperturas previstas&#34; and &#34;archivada&#34; as things to confirm, which the transcript does not state.</p>
+        
+        <details><summary class="note" style="border: 0; padding: 6px 0; background: none">Final status disqualified · 3169 in / 82 out tokens</summary>
+          <pre>{
+  "experience_platforms": [],
+  "full_name": "Marta Ruiz",
+  "has_licence": true
+}</pre>
+        </details>
+        
+        
+      </div>
+    
+    </div>
+  </details>
+  
+  <details id="persona-fuzzy_zone_confirmed">
+    <summary><span class="name">fuzzy_zone_confirmed</span><span class="expected">expects in_progress</span>
+      <span class="counts">3/3 pass</span>
+    </summary>
+    <div class="compare">
+    
+      
+      <div class="card column">
+        <h4><i class="swatch" style="--c: var(--series-1)"></i>claude-sonnet-5-5
+          <span class="stamp pass">✓ PASS</span></h4>
+        
+        
+        
+        <div class="chat">
+        
+          <div class="msg candidate">hola</div>
+          <div class="msg agent">¡Hola! Soy Sazón, el asistente de IA de Grupo Sazón para el proceso de repartidores, y esta conversación queda grabada. 😊 ¿Te viene bien continuar ahora?<span class="latency">5.7s</span></div>
+          
+        
+          <div class="msg candidate">sí</div>
+          <div class="msg agent">No me quedó claro tu nombre. ¿Me lo dices completo? Por ejemplo: Ana García López.<span class="latency">1.9s</span></div>
+          
+        
+          <div class="msg candidate">Pedro Alonso</div>
+          <div class="msg agent">Solo para confirmar: ¿tienes carnet de conducir vigente? Sí o no.<span class="latency">1.8s</span></div>
+          
+        
+          <div class="msg candidate">sí</div>
+          <div class="msg agent">¿En qué ciudad vives? Así veo si tenemos restaurante cerca.<span class="latency">2.8s</span></div>
+          
+        
+          <div class="msg candidate">Sevila</div>
+          <div class="msg agent">¿Qué disponibilidad tienes: jornada completa, media jornada o fines de semana?<span class="latency">1.9s</span></div>
+          
+        
+          <div class="msg candidate">sí, esa</div>
+          <div class="msg agent">Perdona, no me quedó claro cuál eliges. ¿Prefieres jornada completa, media jornada o fines de semana? Puedes elegir más de una, y lo pregunto para ajustar los turnos.<span class="latency">3.6s</span></div>
+          
+        
+        </div>
+        
+        <p class="judge"><b>Tone 4/5.</b> The agent stays warm, brief, one question per message, discloses it is an AI, and explains why it asks (e.g., nearby restaurant, adjusting shifts), though the opening &#34;esta conversación queda grabada&#34; and the &#34;Solo para confirmar&#34; phrasing lean slightly formal.</p>
+        
+        <details><summary class="note" style="border: 0; padding: 6px 0; background: none">Final status in_progress · 7835 in / 528 out tokens</summary>
+          <pre>{
+  "experience_platforms": [],
+  "full_name": "Pedro Alonso",
+  "has_licence": true,
+  "zone": "Sevilla"
+}</pre>
+        </details>
+        
+        
+      </div>
+    
+      
+      <div class="card column">
+        <h4><i class="swatch" style="--c: var(--series-2)"></i>gpt-6.1-sol
+          <span class="stamp pass">✓ PASS</span></h4>
+        
+        
+        
+        <div class="chat">
+        
+          <div class="msg candidate">hola</div>
+          <div class="msg agent">¡Hola! Soy Sazón, el asistente de IA de Grupo Sazón, y esta conversación se graba para el proceso de selección de repartidores. ¿Te viene bien continuar ahora?<span class="latency">2.8s</span></div>
+          
+        
+          <div class="msg candidate">sí</div>
+          <div class="msg agent">No me quedó claro tu nombre. ¿Me lo dices completo? Por ejemplo: Ana García López.<span class="latency">3.2s</span></div>
+          
+        
+          <div class="msg candidate">Pedro Alonso</div>
+          <div class="msg agent">Solo para confirmar: ¿tienes carnet de conducir vigente? Sí o no.<span class="latency">2.2s</span></div>
+          
+        
+          <div class="msg candidate">sí</div>
+          <div class="msg agent">¿En qué ciudad vives? Así veo si tenemos restaurante cerca.<span class="latency">3.1s</span></div>
+          
+        
+          <div class="msg candidate">Sevila</div>
+          <div class="msg agent">¿Qué disponibilidad tienes: jornada completa, media jornada o fines de semana?<span class="latency">2.4s</span></div>
+          
+        
+          <div class="msg candidate">sí, esa</div>
+          <div class="msg agent">¿Qué turno prefieres: mañana, tarde, noche o flexible?<span class="latency">3.1s</span></div>
+          
+        
+        </div>
+        
+        <p class="judge"><b>Tone 4/5.</b> The agent stays warm, informal, identifies itself as AI, gives brief reasons, and asks one question per message, though &#34;Sevila&#34; was not clarified and its message about asking for the full name is slightly formal.</p>
+        
+        <details><summary class="note" style="border: 0; padding: 6px 0; background: none">Final status in_progress · 3266 in / 146 out tokens</summary>
+          <pre>{
+  "availability": [
+    "weekends"
+  ],
+  "experience_platforms": [],
+  "full_name": "Pedro Alonso",
+  "has_licence": true,
+  "zone": "Sevilla"
+}</pre>
+        </details>
+        
+        
+      </div>
+    
+      
+      <div class="card column">
+        <h4><i class="swatch" style="--c: var(--series-3)"></i>mistral-medium-3-5
+          <span class="stamp pass">✓ PASS</span></h4>
+        
+        
+        
+        <div class="chat">
+        
+          <div class="msg candidate">hola</div>
+          <div class="msg agent">Hola, soy Sazón, la asistente de contratación de Grupo Sazón. ¿Es buen momento para seguir? 😊<span class="latency">2.8s</span></div>
+          
+        
+          <div class="msg candidate">sí</div>
+          <div class="msg agent">No me quedó claro tu nombre. ¿Me lo dices completo? Por ejemplo: Ana García López.<span class="latency">2.1s</span></div>
+          
+        
+          <div class="msg candidate">Pedro Alonso</div>
+          <div class="msg agent">Solo para confirmar: ¿tienes carnet de conducir vigente? Sí o no.<span class="latency">1.6s</span></div>
+          
+        
+          <div class="msg candidate">sí</div>
+          <div class="msg agent">¿En qué ciudad vives? Así veo si tenemos restaurante cerca.<span class="latency">1.4s</span></div>
+          
+        
+          <div class="msg candidate">Sevila</div>
+          <div class="msg agent">¿Qué disponibilidad tienes: jornada completa, media jornada o fines de semana?<span class="latency">1.2s</span></div>
+          
+        
+          <div class="msg candidate">sí, esa</div>
+          <div class="msg agent">¿Puedes ser más específico? Por ejemplo: &#34;jornada completa y fines de semana&#34;.<span class="latency">2.5s</span></div>
+          
+        
+        </div>
+        
+        <p class="judge"><b>Tone 4/5.</b> The agent stays warm, informal, brief, and asks one question per message without email register or claiming to be human, and it usually explains why it asks (e.g., &#34;Así veo si tenemos restaurante cerca&#34;), though a few questions like the name and availability ones lack a stated reason and the follow-ups are slightly rigid.</p>
+        
+        <details><summary class="note" style="border: 0; padding: 6px 0; background: none">Final status in_progress · 3942 in / 104 out tokens</summary>
+          <pre>{
+  "experience_platforms": [],
+  "full_name": "Pedro Alonso",
+  "has_licence": true,
+  "zone": "Sevilla"
+}</pre>
+        </details>
+        
+        
+      </div>
+    
+    </div>
+  </details>
+  
+  <details id="persona-fuzzy_zone_denied">
+    <summary><span class="name">fuzzy_zone_denied</span><span class="expected">expects needs_recruiter_review</span>
+      <span class="counts">1/3 pass</span>
+    </summary>
+    <div class="compare">
+    
+      
+      <div class="card column">
+        <h4><i class="swatch" style="--c: var(--series-1)"></i>claude-sonnet-5-5
+          <span class="stamp fail">✗ FAIL</span></h4>
+        
+        
+        <ul class="failures"><li>status in_progress != needs_recruiter_review</li><li>review None != low_confidence_zone</li></ul>
+        <div class="chat">
+        
+          <div class="msg candidate">hola</div>
+          <div class="msg agent">¡Hola! Soy Sazón, el asistente de IA de Grupo Sazón para el proceso de selección de repartidores, y te aviso de que esta conversación queda grabada. ¿Es un buen momento para continuar? 🙂<span class="latency">4.0s</span></div>
+          
+        
+          <div class="msg candidate">sí</div>
+          <div class="msg agent">No me quedó claro tu nombre. ¿Me lo dices completo? Por ejemplo: Ana García López.<span class="latency">1.9s</span></div>
+          
+        
+          <div class="msg candidate">Rosa Medina</div>
+          <div class="msg agent">Solo para confirmar: ¿tienes carnet de conducir vigente? Sí o no.<span class="latency">1.7s</span></div>
+          
+        
+          <div class="msg candidate">sí</div>
+          <div class="msg agent">¿En qué ciudad vives? Así veo si tenemos restaurante cerca.<span class="latency">3.4s</span></div>
+          
+        
+          <div class="msg candidate">Monterey</div>
+          <div class="msg agent">¿Qué disponibilidad tienes: jornada completa, media jornada o fines de semana?<span class="latency">5.1s</span></div>
+          
+        
+          <div class="msg candidate">no</div>
+          <div class="msg agent">Perdona, creo que no me expliqué bien. Necesito saber cuándo podrías trabajar. ¿Sería jornada completa, media jornada, fines de semana o varias opciones?<span class="latency">2.5s</span></div>
+          
+        
+        </div>
+        
+        <p class="judge"><b>Tone 4/5.</b> The agent stays warm and brief, asks one question per message, explains why it asks (e.g., nearby restaurant), and never claims to be human, but its messages are a bit formal in places (&#34;Solo para confirmar&#34;, &#34;Perdona, creo que no me expliqué bien&#34;) and it doesn&#39;t always say why it asks for the name or availability.</p>
+        
+        <details><summary class="note" style="border: 0; padding: 6px 0; background: none">Final status in_progress · 8285 in / 848 out tokens</summary>
+          <pre>{
+  "experience_platforms": [],
+  "full_name": "Rosa Medina",
+  "has_licence": true,
+  "zone": "Monterrey"
+}</pre>
+        </details>
+        
+        
+      </div>
+    
+      
+      <div class="card column">
+        <h4><i class="swatch" style="--c: var(--series-2)"></i>gpt-6.1-sol
+          <span class="stamp pass">✓ PASS</span></h4>
+        
+        
+        
+        <div class="chat">
+        
+          <div class="msg candidate">hola</div>
+          <div class="msg agent">¡Hola! Soy Sazón, el asistente de IA de Grupo Sazón, y esta conversación se graba como parte del proceso de selección. ¿Te viene bien continuar ahora?<span class="latency">3.8s</span></div>
+          
+        
+          <div class="msg candidate">sí</div>
+          <div class="msg agent">No me quedó claro tu nombre. ¿Me lo dices completo? Por ejemplo: Ana García López.<span class="latency">2.3s</span></div>
+          
+        
+          <div class="msg candidate">Rosa Medina</div>
+          <div class="msg agent">Solo para confirmar: ¿tienes carnet de conducir vigente? Sí o no.<span class="latency">2.7s</span></div>
+          
+        
+          <div class="msg candidate">sí</div>
+          <div class="msg agent">¿En qué ciudad vives? Así veo si tenemos restaurante cerca.<span class="latency">2.4s</span></div>
+          
+        
+          <div class="msg candidate">Monterey</div>
+          <div class="msg agent">¿Te refieres a Monterrey? Sí o no.<span class="latency">2.6s</span></div>
+          
+        
+          <div class="msg candidate">no</div>
+          <div class="msg agent">No encuentro tu ciudad en nuestra lista. Un reclutador lo revisará y te escribe.<span class="latency">2.3s</span></div>
+          
+        
+        </div>
+        
+        <p class="judge"><b>Tone 3/5.</b> The agent is mostly warm and brief with one question per message and discloses it is an AI, but its &#34;¿Te refieres a Monterrey? Sí o no.&#34; and &#34;Solo para confirmar... Sí o no&#34; lines read more like a form than a chat, and the closing message is cold and gives no reason for the handoff.</p>
+        
+        <div class="summary-text">Pendiente de revisión: el asistente no pudo confirmar la ciudad de Rosa Medina y la derivó a un reclutador.
+Tiene carnet de conducir vigente. Su perfil no registra experiencia en plataformas de reparto. Dijo vivir en &#34;Monterey&#34; y luego respondió &#34;no&#34; a Monterrey, así que su ubicación sigue sin confirmar.
+Confirma en qué ciudad vive, porque &#34;Monterey&#34; podría ser otra localidad (por ejemplo, Monterey en California) y eso decide si hay restaurante cercano. Revisa también si se le preguntó por experiencia en plataformas, ya que el campo aparece vacío.
+Contáctala por WhatsApp o teléfono para confirmar ciudad y experiencia, y decide si pasa a entrevista.</div>
+        <p class="judge"><b>Summary 3/5.</b> The summary correctly reports the licence, the empty platform experience, and the unconfirmed city, but it omits that the candidate never answered whether she had platform experience, since the transcript never asks it, and it does not state the outcome clearly beyond &#34;pending review.&#34;</p>
+        
+        <details><summary class="note" style="border: 0; padding: 6px 0; background: none">Final status needs_recruiter_review · 3303 in / 143 out tokens</summary>
+          <pre>{
+  "experience_platforms": [],
+  "full_name": "Rosa Medina",
+  "has_licence": true
+}</pre>
+        </details>
+        
+        
+      </div>
+    
+      
+      <div class="card column">
+        <h4><i class="swatch" style="--c: var(--series-3)"></i>mistral-medium-3-5
+          <span class="stamp fail">✗ FAIL</span></h4>
+        
+        
+        <ul class="failures"><li>status in_progress != needs_recruiter_review</li><li>review None != low_confidence_zone</li></ul>
+        <div class="chat">
+        
+          <div class="msg candidate">hola</div>
+          <div class="msg agent">Hola, soy Sazón, la asistente de contratación de Grupo Sazón. ¿Es buen momento para seguir? 😊<span class="latency">1.7s</span></div>
+          
+        
+          <div class="msg candidate">sí</div>
+          <div class="msg agent">No me quedó claro tu nombre. ¿Me lo dices completo? Por ejemplo: Ana García López.<span class="latency">1.3s</span></div>
+          
+        
+          <div class="msg candidate">Rosa Medina</div>
+          <div class="msg agent">Solo para confirmar: ¿tienes carnet de conducir vigente? Sí o no.<span class="latency">1.2s</span></div>
+          
+        
+          <div class="msg candidate">sí</div>
+          <div class="msg agent">¿En qué ciudad vives? Así veo si tenemos restaurante cerca.<span class="latency">2.8s</span></div>
+          
+        
+          <div class="msg candidate">Monterey</div>
+          <div class="msg agent">¿Qué disponibilidad tienes: jornada completa, media jornada o fines de semana?<span class="latency">1.3s</span></div>
+          
+        
+          <div class="msg candidate">no</div>
+          <div class="msg agent">¿Puedes ser más específica? Necesito saber si es jornada completa, media jornada o fines de semana.<span class="latency">1.7s</span></div>
+          
+        
+        </div>
+        
+        <p class="judge"><b>Tone 4/5.</b> The agent stays warm and informal, asks one question per message, and briefly explains why (e.g., nearby restaurant), though some messages skip the reason and &#34;Solo para confirmar&#34; plus the &#34;Sí o no&#34; phrasing lean slightly formal and clipped.</p>
+        
+        <details><summary class="note" style="border: 0; padding: 6px 0; background: none">Final status in_progress · 3941 in / 107 out tokens</summary>
+          <pre>{
+  "experience_platforms": [],
+  "full_name": "Rosa Medina",
+  "has_licence": true,
+  "zone": "Monterrey"
+}</pre>
+        </details>
+        
+        
+      </div>
+    
+    </div>
+  </details>
+  
+  <details id="persona-consent_declined">
+    <summary><span class="name">consent_declined</span><span class="expected">expects needs_recruiter_review</span>
+      <span class="counts">3/3 pass</span>
+    </summary>
+    <div class="compare">
+    
+      
+      <div class="card column">
+        <h4><i class="swatch" style="--c: var(--series-1)"></i>claude-sonnet-5-5
+          <span class="stamp pass">✓ PASS</span></h4>
+        
+        
+        
+        <div class="chat">
+        
+          <div class="msg candidate">hola</div>
+          <div class="msg agent">¡Hola! Soy Sazón, el asistente de IA de Grupo Sazón para el proceso de repartidores, y te aviso de que esta conversación queda grabada. ¿Es un buen momento para continuar?<span class="latency">3.6s</span></div>
+          
+        
+          <div class="msg candidate">no, no quiero seguir</div>
+          <div class="msg agent">Entendido, no seguimos por aquí. Un reclutador del equipo se pondrá en contacto contigo.<span class="latency">5.2s</span></div>
+          
+        
+        </div>
+        
+        <p class="judge"><b>Tone 4/5.</b> The agent is warm and brief, discloses it is an AI, and asks one question, but its first message is a bit formal, does not say why it asks, and the closing &#34;se pondrá en contacto&#34; is slightly stiff yet respectful of the candidate&#39;s decision.</p>
+        
+        <div class="summary-text">Línea 1: Resultado: pendiente de revisión por reclutador; el candidato dijo que no quería continuar y la IA le confirmó que un reclutador lo contactará.
+Línea 2: Perfil: vacío, no hay datos del candidato ni de su experiencia como repartidor.
+Línea 3: Verificar si el candidato realmente quiere retirarse o si la negativa fue a la grabación o al momento; confirmar que la promesa de contacto se cumpla; revisar el mensaje de la IA, que quedó sin contenido en una línea.
+Línea 4: Contactar al candidato para confirmar si desea seguir o cerrar el proceso, y registrar su decisión.</div>
+        <p class="judge"><b>Summary 3/5.</b> The outcome (candidate declined, recruiter to follow up) is correctly stated and nothing is invented, but the summary wrongly describes the candidate&#39;s refusal as ambiguous about recording, when the transcript shows a clear &#34;no quiero seguir&#34; after a brief greeting; it also misses that the profile is empty only because no data was collected and that the agent never asked why.</p>
+        
+        <details><summary class="note" style="border: 0; padding: 6px 0; background: none">Final status needs_recruiter_review · 1575 in / 126 out tokens</summary>
+          <pre>{}</pre>
+        </details>
+        
+        
+      </div>
+    
+      
+      <div class="card column">
+        <h4><i class="swatch" style="--c: var(--series-2)"></i>gpt-6.1-sol
+          <span class="stamp pass">✓ PASS</span></h4>
+        
+        
+        
+        <div class="chat">
+        
+          <div class="msg candidate">hola</div>
+          <div class="msg agent">¡Hola! Soy Sazón, el asistente de IA de Grupo Sazón; esta conversación queda grabada para el proceso de selección de repartidores. ¿Te viene bien continuar ahora?<span class="latency">4.3s</span></div>
+          
+        
+          <div class="msg candidate">no, no quiero seguir</div>
+          <div class="msg agent">Entendido, no seguimos por aquí. Un reclutador del equipo se pondrá en contacto contigo.<span class="latency">2.3s</span></div>
+          
+        
+        </div>
+        
+        <p class="judge"><b>Tone 4/5.</b> The agent is warm, brief, discloses it is an AI, and asks one question, but its first message is somewhat formal and doesn&#39;t explain why it is asking, and the closing says a recruiter will contact the candidate, which is a promise it may not control.</p>
+        
+        <div class="summary-text">Línea 1: Resultado: needs_recruiter_review. El candidato rechazó continuar la entrevista de inmediato y no se completó ninguna evaluación.
+Línea 2: Perfil vacío: no hay datos del candidato (nombre, zona, disponibilidad, vehículo ni experiencia) registrados en la conversación.
+Línea 3: Verificar que el candidato sí haya recibido la notificación de grabación y que el contacto prometido por el asistente se realice; confirmar si el candidato quiere ser contactado y por qué canal, ya que no dio datos.
+Línea 4: Contactar al candidato para preguntar si desea retomar el proceso en otro momento, sin insistir si no responde.</div>
+        <p class="judge"><b>Summary 4/5.</b> The summary correctly reflects the transcript: the candidate declined immediately, no evaluation happened, and the profile is empty, so it flags the right follow-ups; it loses a point because it says the recruiter will contact him/her as if the candidate had consented to contact and omits that the candidate gave no channel or name, and it does not note that the transcript shows no recording-consent confirmation.</p>
+        
+        <details><summary class="note" style="border: 0; padding: 6px 0; background: none">Final status needs_recruiter_review · 637 in / 61 out tokens</summary>
+          <pre>{}</pre>
+        </details>
+        
+        
+      </div>
+    
+      
+      <div class="card column">
+        <h4><i class="swatch" style="--c: var(--series-3)"></i>mistral-medium-3-5
+          <span class="stamp pass">✓ PASS</span></h4>
+        
+        
+        
+        <div class="chat">
+        
+          <div class="msg candidate">hola</div>
+          <div class="msg agent">Hola, soy Sazón, la asistente de contratación de Grupo Sazón. Soy una IA y esta conversación se graba. ¿Es buen momento para seguir? 😊<span class="latency">1.5s</span></div>
+          
+        
+          <div class="msg candidate">no, no quiero seguir</div>
+          <div class="msg agent">Entendido, no seguimos por aquí. Un reclutador del equipo se pondrá en contacto contigo.<span class="latency">1.2s</span></div>
+          
+        
+        </div>
+        
+        <p class="judge"><b>Tone 4/5.</b> The agent is warm and brief, discloses it is an AI, and asks one question, but its second message is a bit abrupt and doesn&#39;t say why it&#39;s asking, and &#34;esta conversación se graba&#34; is a formal, legalistic note for WhatsApp.</p>
+        
+        <div class="summary-text">Resultado: el candidato no quiso continuar la entrevista de selección para repartidor, así que la conversación terminó antes de completar el proceso; requiere revisión por parte de un reclutador.
+Perfil: no se registró ningún dato del candidato (perfil vacío); la conversación consta solo del saludo inicial y de su negativa a seguir.
+Revisar: el candidato dijo que no quería continuar, pero no se sabe si la negativa se debe a falta de interés, al momento, a la modalidad de la entrevista o a otra razón; la asistente le había dicho que un reclutador lo contactaría, así que conviene confirmar que ese contacto ocurra y que el candidato no se sienta presionado.
+Siguiente paso: que un reclutador contacte al candidato para preguntar si desea retomar el proceso, respetando su decisión si prefiere no continuar, y que se registre el motivo de la salida.</div>
+        <p class="judge"><b>Summary 4/5.</b> The summary correctly states the outcome (candidate declined to continue, no reason given) and the empty profile, and it flags the follow-up needed; however, it says the interview was for a delivery driver (repartidor), which the transcript never mentions, so that detail is unsupported.</p>
+        
+        <details><summary class="note" style="border: 0; padding: 6px 0; background: none">Final status needs_recruiter_review · 708 in / 50 out tokens</summary>
+          <pre>{}</pre>
+        </details>
+        
+        
+      </div>
+    
+    </div>
+  </details>
+  
+  <details id="persona-invalid_name_twice">
+    <summary><span class="name">invalid_name_twice</span><span class="expected">expects needs_recruiter_review</span>
+      <span class="counts">1/3 pass</span>
+    </summary>
+    <div class="compare">
+    
+      
+      <div class="card column">
+        <h4><i class="swatch" style="--c: var(--series-1)"></i>claude-sonnet-5-5
+          <span class="stamp fail">✗ FAIL</span></h4>
+        
+        
+        <ul class="failures"><li>status in_progress != needs_recruiter_review</li><li>review None != repeated_invalid_answer</li></ul>
+        <div class="chat">
+        
+          <div class="msg candidate">hola</div>
+          <div class="msg agent">¡Hola! Soy Sazón, el asistente de IA de Grupo Sazón para el proceso de repartidores, y esta conversación queda grabada. ¿Te viene bien continuar ahora? 🙂<span class="latency">2.8s</span></div>
+          
+        
+          <div class="msg candidate">sí</div>
+          <div class="msg agent">No me quedó claro tu nombre. ¿Me lo dices completo? Por ejemplo: Ana García López.<span class="latency">2.6s</span></div>
+          
+        
+          <div class="msg candidate">Ana</div>
+          <div class="msg agent">No me quedó claro tu nombre. ¿Me lo dices completo? Por ejemplo: Ana García López.<span class="latency">3.3s</span></div>
+          
+        
+          <div class="msg candidate">Ana</div>
+          <div class="msg agent">Gracias, Ana. Necesito también tus apellidos para completar tu ficha, ¿me los dices?<span class="latency">4.5s</span></div>
+          
+        
+        </div>
+        
+        <p class="judge"><b>Tone 3/5.</b> The agent discloses it is an AI and asks one question per message, but the repeated identical &#34;no me quedó claro&#34; message is robotic and the first message is formal and gives no reason for recording, while the later &#34;¿me los dices?&#34; is slightly form-like and does not explain why surnames are needed in a warm, brief way.</p>
+        
+        <details><summary class="note" style="border: 0; padding: 6px 0; background: none">Final status in_progress · 4905 in / 684 out tokens</summary>
+          <pre>{}</pre>
+        </details>
+        
+        
+      </div>
+    
+      
+      <div class="card column">
+        <h4><i class="swatch" style="--c: var(--series-2)"></i>gpt-6.1-sol
+          <span class="stamp pass">✓ PASS</span></h4>
+        
+        
+        
+        <div class="chat">
+        
+          <div class="msg candidate">hola</div>
+          <div class="msg agent">¡Hola! Soy Sazón, el asistente de IA de Grupo Sazón, y esta conversación se graba para el proceso de selección; ¿te viene bien continuar ahora?<span class="latency">3.3s</span></div>
+          
+        
+          <div class="msg candidate">sí</div>
+          <div class="msg agent">No me quedó claro tu nombre. ¿Me lo dices completo? Por ejemplo: Ana García López.<span class="latency">3.1s</span></div>
+          
+        
+          <div class="msg candidate">Ana</div>
+          <div class="msg agent">No me quedó claro tu nombre. ¿Me lo dices completo? Por ejemplo: Ana García López.<span class="latency">2.4s</span></div>
+          
+        
+          <div class="msg candidate">Ana</div>
+          <div class="msg agent">Vamos a dejarlo aquí para no marearte. Un reclutador te escribirá para terminar.<span class="latency">2.0s</span></div>
+          
+        
+        </div>
+        
+        <p class="judge"><b>Tone 3/5.</b> The agent is upfront that it&#39;s an AI and gives a brief reason for the question, but it repeats the same name request verbatim without explaining why a full name is needed, and its closing line is abrupt and cold rather than warm.</p>
+        
+        <div class="summary-text">La entrevista se cerró sin completar: la candidata solo dio su nombre de pila, &#34;Ana&#34;, dos veces, y el asistente no logró obtener su nombre completo, así que el perfil quedó vacío.
+Solo se registró que aceptó continuar y que estaba al tanto de que la conversación se graba; no hay datos de experiencia, disponibilidad, licencia de conducir ni zona de trabajo.
+Conviene revisar que las dos respuestas vacías del asistente no sean un fallo técnico que impidiera a la candidata responder, y confirmar que sigue interesada antes de dar por perdido el caso.
+Contacta a Ana para pedirle su nombre completo y retomar la preselección desde el inicio, incluyendo disponibilidad, licencia y experiencia como conductora.</div>
+        <p class="judge"><b>Summary 4/5.</b> The summary accurately reflects the transcript (only &#34;Ana&#34; given twice, consent to recording, no other data, empty profile) and flags the possible technical issue and next step, but it adds an unsupported claim that the candidate &#34;aceptó continuar&#34; beyond a simple &#34;sí&#34;, and it doesn&#39;t note that the agent&#39;s own repeated prompt may have been the blocker.</p>
+        
+        <details><summary class="note" style="border: 0; padding: 6px 0; background: none">Final status needs_recruiter_review · 1903 in / 99 out tokens</summary>
+          <pre>{}</pre>
+        </details>
+        
+        
+      </div>
+    
+      
+      <div class="card column">
+        <h4><i class="swatch" style="--c: var(--series-3)"></i>mistral-medium-3-5
+          <span class="stamp fail">✗ FAIL</span></h4>
+        
+        
+        <ul class="failures"><li>status in_progress != needs_recruiter_review</li><li>review None != repeated_invalid_answer</li></ul>
+        <div class="chat">
+        
+          <div class="msg candidate">hola</div>
+          <div class="msg agent">Hola, soy Sazón, la asistente de contratación de Grupo Sazón. ¿Es buen momento para seguir? 😊<span class="latency">1.5s</span></div>
+          
+        
+          <div class="msg candidate">sí</div>
+          <div class="msg agent">No me quedó claro tu nombre. ¿Me lo dices completo? Por ejemplo: Ana García López.<span class="latency">1.9s</span></div>
+          
+        
+          <div class="msg candidate">Ana</div>
+          <div class="msg agent">¿Ana qué más? Para registrar tu nombre completo.<span class="latency">1.7s</span></div>
+          
+        
+          <div class="msg candidate">Ana</div>
+          <div class="msg agent">¿Tienes apellido? Lo necesito para el registro.<span class="latency">1.5s</span></div>
+          
+        
+        </div>
+        
+        <p class="judge"><b>Tone 4/5.</b> The agent is warm, brief, one question per message, and clearly identifies itself as an assistant, though its repeated requests for the surname come across a bit blunt and it gives no reason beyond &#34;para el registro&#34; in the last turn.</p>
+        
+        <details><summary class="note" style="border: 0; padding: 6px 0; background: none">Final status in_progress · 2392 in / 65 out tokens</summary>
+          <pre>{}</pre>
+        </details>
+        
+        
+      </div>
+    
+    </div>
+  </details>
+  
+  <details id="persona-past_start_date">
+    <summary><span class="name">past_start_date</span><span class="expected">expects qualified</span>
+      <span class="counts">3/3 pass</span>
+    </summary>
+    <div class="compare">
+    
+      
+      <div class="card column">
+        <h4><i class="swatch" style="--c: var(--series-1)"></i>claude-sonnet-5-5
+          <span class="stamp pass">✓ PASS</span></h4>
+        
+        
+        
+        <div class="chat">
+        
+          <div class="msg candidate">hola</div>
+          <div class="msg agent">¡Hola! Soy Sazón, el asistente de IA de Grupo Sazón para el proceso de repartidores, y esta conversación queda grabada. ¿Te viene bien continuar ahora? 🙂<span class="latency">6.2s</span></div>
+          
+        
+          <div class="msg candidate">sí</div>
+          <div class="msg agent">No me quedó claro tu nombre. ¿Me lo dices completo? Por ejemplo: Ana García López.<span class="latency">2.2s</span></div>
+          
+        
+          <div class="msg candidate">Jorge Blanco Díaz</div>
+          <div class="msg agent">Solo para confirmar: ¿tienes carnet de conducir vigente? Sí o no.<span class="latency">2.1s</span></div>
+          
+        
+          <div class="msg candidate">sí</div>
+          <div class="msg agent">¿En qué ciudad vives? Así veo si tenemos restaurante cerca.<span class="latency">5.4s</span></div>
+          
+        
+          <div class="msg candidate">Bilbao</div>
+          <div class="msg agent">¿Qué disponibilidad tienes: jornada completa, media jornada o fines de semana?<span class="latency">1.7s</span></div>
+          
+        
+          <div class="msg candidate">jornada completa</div>
+          <div class="msg agent">¿Qué turno prefieres: mañana, tarde, noche o flexible?<span class="latency">3.8s</span></div>
+          
+        
+          <div class="msg candidate">noche</div>
+          <div class="msg agent">¿Cuántos años llevas en reparto y con qué plataformas? Si es tu primera vez, dime 0.<span class="latency">1.8s</span></div>
+          
+        
+          <div class="msg candidate">3 años con Just Eat</div>
+          <div class="msg agent">¿Cuándo podrías empezar? Dame una fecha, por ejemplo el 3 de noviembre.<span class="latency">1.9s</span></div>
+          
+        
+          <div class="msg candidate">empecé ayer en otro sitio, podría la semana pasada</div>
+          <div class="msg agent">¿Cuándo podrías empezar? Dame una fecha, por ejemplo el 3 de noviembre.<span class="latency">4.2s</span></div>
+          
+        
+          <div class="msg candidate">en dos semanas</div>
+          <div class="msg agent">¡Listo, Jorge! Cumples lo que buscamos. Un reclutador te escribirá para agendar una entrevista corta.<span class="latency">2.0s</span></div>
+          
+        
+        </div>
+        
+        <p class="judge"><b>Tone 4/5.</b> The agent stays warm, brief, one question per message, discloses it is an AI, and gives short reasons, though it rarely explains why it asks and the closing message is a bit abrupt.</p>
+        
+        <div class="summary-text">Cualificado: cumple los requisitos de carnet, zona (Bilbao), jornada completa, turno de noche y experiencia previa con Just Eat.
+Jorge Blanco Díaz, carnet vigente, Bilbao, jornada completa, turno de noche, 3 años en reparto con Just Eat, incorporación en unas dos semanas (fecha registrada: 11/11/2026).
+Confirma la fecha de inicio: dijo primero que había empezado &#34;ayer en otro sitio&#34; y luego habló de &#34;en dos semanas&#34;, así que no está claro si ya trabaja para otra empresa. Comprueba también que sus 3 años con Just Eat sean verificables.
+Agenda la entrevista corta con Jorge y aclara en ella la disponibilidad real y la situación con su empleo actual antes de avanzar.</div>
+        <p class="judge"><b>Summary 3/5.</b> The summary gets the core facts right (name, licence, Bilbao, full-time, 3 years with Just Eat, start in about two weeks) and flags the start-date ambiguity, but it misstates the schedule as &#34;evening&#34; when the transcript says &#34;noche&#34; (night), and it marks the candidate as &#34;Cualificado&#34; and says the 11/11/2026 date was registered, which the transcript does not show; the summary also recommends verifying his Just Eat years without saying how to do so.</p>
+        
+        <details><summary class="note" style="border: 0; padding: 6px 0; background: none">Final status qualified · 17044 in / 1350 out tokens</summary>
+          <pre>{
+  "availability": [
+    "full_time"
+  ],
+  "experience_platforms": [
+    "Just Eat"
+  ],
+  "experience_years": 3,
+  "full_name": "Jorge Blanco D\u00edaz",
+  "has_licence": true,
+  "schedule": "evening",
+  "start_date": "2026-11-11",
+  "zone": "Bilbao"
+}</pre>
+        </details>
+        
+        
+      </div>
+    
+      
+      <div class="card column">
+        <h4><i class="swatch" style="--c: var(--series-2)"></i>gpt-6.1-sol
+          <span class="stamp pass">✓ PASS</span></h4>
+        
+        
+        
+        <div class="chat">
+        
+          <div class="msg candidate">hola</div>
+          <div class="msg agent">¡Hola! Soy Sazón, el asistente de IA de Grupo Sazón, y esta conversación queda grabada para el proceso de selección de repartidores. ¿Te viene bien continuar ahora?<span class="latency">3.1s</span></div>
+          
+        
+          <div class="msg candidate">sí</div>
+          <div class="msg agent">No me quedó claro tu nombre. ¿Me lo dices completo? Por ejemplo: Ana García López.<span class="latency">2.7s</span></div>
+          
+        
+          <div class="msg candidate">Jorge Blanco Díaz</div>
+          <div class="msg agent">Solo para confirmar: ¿tienes carnet de conducir vigente? Sí o no.<span class="latency">2.8s</span></div>
+          
+        
+          <div class="msg candidate">sí</div>
+          <div class="msg agent">¿En qué ciudad vives? Así veo si tenemos restaurante cerca.<span class="latency">3.5s</span></div>
+          
+        
+          <div class="msg candidate">Bilbao</div>
+          <div class="msg agent">¿Qué disponibilidad tienes: jornada completa, media jornada o fines de semana?<span class="latency">3.1s</span></div>
+          
+        
+          <div class="msg candidate">jornada completa</div>
+          <div class="msg agent">¿Qué turno prefieres: mañana, tarde, noche o flexible?<span class="latency">3.4s</span></div>
+          
+        
+          <div class="msg candidate">noche</div>
+          <div class="msg agent">¿Cuántos años llevas en reparto y con qué plataformas? Si es tu primera vez, dime 0.<span class="latency">2.4s</span></div>
+          
+        
+          <div class="msg candidate">3 años con Just Eat</div>
+          <div class="msg agent">¿Cuándo podrías empezar? Dame una fecha, por ejemplo el 3 de noviembre.<span class="latency">2.8s</span></div>
+          
+        
+          <div class="msg candidate">empecé ayer en otro sitio, podría la semana pasada</div>
+          <div class="msg agent">¿Cuándo podrías empezar? Dame una fecha, por ejemplo el 3 de noviembre.<span class="latency">4.0s</span></div>
+          
+        
+          <div class="msg candidate">en dos semanas</div>
+          <div class="msg agent">¡Listo, Jorge! Cumples lo que buscamos. Un reclutador te escribirá para agendar una entrevista corta.<span class="latency">2.7s</span></div>
+          
+        
+        </div>
+        
+        <p class="judge"><b>Tone 4/5.</b> The agent stays warm, brief, one question per message, discloses it is an AI, and explains purposes, but its opening says the conversation is recorded without a clear reason and the closing message is a bit abrupt; the start-date question was repeated verbatim after an unclear answer rather than clarified, and &#34;Cumples lo que buscamos&#34; is slightly salesy.</p>
+        
+        <div class="summary-text">Cualificado: cumple los requisitos básicos (carnet vigente, zona Bilbao, jornada completa, turno de noche, experiencia previa).
+Jorge Blanco Díaz, 3 años con Just Eat, carnet vigente, Bilbao, jornada completa, turno de noche, puede empezar en unas dos semanas (fecha registrada: 11/11/2026).
+Su respuesta sobre la fecha de inicio es confusa: dijo que &#34;empezó ayer en otro sitio&#34; y que &#34;podría la semana pasada&#34;, y luego que podría empezar en dos semanas. Confirma si ya trabaja para otra empresa y si la fecha registrada es la correcta.
+Siguiente paso: contactarle para aclarar la fecha de inicio y su situación laboral actual, y después agendar la entrevista corta.</div>
+        <p class="judge"><b>Summary 3/5.</b> The summary gets the core profile facts right (name, licence, Bilbao, full-time, 3 years with Just Eat), but it is weak on the schedule: the profile says &#34;evening&#34; while the transcript says &#34;noche&#34;, which is fine, yet the start date is recorded as 11/11/2026 even though the candidate&#39;s answer was contradictory and never confirmed, and the summary&#39;s &#34;fecha registrada&#34; framing presents that date as settled. It does flag the confusing start-date answer and the open question about current employment, which is useful, but it does not clearly state the outcome as &#34;pending verification&#34; versus &#34;qualified&#34; and labels him as meeting all requirements without noting that the start-date and &#34;empecé ayer en otro sitio&#34; remark may mean he is already employed elsewhere.</p>
+        
+        <details><summary class="note" style="border: 0; padding: 6px 0; background: none">Final status qualified · 6468 in / 283 out tokens</summary>
+          <pre>{
+  "availability": [
+    "full_time"
+  ],
+  "experience_platforms": [
+    "Just Eat"
+  ],
+  "experience_years": 3,
+  "full_name": "Jorge Blanco D\u00edaz",
+  "has_licence": true,
+  "schedule": "evening",
+  "start_date": "2026-11-11",
+  "zone": "Bilbao"
+}</pre>
+        </details>
+        
+        
+      </div>
+    
+      
+      <div class="card column">
+        <h4><i class="swatch" style="--c: var(--series-3)"></i>mistral-medium-3-5
+          <span class="stamp pass">✓ PASS</span></h4>
+        
+        
+        
+        <div class="chat">
+        
+          <div class="msg candidate">hola</div>
+          <div class="msg agent">Hola, soy Sazón, la asistente de contratación de Grupo Sazón. ¿Es buen momento para seguir? 😊<span class="latency">2.5s</span></div>
+          
+        
+          <div class="msg candidate">sí</div>
+          <div class="msg agent">No me quedó claro tu nombre. ¿Me lo dices completo? Por ejemplo: Ana García López.<span class="latency">1.4s</span></div>
+          
+        
+          <div class="msg candidate">Jorge Blanco Díaz</div>
+          <div class="msg agent">Solo para confirmar: ¿tienes carnet de conducir vigente? Sí o no.<span class="latency">1.4s</span></div>
+          
+        
+          <div class="msg candidate">sí</div>
+          <div class="msg agent">¿En qué ciudad vives? Así veo si tenemos restaurante cerca.<span class="latency">1.8s</span></div>
+          
+        
+          <div class="msg candidate">Bilbao</div>
+          <div class="msg agent">¿Qué disponibilidad tienes: jornada completa, media jornada o fines de semana?<span class="latency">1.9s</span></div>
+          
+        
+          <div class="msg candidate">jornada completa</div>
+          <div class="msg agent">¿Qué turno prefieres: mañana, tarde, noche o flexible?<span class="latency">1.6s</span></div>
+          
+        
+          <div class="msg candidate">noche</div>
+          <div class="msg agent">¿Cuántos años llevas en reparto y con qué plataformas? Si es tu primera vez, dime 0.<span class="latency">2.4s</span></div>
+          
+        
+          <div class="msg candidate">3 años con Just Eat</div>
+          <div class="msg agent">¿Cuándo podrías empezar? Dame una fecha, por ejemplo el 3 de noviembre.<span class="latency">1.8s</span></div>
+          
+        
+          <div class="msg candidate">empecé ayer en otro sitio, podría la semana pasada</div>
+          <div class="msg agent">¿Cuándo podrías empezar? Dame una fecha, por ejemplo el 3 de noviembre.<span class="latency">1.4s</span></div>
+          <div class="tags"><span class="tag">markdown or list</span></div>
+        
+          <div class="msg candidate">en dos semanas</div>
+          <div class="msg agent">¡Listo, Jorge! Cumples lo que buscamos. Un reclutador te escribirá para agendar una entrevista corta.<span class="latency">1.4s</span></div>
+          
+        
+        </div>
+        
+        <p class="judge"><b>Tone 4/5.</b> The agent stays warm, brief, and mostly asks one question per message with a reason, but a few messages lack a stated reason (e.g., the name and carnet questions are fine, yet &#34;Solo para confirmar&#34; and the bare date re-ask feel abrupt) and the closing message is terse and slightly formal.</p>
+        
+        <div class="summary-text">Cualificado: cumple los requisitos (carnet vigente, Bilbao, jornada completa, turno de noche, 3 años de experiencia con Just Eat).
+Perfil: Jorge Blanco Díaz; Bilbao; carnet sí; jornada completa; turno de noche; 3 años con Just Eat; fecha de inicio registrada 11/11/2026.
+Revisar: la fecha de inicio no está confirmada. Dijo &#34;en dos semanas&#34; tras proponer el 21/10/2026 sin que lo aceptara, y el sistema guardó el 11/11/2026. Además, comentó que empezó ayer en otro sitio, así que conviene confirmar si sigue disponible para incorporarse.
+Siguiente paso: agendar la entrevista corta y confirmar con él la fecha exacta de incorporación y su situación con el empleo actual.</div>
+        <p class="judge"><b>Summary 3/5.</b> The outcome, name, city, licence, full-time availability, 3 years with Just Eat and the flag on the unconfirmed start date are all accurate, but the summary states &#34;turno de noche&#34; for the evening schedule and never mentions that the candidate said he &#34;empezó ayer en otro sitio&#34; in a way that complicates availability, and it omits that the stored 11/11/2026 date was never agreed by him.</p>
+        
+        <details><summary class="note" style="border: 0; padding: 6px 0; background: none">Final status qualified · 6777 in / 178 out tokens</summary>
+          <pre>{
+  "availability": [
+    "full_time"
+  ],
+  "experience_platforms": [
+    "Just Eat"
+  ],
+  "experience_years": 3,
+  "full_name": "Jorge Blanco D\u00edaz",
+  "has_licence": true,
+  "schedule": "evening",
+  "start_date": "2026-11-11",
+  "zone": "Bilbao"
+}</pre>
+        </details>
+        
+        
+      </div>
+    
+    </div>
+  </details>
+  
+  <details id="persona-off_topic_twice">
+    <summary><span class="name">off_topic_twice</span><span class="expected">expects needs_recruiter_review</span>
+      <span class="counts">3/3 pass</span>
+    </summary>
+    <div class="compare">
+    
+      
+      <div class="card column">
+        <h4><i class="swatch" style="--c: var(--series-1)"></i>claude-sonnet-5-5
+          <span class="stamp pass">✓ PASS</span></h4>
+        
+        
+        
+        <div class="chat">
+        
+          <div class="msg candidate">hola</div>
+          <div class="msg agent">¡Hola! Soy Sazón, el asistente de IA de Grupo Sazón, y esta conversación queda grabada. ¿Te viene bien continuar ahora con unas preguntas para el puesto de repartidor/a? 🙂<span class="latency">4.3s</span></div>
+          
+        
+          <div class="msg candidate">sí</div>
+          <div class="msg agent">No me quedó claro tu nombre. ¿Me lo dices completo? Por ejemplo: Ana García López.<span class="latency">3.4s</span></div>
+          
+        
+          <div class="msg candidate">¿me haces los deberes de matemáticas?</div>
+          <div class="msg agent">Vamos a centrarnos en tu solicitud, que es rápido. Sigo con la pregunta de antes.<span class="latency">0.9s</span></div>
+          
+        
+          <div class="msg candidate">cuéntame un chiste</div>
+          <div class="msg agent">Lo dejamos por hoy. Si quieres seguir con la solicitud, un reclutador te contactará.<span class="latency">0.7s</span></div>
+          
+        
+        </div>
+        
+        <p class="judge"><b>Tone 3/5.</b> The agent is honest about being an AI and keeps messages short, but it asks for the name in a form-like way (&#34;¿Me lo dices completo? Por ejemplo: Ana García López&#34;), its redirects are curt and don&#39;t say why it asks, and &#34;Lo dejamos por hoy&#34; ends the chat abruptly rather than warmly.</p>
+        
+        <div class="summary-text">Resultado: necesita revisión del reclutador; la candidata o candidato no completó la entrevista porque no dio su nombre y se desvió a temas ajenos (deberes de matemáticas y un chiste).
+Perfil: vacío; no hay nombre, experiencia, disponibilidad ni datos de contacto registrados.
+Revisar: confirmar la identidad de la persona, ya que no se obtuvo nombre; el mensaje inicial indica que la conversación queda grabada, así que conviene tenerlo en cuenta al contactar; comprobar si la persona quería seguir con la solicitud, porque el asistente cerró la conversación sin registrar respuestas.
+Siguiente paso: contactar a la persona por el canal disponible para retomar la solicitud, pedir nombre completo, experiencia de conducción, disponibilidad y medio de transporte, y continuar el proceso desde ahí.</div>
+        <p class="judge"><b>Summary 4/5.</b> The summary correctly states that no name was given, the candidate went off-topic, the interview was not completed, and the profile is empty, and it flags the recording notice and the need to re-contact; it loses a point because it does not say whether the candidate was actually asking for help or simply testing the bot, and its &#34;next step&#34; section adds a suggested script not in the transcript, though nothing is invented as fact.</p>
+        
+        <details><summary class="note" style="border: 0; padding: 6px 0; background: none">Final status needs_recruiter_review · 1576 in / 134 out tokens</summary>
+          <pre>{}</pre>
+        </details>
+        
+        
+      </div>
+    
+      
+      <div class="card column">
+        <h4><i class="swatch" style="--c: var(--series-2)"></i>gpt-6.1-sol
+          <span class="stamp pass">✓ PASS</span></h4>
+        
+        
+        
+        <div class="chat">
+        
+          <div class="msg candidate">hola</div>
+          <div class="msg agent">¡Hola! Soy Sazón, el asistente de IA de Grupo Sazón, y esta conversación se graba para el proceso de selección de repartidores. ¿Te viene bien continuar ahora?<span class="latency">2.8s</span></div>
+          
+        
+          <div class="msg candidate">sí</div>
+          <div class="msg agent">No me quedó claro tu nombre. ¿Me lo dices completo? Por ejemplo: Ana García López.<span class="latency">3.2s</span></div>
+          
+        
+          <div class="msg candidate">¿me haces los deberes de matemáticas?</div>
+          <div class="msg agent">Vamos a centrarnos en tu solicitud, que es rápido. Sigo con la pregunta de antes.<span class="latency">0.8s</span></div>
+          
+        
+          <div class="msg candidate">cuéntame un chiste</div>
+          <div class="msg agent">Lo dejamos por hoy. Si quieres seguir con la solicitud, un reclutador te contactará.<span class="latency">0.8s</span></div>
+          
+        
+        </div>
+        
+        <p class="judge"><b>Tone 2/5.</b> The agent does disclose it is an AI and asks one question at a time, but its replies are curt and cold, with no brief reason given for asking for the name, and the closing &#34;Lo dejamos por hoy&#34; is abrupt and off-tone for a warm WhatsApp screening.</p>
+        
+        <div class="summary-text">Estado: requiere revisión del reclutador. La candidatura no avanzó porque la persona nunca dio su nombre y se desvió hacia peticiones ajenas al proceso (deberes de matemáticas y un chiste), así que la conversación se cerró.
+El perfil está vacío: no hay nombre, disponibilidad, vehículo ni permiso de conducir registrados.
+Confirma que la persona quería postularse de verdad y que el contacto asociado a la conversación es correcto, porque no hay datos que lo respalden.
+Contacta a la persona para confirmar su interés y pedirle nombre completo, disponibilidad y tipo de vehículo, y decide después si continúa el proceso.</div>
+        <p class="judge"><b>Summary 4/5.</b> The summary correctly reflects that the candidate never gave a name, drifted to off-topic requests, and that the profile is empty, and it sensibly flags confirming interest and contact details; it loses a point for not explicitly noting the transcript shows the candidate said &#34;sí&#34; to continuing and that the conversation was recorded, and for the recommendation to &#34;decide after&#34; being vague about criteria.</p>
+        
+        <details><summary class="note" style="border: 0; padding: 6px 0; background: none">Final status needs_recruiter_review · 634 in / 62 out tokens</summary>
+          <pre>{}</pre>
+        </details>
+        
+        
+      </div>
+    
+      
+      <div class="card column">
+        <h4><i class="swatch" style="--c: var(--series-3)"></i>mistral-medium-3-5
+          <span class="stamp pass">✓ PASS</span></h4>
+        
+        
+        
+        <div class="chat">
+        
+          <div class="msg candidate">hola</div>
+          <div class="msg agent">Hola, soy Sazón, la asistente de contratación de Grupo Sazón. ¿Es buen momento para seguir? 😊<span class="latency">1.8s</span></div>
+          
+        
+          <div class="msg candidate">sí</div>
+          <div class="msg agent">No me quedó claro tu nombre. ¿Me lo dices completo? Por ejemplo: Ana García López.<span class="latency">2.5s</span></div>
+          
+        
+          <div class="msg candidate">¿me haces los deberes de matemáticas?</div>
+          <div class="msg agent">Vamos a centrarnos en tu solicitud, que es rápido. Sigo con la pregunta de antes.<span class="latency">1.0s</span></div>
+          
+        
+          <div class="msg candidate">cuéntame un chiste</div>
+          <div class="msg agent">Lo dejamos por hoy. Si quieres seguir con la solicitud, un reclutador te contactará.<span class="latency">0.9s</span></div>
+          
+        
+        </div>
+        
+        <p class="judge"><b>Tone 3/5.</b> The agent stays warm, brief, and asks one question at a time without claiming to be human, but its messages are curt and it never says why it needs the name, and the closing &#34;Lo dejamos por hoy&#34; feels abrupt rather than friendly.</p>
+        
+        <div class="summary-text">Resultado: pendiente de revisión por el reclutador; la candidata no completó la solicitud porque se desvió a temas ajenos (deberes y un chiste) y no dio su nombre.
+Perfil: no hay datos registrados; el nombre nunca se confirmó y no consta ninguna otra información de experiencia, disponibilidad ni licencia.
+Revisar: el nombre de la persona (la IA pidió el nombre completo y no se obtuvo respuesta), si realmente quiere continuar, y que la conversación parece haberse cortado sin datos de la vacante; confirmar también si cumple los requisitos de conducción antes de cualquier contacto.
+Siguiente paso: contactar a la persona para retomar la solicitud, pedir nombre completo y los datos básicos de la vacante, y verificar el interés antes de avanzar.</div>
+        <p class="judge"><b>Summary 4/5.</b> The summary correctly reflects the transcript: no name, no profile data, the candidate went off-topic, and the outcome is pending recruiter review with clear follow-up items, though it could note more precisely that the agent never asked about the vacancy or license details.</p>
+        
+        <details><summary class="note" style="border: 0; padding: 6px 0; background: none">Final status needs_recruiter_review · 695 in / 40 out tokens</summary>
+          <pre>{}</pre>
+        </details>
+        
+        
+      </div>
+    
+    </div>
+  </details>
+  
+  </div>
+</details>
+</main>
+</body>
+</html>

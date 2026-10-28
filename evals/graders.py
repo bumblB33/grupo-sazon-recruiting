@@ -1,8 +1,5 @@
-import re
 from dataclasses import dataclass
 
-from screening_agent.domain.enums import Language
-from screening_agent.domain.language import detect_language
 from screening_agent.storage.models import Candidate
 
 
@@ -13,6 +10,9 @@ class Expectation:
     review_reason: str | None = None
     profile: dict | None = None
     max_turns: int | None = None
+    # True: at least one entry expected. False: none. None: not graded.
+    concerns: bool | None = None
+    questions: bool | None = None
 
 
 @dataclass(frozen=True)
@@ -22,7 +22,7 @@ class GradeResult:
 
 
 def grade(candidate: Candidate, turns: int, expected: Expectation) -> GradeResult:
-    """Scores the final JSON and outcome only; wording is scored by style_failures and the judge."""
+    """Scores the final JSON and outcome only; wording is scored by reply_policy and the judge."""
     failures: list[str] = []
     if candidate.status != expected.status:
         failures.append(f"status {candidate.status} != {expected.status}")
@@ -36,29 +36,11 @@ def grade(candidate: Candidate, turns: int, expected: Expectation) -> GradeResul
             failures.append(f"profile.{key} {actual!r} != {value!r}")
     if expected.max_turns is not None and turns > expected.max_turns:
         failures.append(f"turns {turns} > {expected.max_turns}")
+    recorded = {"concerns": candidate.concerns, "questions": candidate.candidate_questions}
+    for name, wanted in (("concerns", expected.concerns), ("questions", expected.questions)):
+        if wanted is not None and bool(recorded[name]) != wanted:
+            failures.append(f"{name} {'missing' if wanted else 'recorded'}: {recorded[name]!r}")
     return GradeResult(passed=not failures, failures=tuple(failures))
-
-
-# One emoji may be a cluster: base, skin tone, variation selector, ZWJ-joined bases.
-EMOJI = re.compile(
-    r"[\U0001F300-\U0001FAFF\u2600-\u27BF](?:[\U0001F3FB-\U0001F3FF\uFE0F]|\u200d[\U0001F300-\U0001FAFF\u2600-\u27BF])*"
-)
-MAX_REPLY_CHARS = 280
-
-
-def style_failures(reply: str, language: Language) -> list[str]:
-    """Deterministic checks from the tone guidelines: one question, at most one emoji, short,
-    in the candidate's language. Language ties pass, the detector is a stopword vote."""
-    failures: list[str] = []
-    if reply.count("?") > 1:
-        failures.append("more than one question")
-    if len(EMOJI.findall(reply)) > 1:
-        failures.append("more than one emoji")
-    if len(reply) > MAX_REPLY_CHARS:
-        failures.append(f"reply longer than {MAX_REPLY_CHARS} chars")
-    if detect_language(reply, default=language) != language:
-        failures.append(f"reply not in {language.value}")
-    return failures
 
 
 def _same_value(actual, expected) -> bool:

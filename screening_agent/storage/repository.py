@@ -1,3 +1,4 @@
+import uuid
 from collections import Counter
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -9,9 +10,10 @@ from pymongo.errors import DuplicateKeyError
 from pymongo.uri_parser import parse_uri
 
 from screening_agent.config import settings
-from screening_agent.domain.enums import Language, Status
+from screening_agent.domain.enums import Language, MessageKind, Status
 from screening_agent.flow.silence import SilenceCandidate
 from screening_agent.flow.state import ScreeningState, initial_state, stage_of
+from screening_agent.flow.turn_record import TurnRecord
 from screening_agent.storage.models import (
     ApiKey,
     Candidate,
@@ -19,16 +21,25 @@ from screening_agent.storage.models import (
     Event,
     Recruiter,
     TranscriptEntry,
+    unanswered_agent_messages,
     utcnow,
 )
 
 
 class StaleStateError(RuntimeError):
-    """Another writer saved this conversation after the caller loaded it."""
+    """Another writer saved this conversation after the caller loaded it.
+    Messages never name the candidate: tracing exports exception messages unscrubbed."""
 
 
 class DuplicateMessageError(RuntimeError):
     """The inbound external id is already in the transcript."""
+
+
+class UnansweredLimitError(RuntimeError):
+    """The write would leave more agent messages unanswered than the limit allows."""
+
+
+ARCHIVE_ATTEMPTS = 3
 
 
 class Repository:
@@ -73,12 +84,19 @@ class Repository:
         )
 
     def save_turn(
-        self, state: ScreeningState, channel: str, inbound: str, reply: str, external_id: str | None
+        self,
+        state: ScreeningState,
+        channel: str,
+        inbound: str,
+        reply: str,
+        external_id: str | None,
+        turn: TurnRecord | None = None,
     ) -> None:
-        """One update for inbound, state and reply, so a failed turn leaves no dedupe entry."""
-        entries = [_entry(channel, "in", inbound, external_id)]
+        """One update for inbound, turn record, state and reply, so a failed turn leaves neither
+        a dedupe entry nor a decision record."""
+        entries = [_entry(channel, "in", inbound, external_id).model_copy(update={"turn": turn})]
         if reply:
-            entries.append(_entry(channel, "out", reply))
+            entries.append(_entry(channel, "out", reply, kind=MessageKind.REPLY))
         self._commit(
             state,
             channel,
@@ -88,10 +106,11 @@ class Repository:
         )
 
     def save_opener(self, state: ScreeningState, channel: str, text: str) -> None:
-        self._commit(state, channel, [_entry(channel, "out", text)])
+        self._commit(state, channel, [_entry(channel, "out", text, kind=MessageKind.OPENER)])
 
     def save_nudge(self, state: ScreeningState, channel: str, text: str, nudge_count: int) -> None:
-        self._commit(state, channel, [_entry(channel, "out", text)], {"nudge_count": nudge_count})
+        entry = _entry(channel, "out", text, kind=MessageKind.NUDGE)
+        self._commit(state, channel, [entry], {"nudge_count": nudge_count})
 
     def save_state(self, state: ScreeningState, channel: str) -> None:
         self._commit(state, channel)
@@ -114,8 +133,13 @@ class Repository:
             Event(candidate_id=candidate_id, kind=kind, payload=payload).model_dump()
         )
 
-    def set_summary(self, candidate_id: str, summary: str) -> None:
-        self.candidates.update_one({"_id": candidate_id}, {"$set": {"summary": summary}})
+    def set_summary(self, candidate_id: str, summary: str, version: int) -> bool:
+        """Keyed on the version the summary was built from, so a slow summary cannot land on a
+        conversation that moved on or on a new one opened for the same id after a reset."""
+        result = self.candidates.update_one(
+            {"_id": candidate_id, "version": version}, {"$set": {"summary": summary}}
+        )
+        return result.matched_count == 1
 
     def override(
         self, candidate_id: str, status: Status | None, notes: str | None, actor: str
@@ -152,26 +176,88 @@ class Repository:
         )
         return Candidate(**_candidate_fields(document))
 
+    def archive_candidate(self, candidate_id: str, actor: str) -> str | None:
+        """Moves the document and its events under a new id so the candidate id is free again.
+        No transactions: the fenced delete is the commit point, and the events move only after it."""
+        for _ in range(ARCHIVE_ATTEMPTS):
+            fenced = self.candidates.find_one_and_update(
+                {"_id": candidate_id},
+                [
+                    {
+                        "$set": {
+                            "archive_id": {"$ifNull": ["$archive_id", _archive_id(candidate_id)]},
+                            "version": {"$add": ["$version", 1]},
+                        }
+                    }
+                ],
+                return_document=ReturnDocument.AFTER,
+            )
+            if fenced is None:
+                return None
+            archive_id = fenced["archive_id"]
+            copy = {
+                **fenced,
+                "_id": archive_id,
+                "state": {**fenced["state"], "candidate_id": archive_id},
+                "archived_at": utcnow(),
+                "archived_by": actor,
+            }
+            self.candidates.replace_one({"_id": archive_id}, copy, upsert=True)
+            deleted = self.candidates.delete_one(
+                {"_id": candidate_id, "archive_id": archive_id, "version": fenced["version"]}
+            )
+            if deleted.deleted_count == 1:
+                self._move_events(candidate_id, archive_id, actor)
+                return archive_id
+        raise StaleStateError("conversation kept changing under the archive")
+
+    def _move_events(self, candidate_id: str, archive_id: str, actor: str) -> None:
+        self.events.update_many(
+            {"candidate_id": candidate_id}, {"$set": {"candidate_id": archive_id}}
+        )
+        self.events.update_one(
+            {"candidate_id": archive_id, "kind": "demo_reset"},
+            {
+                "$setOnInsert": {
+                    "payload": {"actor": actor, "reset_id": candidate_id},
+                    "created_at": utcnow(),
+                }
+            },
+            upsert=True,
+        )
+
     def get_recruiter(self, email: str) -> Recruiter | None:
         document = self.recruiters.find_one({"_id": email})
         return None if document is None else _recruiter(document)
 
-    def enrol_recruiter(self, email: str) -> Recruiter:
-        """Creates the row on first login and leaves an existing one, including its active flag, alone."""
+    def invite_recruiter(self, email: str) -> Recruiter:
+        """Creates the row that login requires. An existing row, including a deactivation, is kept."""
         document = self.recruiters.find_one_and_update(
             {"_id": email},
             {"$setOnInsert": {"active": True, "created_at": utcnow(), "last_login_at": None}},
             upsert=True,
             return_document=ReturnDocument.AFTER,
         )
-        return _recruiter(document)
+        return _recruiter(_upserted(document))
 
     def mark_recruiter_login(self, email: str) -> None:
         self.recruiters.update_one({"_id": email}, {"$set": {"last_login_at": utcnow()}})
 
-    def set_recruiter_active(self, email: str, active: bool) -> bool:
+    def deactivate_recruiter(self, email: str) -> None:
+        """Upserts, so an address can be blocked before it is ever invited or logs in."""
+        now = utcnow()
+        self.recruiters.update_one(
+            {"_id": email},
+            {
+                "$set": {"active": False, "sessions_valid_after": now},
+                "$setOnInsert": {"created_at": now, "last_login_at": None},
+            },
+            upsert=True,
+        )
+
+    def reactivate_recruiter(self, email: str) -> bool:
         return (
-            self.recruiters.update_one({"_id": email}, {"$set": {"active": active}}).matched_count
+            self.recruiters.update_one({"_id": email}, {"$set": {"active": True}}).matched_count
             == 1
         )
 
@@ -197,7 +283,7 @@ class Repository:
             upsert=True,
             return_document=ReturnDocument.AFTER,
         )
-        if ip_counter["count"] > ip_limit:
+        if _upserted(ip_counter)["count"] > ip_limit:
             return False
         try:
             # An unexpired cooldown row does not match, so the upsert collides on _id.
@@ -214,6 +300,10 @@ class Repository:
         self.login_tokens.insert_one(
             {"_id": token_hash, "email": email, "expires_at": expires_at, "used_at": None}
         )
+
+    def login_token_is_live(self, token_hash: str, now: datetime) -> bool:
+        query = {"_id": token_hash, "used_at": None, "expires_at": {"$gt": now}}
+        return self.login_tokens.count_documents(query, limit=1) == 1
 
     def consume_login_token(self, token_hash: str, now: datetime) -> str | None:
         """Single use: the conditional update is the lock, so two clicks cannot both log in."""
@@ -256,14 +346,21 @@ class Repository:
         ]
 
     def list_candidates(
-        self, status: str | None = None, stage: str | None = None
+        self, status: str | None = None, stage: str | None = None, limit: int = 0, offset: int = 0
     ) -> list[Candidate]:
-        query: dict[str, Any] = {}
+        """A limit of 0 returns every match, which is MongoDB's own meaning of limit 0."""
+        query: dict[str, Any] = dict(_LIVE)
         if status:
             query["status"] = status
         if stage:
             query["stage"] = stage
-        cursor = self.candidates.find(query, _CANDIDATE_FIELDS).sort("updated_at", DESCENDING)
+        cursor = (
+            self.candidates.find(query, _CANDIDATE_FIELDS)
+            # _id breaks updated_at ties, so pages neither repeat nor skip a candidate.
+            .sort([("updated_at", DESCENDING), ("_id", ASCENDING)])
+            .skip(offset)
+            .limit(limit)
+        )
         return [_candidate(document) for document in cursor]
 
     def get_candidate(self, candidate_id: str) -> Candidate | None:
@@ -283,7 +380,8 @@ class Repository:
         return [Event.model_validate(document) for document in cursor]
 
     def open_conversations(self) -> list[SilenceCandidate]:
-        cursor = self.candidates.find({"status": Status.IN_PROGRESS.value}, _SILENCE_FIELDS)
+        query = {**_LIVE, "status": Status.IN_PROGRESS.value}
+        cursor = self.candidates.find(query, _SILENCE_FIELDS)
         return [_silence_candidate(document) for document in cursor]
 
     def silence_candidate(self, candidate_id: str) -> SilenceCandidate | None:
@@ -291,7 +389,7 @@ class Repository:
         return None if document is None else _silence_candidate(document)
 
     def funnel(self) -> dict[str, dict[str, int]]:
-        rows = list(self.candidates.find({}, {"status": 1, "stage": 1}))
+        rows = list(self.candidates.find(_LIVE, {"status": 1, "stage": 1}))
         return {
             "by_status": dict(Counter(row["status"] for row in rows)),
             "by_stage": dict(Counter(row["stage"] for row in rows)),
@@ -316,6 +414,9 @@ class Repository:
             "disqualify_reason": str_or_none(state.get("disqualify_reason")),
             "review_reason": str_or_none(state.get("review_reason")),
             "profile": state.get("profile", {}),
+            "applicant_name": state.get("applicant_name"),
+            "concerns": list(state.get("concerns", [])),
+            "candidate_questions": list(state.get("candidate_questions", [])),
             "channel": channel,
             "version": expected + 1,
             "state": {
@@ -343,9 +444,10 @@ class Repository:
             update["$setOnInsert"]["nudge_count"] = 0
         if expected == 0:
             if self.conversation_exists(candidate_id):
-                raise StaleStateError(f"{candidate_id}: created by another writer")
+                raise StaleStateError("conversation created by another writer")
             self.candidates.update_one({"_id": candidate_id}, update, upsert=True)
             return
+        self._enforce_unanswered_limit(candidate_id, entries or [])
         query: dict[str, Any] = {"_id": candidate_id, "version": expected}
         if external_id:
             query["transcript.external_id"] = {"$ne": external_id}
@@ -356,10 +458,22 @@ class Repository:
             )
             if external_id and version_current:
                 raise DuplicateMessageError(external_id)
-            raise StaleStateError(f"{candidate_id}: version {expected} no longer current")
+            raise StaleStateError(f"version {expected} no longer current")
+
+    def _enforce_unanswered_limit(self, candidate_id: str, entries: list[TranscriptEntry]) -> None:
+        """A write with an inbound entry answers the candidate, and a nudge is excluded by design.
+        The version key on the update rejects this read if another writer saved in between."""
+        added = [e for e in entries if e.direction == "out" and e.kind != MessageKind.NUDGE]
+        if not added or any(e.direction == "in" for e in entries):
+            return
+        document = self.candidates.find_one({"_id": candidate_id}, {"transcript": 1})
+        stored = [TranscriptEntry.model_validate(e) for e in (document or {}).get("transcript", [])]
+        if unanswered_agent_messages([*stored, *added]) > settings.max_unanswered_agent_messages:
+            raise UnansweredLimitError("agent message limit reached before the candidate replied")
 
 
 _CANDIDATE_FIELDS = {"state": 0, "transcript": 0}
+_LIVE = {"archived_at": {"$exists": False}}
 _SILENCE_FIELDS = {
     "channel": 1,
     "state.language": 1,
@@ -369,14 +483,31 @@ _SILENCE_FIELDS = {
 }
 
 
+def _upserted(document: dict[str, Any] | None) -> dict[str, Any]:
+    """An upsert with ReturnDocument.AFTER always returns a document; pymongo types it Optional."""
+    if document is None:
+        raise RuntimeError("upsert returned no document")
+    return document
+
+
 def str_or_none(value: Any) -> str | None:
     return None if value is None else str(value)
 
 
+def _archive_id(candidate_id: str) -> str:
+    return f"{candidate_id}~{uuid.uuid4().hex[:8]}"
+
+
 def _entry(
-    channel: str, direction: str, body: str, external_id: str | None = None
+    channel: str,
+    direction: str,
+    body: str,
+    external_id: str | None = None,
+    kind: MessageKind | None = None,
 ) -> TranscriptEntry:
-    return TranscriptEntry(direction=direction, channel=channel, body=body, external_id=external_id)
+    return TranscriptEntry(
+        direction=direction, channel=channel, body=body, external_id=external_id, kind=kind
+    )
 
 
 def _candidate(document: dict[str, Any]) -> Candidate:
@@ -410,4 +541,5 @@ def _recruiter(document: dict[str, Any]) -> Recruiter:
         active=document["active"],
         created_at=document["created_at"],
         last_login_at=document.get("last_login_at"),
+        sessions_valid_after=document.get("sessions_valid_after"),
     )

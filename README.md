@@ -4,10 +4,9 @@ AI candidate-screening agent for delivery-driver hiring, plus a recruiter API an
 
 Documents:
 
-- `docs/Orbio-Assignment.md`: the brief.
+- `docs/Assignment.md`: the brief.
 - `docs/process-design.md`: the Phase 1 process design (stages, validation, outcomes, tone) and the items designed but not built, with rationale and tradeoffs.
 - This README: the system as built, design decisions, LLM choice, deployment and improvements.
-- `docs/STATUS.md`: remaining work, requirements coverage, known gaps and open questions.
 - `TROUBLESHOOTING.md`: demo runbook, commands run, common failures and tech debt.
 
 ## Setup
@@ -258,7 +257,7 @@ Recruiters open a web page. There is no password. They type their work email and
 
 ### What is not built yet
 
-The voice-call channel, the silence scheduler inside the API, the recruiter console, the public intake page and the queue-backed worker are not built. Each has its rationale and tradeoffs in `docs/process-design.md` ("Designed, not built"). SMS is dropped. Candidate ids that are not phone numbers are built on the `guid-candidate-ids` branch and merge after the demo take. The list of restaurant cities is sample data, not the client's real list of 45 locations. The test that compares AI models has not produced a valid run yet (see LLM choice). Remaining work is tracked in `docs/STATUS.md`.
+The voice-call channel, the silence scheduler inside the API, the recruiter console, the public intake page and the queue-backed worker are not built. Each has its rationale and tradeoffs in `docs/process-design.md` ("Designed, not built"). SMS is dropped. Candidate ids that are not phone numbers are built on the `guid-candidate-ids` branch and merge after the demo take. The list of restaurant cities is sample data, not the client's real list of 45 locations. The test that compares AI models has not produced a valid run yet (see LLM choice).
 
 ## Architecture
 

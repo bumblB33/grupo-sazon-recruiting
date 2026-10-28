@@ -1,6 +1,6 @@
 # Troubleshooting and demo runbook
 
-Commands run and checks made to bring the stack up on a laptop with a public tunnel for the Twilio WhatsApp sandbox. Each section records what was run, what it showed, and what to do when it does not. Tech debt is listed at the end. Open product work is in `docs/STATUS.md`.
+Commands run and checks made to bring the stack up on a laptop with a public tunnel for the Twilio WhatsApp sandbox. Each section records what was run, what it showed, and what to do when it does not. Tech debt is listed at the end.
 
 The demo scripts live outside the repo in `~/sazon-demo/`, so no secret or tunnel URL is ever committed. `.env` is never edited by a script.
 

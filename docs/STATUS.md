@@ -23,35 +23,13 @@ Decisions taken on 27 Oct, binding:
 
 ## Remaining work, in order
 
-1. Rebuild the image, then re-probe. The running `api` and `sweep` containers come from an image built on 27 Oct at 14:58, before the later source commits. Six files differ from the working tree: `recruiter/router.py`, `base.html`, `check_inbox.html`, `confirm_login.html`, `login.html`, and `_locale_links.html`, which is missing from the image. The live login page therefore has no `?lang=` links. Compose has no bind mount and `docker compose up -d` does not rebuild. Run `docker compose up -d --build`, then repeat the two probes in `TROUBLESHOOTING.md` section 4.
+1. One full screening after the prompt change (28 Oct). The two preflight screenings ran with tool-only model turns, so every reply was the fixed next question. The prompt now states the question order and the output format and live turns carry model text at the consent, name, licence and zone stages (four live checks, two samples each at the name stage). Both demo phones were reset and re-seeded with openers. Reply from each phone, read every reply in the inspector, log each prose or tone fault as a persona or policy case, fix blockers only.
 
+2. Record the video: phone screening beside the candidate page, the inspector on one turn with a rejected tool call or a policy fallback if the run produced one, the summary, one override, one demo reset.
 
-2. WhatsApp preflight. 
-Done: `ngrok` service on the fixed dev domain.
-- Launcher and `~/sazon-demo/lib.sh` read `NGROK_URL` and `NGROK_AUTHTOKEN` from `.env`; `.env` also carries the session secret, the login redirect, `COMPOSE_FILE` and `COMPOSE_PROFILES`, so plain `docker compose up -d` in the repo gives the launcher's config (resolved configs compared identical); `SCREENING_TWILIO_WHATSAPP_FROM` corrected to the sandbox number `+14155238886`.
-- Stack recreated with plain compose, all four containers up, Twilio credentials non-empty in `api` and `sweep`.
-- Probes through the domain: 200 on `/docs`, 401 on an unsigned webhook POST.
-- Login mail redirect proven on the stderr fallback. 
+3. Rotate the Twilio API key whose secret was printed into a session transcript. Optional: SendGrid trial, a verified single sender and an API key with Mail Send, into `SCREENING_SENDGRID_API_KEY` and `SCREENING_LOGIN_EMAIL_FROM`. Without them `demo-login.sh` is the login path.
 
-Pending, maintainer actions: 
-- confirm the webhook URL is saved in the Twilio sandbox settings (typed in a screenshot, save not seen) - done
-- join the sandbox from the phone with the join phrase on the Sandbox tab - done for both maintainer phones.
-- The opener failed with 401 until the Twilio API key in `.env` matched the account. The key check in `TROUBLESHOOTING.md` returns 200 and `POST /candidates` returned 201 for both phones. The maintainer confirmed an opener arrived. Both candidates are in progress and keyed by their phones, so a rerun for either phone answers 409 until the reset or the GUID ids exist.
-- Send one message: reply to the opener from each phone.
-- Rotate the Twilio API key whose secret was printed into a session transcript. Optional: SendGrid trial, a verified single sender and an API key with Mail Send, into `SCREENING_SENDGRID_API_KEY` and `SCREENING_LOGIN_EMAIL_FROM`. Without them `demo-login.sh` is the login path. 
-
-Then: 
-- one full screening. 
-- Read every reply in the inspector. 
-- Log each prose or tone fault as a persona or policy case. 
-- Fix blockers only. Commands in `TROUBLESHOOTING.md`.
-
-
-3. README "Sample conversations" from the preflight transcripts, one per outcome the run produced, phone numbers replaced. Waits on the live run.
-
-4. Record the video: phone screening beside the candidate page, the inspector on one turn with a rejected tool call or a policy fallback if the run produced one, the summary, one override.
-
-5. Multi-lens adversarial review of the branch. Gates: pytest, ruff check, ruff format, pyright with no new errors.
+Done on 27 and 28 Oct: image rebuilt from the branch tip, both tunnel probes pass (200 on `/docs`, 401 on an unsigned webhook POST), Twilio credentials non-empty in `api` and `sweep`, both phones joined to the sandbox, two preflight screenings completed (one disqualified, one qualified) and copied into the README "Sample conversations", a high-effort adversarial review of the reset, unknown-number and applicant-name slices applied, gates green (pytest, ruff check, ruff format, pyright).
 
 ## Requirements coverage
 
@@ -66,7 +44,7 @@ Against `docs/Orbio-Assignment.md`. Rubric weights: technical build 40%, process
 - Re-run is the first improvement |
 | Live demo ("show, don't tell") | stack up, Twilio webhook paste and sandbox join pending | Preflight |
 | README: setup, architecture, key decisions, improvements | present | none |
-| README: sample conversations | missing | Live run |
+| README: sample conversations | present, from the two preflight screenings | none |
 | Demo video, 5 to 10 minutes | missing | Video |
 | Bonus: multi-language with code-switching, re-engagement, tests and evals | built | none |
 | Bonus: guardrails | input classifier and live reply policy built | none |

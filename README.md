@@ -114,6 +114,56 @@ pyright                              # standard mode, config in pyproject.toml
 
 "recruiter" means a session cookie or an `X-API-Key`. A cookie caller on `POST` or `PATCH` must also send the token from `GET /csrf-token` in `X-CSRF-Token`, because `SameSite=Lax` still sends the cookie from sibling subdomains. Routes answer 503 until their secrets are configured, unless `SCREENING_DEV_MODE` is on. Page routes answer 303 to login instead of 401.
 
+## Sample conversations
+
+Two live WhatsApp screenings from the 27 October preflight on the Twilio sandbox, as the recruiter page shows them. The names are the test names the candidates typed. The inspector column is the reply source from each turn record: in both runs the live model returned its tool call with no text, so every reply was the fixed next question and the closing message. The prompt has since been changed to state the question order and the output format, and live turns now carry model text.
+
+Disqualified, outside the service area, four turns:
+
+| Who | Message | Inspector |
+|---|---|---|
+| agent | Hi! I'm Sazón, the AI assistant for Grupo Sazón. We received your delivery-driver application and this conversation is recorded. Is now a good moment for a few quick questions? | opener |
+| candidate | Yes | `record_consent` accepted |
+| agent | I didn't catch your name. Could you give me your full name? For example: Ana García López. | fixed next question |
+| candidate | Brittany Walker | `record_full_name` accepted |
+| agent | Just to confirm: do you have a valid driving licence? Yes or no. | fixed next question |
+| candidate | Yes | `record_licence` accepted |
+| agent | Which city do you live in? I'll check if we have a restaurant nearby. | fixed next question |
+| candidate | Dallas | `record_zone` accepted, no service area, `disqualified` |
+| agent | Thanks for your time. We don't have a restaurant in your area right now, so we can't move forward. We'll keep your application on file in case we open nearby. | fixed closing message |
+
+Summary written for the recruiter: "Disqualified because Grupo Sazón has no restaurant in Dallas, where the candidate lives; the decision rests on location, not on licence or experience."
+
+Qualified, eight turns:
+
+| Who | Message | Inspector |
+|---|---|---|
+| agent | Hi! I'm Sazón, the AI assistant for Grupo Sazón. We received your delivery-driver application and this conversation is recorded. Is now a good moment for a few quick questions? | opener |
+| candidate | Sure | `record_consent` accepted |
+| agent | I didn't catch your name. Could you give me your full name? For example: Ana García López. | fixed next question |
+| candidate | Donald Portsmith | `record_full_name` accepted |
+| agent | Just to confirm: do you have a valid driving licence? Yes or no. | fixed next question |
+| candidate | Yep | `record_licence` accepted |
+| agent | Which city do you live in? I'll check if we have a restaurant nearby. | fixed next question |
+| candidate | Mexico City | `record_zone` accepted as Ciudad de México |
+| agent | What availability do you have: full-time, part-time, or weekends? | fixed next question |
+| candidate | I can only do weekends | `record_availability` accepted |
+| agent | Which shift do you prefer: morning, afternoon, evening, or flexible? | fixed next question |
+| candidate | Im flexible as long as its weekends only | `record_schedule` accepted |
+| agent | How many years of delivery experience do you have, and on which platforms? Say 0 if none. | fixed next question |
+| candidate | Ive been with Uber Eats for 3 years | `record_experience` accepted |
+| agent | When could you start? Give me a date, for example 3 November. | fixed next question |
+| candidate | November 7th is the soonest | `record_start_date` accepted, `qualified` |
+| agent | All set, Donald! You meet what we're looking for. A recruiter will message you to book a short interview. | fixed closing message |
+
+Profile JSON for the qualified candidate:
+
+```json
+{"full_name": "Donald Portsmith", "has_licence": true, "zone": "Ciudad de México", "availability": ["weekends"], "schedule": "flexible", "experience_years": 3, "experience_platforms": ["Uber Eats"], "start_date": "2026-11-07"}
+```
+
+Summary written for the recruiter: "Qualified: meets the screening criteria for Mexico City, with a valid licence, 3 years of Uber Eats experience, and a start date of 7 November 2026." The third line of the summary asks the recruiter to confirm the licence, since the candidate answered only "Yep" and no document was checked.
+
 ## How it works, in plain language
 
 This section is for reviewers and readers who do not write code. It describes what the system does and who decides what. The Architecture section after it gives the same system in technical diagrams.

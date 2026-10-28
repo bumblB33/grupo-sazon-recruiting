@@ -5,7 +5,7 @@ AI candidate-screening agent for delivery-driver hiring, plus a recruiter API an
 Documents:
 
 - `docs/Assignment.md`: the brief.
-- `docs/process-design.md`: the Phase 1 process design (stages, validation, outcomes, tone) and the items designed but not built, with rationale and tradeoffs.
+- `docs/process-design.md`: the Phase 1 process design (stages, validation, outcomes, tone) and the designs for the items out of scope, with rationale and tradeoffs.
 - This README: the system as built, design decisions, LLM choice, deployment and improvements.
 - `TROUBLESHOOTING.md`: demo runbook, commands run, common failures and tech debt.
 
@@ -16,7 +16,7 @@ Grupo Sazón hires delivery drivers in Spain and Mexico and receives about 1,000
 
 ## Workflow
 
-1. A recruiter, or the company's hiring software, registers a candidate's phone number (`POST /candidates` or `screening-admin start-from-file`). The link from the application form is treated as makes registration an external step (candidates are seeded for the demo). 
+1. A recruiter, or the company's hiring software, registers a candidate's phone number (`POST /candidates` or `screening-admin start-from-file`). Registration is an external step; the demo seeds candidates from a file.
 
 2. The candidate then gets a WhatsApp message from an assistant called Sazón, the opener. The assistant says it is an AI, asks for permission to continue.
 
@@ -53,15 +53,24 @@ Only two facts cause an automatic no. Everything that needs judgement goes to a 
 | LLM choice, justified | Done | LLM choice |
 | Multi-language, guardrails, sentiment | Built: Spanish or English per message, guardrail classifier with tone | Key design decisions |
 | Re-engagement | Built: silence sweep with nudges, then abandon | How it works |
-| Tests and evals | Built: pytest with a scripted fake model, persona evals, model bake-off (no valid run yet) | LLM choice |
+| Tests and evals | Built: pytest with a scripted fake model, persona evals, three-model bake-off with results | LLM choice |
 | Analytics | Partial: funnel counts only | Potential improvements |
 | Deployment and scaling design | Designed | Deployment and scaling |
 | ATS integration | Design note only | Potential improvements |
-| Voice, interview scheduling, RAG over a FAQ | Not built | |
+| Voice, interview scheduling, RAG over a FAQ | Out of scope | Potential improvements |
 
-### What is not built yet
+### Out of scope
 
-The voice-call channel, the silence scheduler inside the API, the recruiter console, the public intake page and the queue-backed worker are not built. Each has its rationale and tradeoffs in `docs/process-design.md` ("Designed, not built"). SMS is dropped. Candidate ids that are not phone numbers are built on the `guid-candidate-ids` branch and merge after the demo take. The list of restaurant cities is sample data, not the client's real list of 45 locations. The test that compares AI models has not produced a valid run yet (see LLM choice).
+Scope was cut to what one auditable WhatsApp screening needs. Each item below has a design, with tradeoffs, in `docs/process-design.md` ("Designed, not built"). All but SMS appear under Potential improvements.
+
+- **Voice channel.** The brief rewards depth over breadth, and a half-built real-time audio path adds failure risk to a live screening.
+- **Silence scheduler inside the API.** The compose `sweep` service already re-engages silent candidates. The in-API version needs a lease and a per-nudge claim.
+- **Queue-backed worker.** The demo load does not need a broker. Correctness across replicas already holds through the version check on the candidate document.
+- **Recruiter console restyle and ops panel.** The recruiter tool the brief asks for exists: list, funnel, detail with a per-turn inspector, override.
+- **Public intake page.** The brief does not need it, and it adds a public surface that needs rate limits, privacy and terms pages and a legal review.
+- **Real service-area list and realistic personas.** The 16-city fixture and clean scripted personas are enough to exercise every rule. The client's list has 45 locations.
+- **SMS.** Dropped. WhatsApp is sufficient, and an SMS sender for Spain and Mexico needs its own setup.
+- **Candidate ids other than phone numbers.** The WhatsApp number is the candidate's identity for every channel built.
 
 ## Quick start
 
@@ -80,7 +89,7 @@ For the full stack (API, recruiter pages, sweep, MongoDB), copy `.env.example` t
 
 ## Sample conversations
 
-Two live WhatsApp screenings from the 27 October preflight on the Twilio sandbox, as the recruiter page shows them. The names are the test names the candidates typed. The inspector column is the reply source from each turn record. In both runs the live model returned its tool call with no text, so every reply was the fixed next question or the closing message. The prompt has since been changed to state the question order and the output format. In the 28 October run the model wrote its own text on the first turn, a question about how it knew the name, and returned tool-only calls on the next three. The inspector shows which source each reply had.
+Two live WhatsApp screenings on the Twilio sandbox, as the recruiter page shows them. The names are the test names the candidates typed. The inspector column is the reply source from each turn record. In both runs the model returned tool calls with no text, so every reply is the fixed question for the step or the fixed closing message.
 
 Disqualified, outside the service area, four turns:
 
@@ -388,7 +397,7 @@ sequenceDiagram
 
 ## Key design decisions
 
-- **One or two LLM calls per candidate message.** The first call records with tools and drafts a reply. Code validates the arguments, advances the stage and swaps the tool set. When the draft cannot go out (a rejected answer, a pending confirmation, no text, a broken reply rule) a second call with the tool results and a one-line brief writes the message. The brief, not the template, is what the model follows, so the templates are fallbacks and the live runs that returned tool calls with no text now get a model-written question.
+- **One or two LLM calls per candidate message.** The first call records with tools and drafts a reply. Code validates the arguments, advances the stage and swaps the tool set. When the draft cannot go out (a rejected answer, a pending confirmation, no text, a broken reply rule) a second call with the tool results and a one-line brief writes the message. The model follows the brief, so the templates are fallbacks.
 - **Tool gating, enforced twice.** The model only sees the tools for fields still missing from the current stage onward, so it cannot ask about experience before the licence check. A call to any other tool is rejected when applied. Allowed tools are recomputed after each accepted call, so one message can answer several questions. Model misuse of a tool re-asks the current question and is never counted against the candidate.
 - **Code-owned opener and closing messages.** The opener, disqualifications, review hand-offs, the qualified message and the wrap-up question are fixed text per language (detected per message, Spanish by default), so compliance and opt-in wording never depends on the model. Every channel, `screening-cli` and the evals included, starts a conversation with the same opener; a message from a number with no opener gets no model call. Re-asks and confirmations are model-written from a code brief, with a fixed fallback.
 - **Never an automated yes on a judgement call.** A `flag_for_recruiter` tool is exposed after consent. The prompt tells the model to call it, alongside the recording tool, when the candidate mentions a criminal record, a suspended, expired or unconfirmed licence, a work-permit or documents question, or hedges an answer. The answer is still recorded as given and the screening continues, but a complete profile with any flag goes to `needs_recruiter_review` with reason `recruiter_check` instead of `qualified`. The flags are shown on the candidate page and fed to the summary.
@@ -410,18 +419,32 @@ sequenceDiagram
 
 ## LLM choice
 
-Defaults in `screening_agent/config.py`: `anthropic:claude-sonnet-5-5` for the candidate turn, `anthropic:claude-haiku-5-5` for the guardrail classifier and the summary. Any `provider:model` id can replace them by setting.
+Defaults in `screening_agent/config.py`: `anthropic:claude-sonnet-5-5` for the candidate turn, `anthropic:claude-haiku-5-5` for the guardrail classifier and the summary. Any `provider:model` id replaces them by setting.
 
-Why this pair, from design rather than measurement:
+Why this pair:
 
-- The turn is tool use under constraint. One call must pick the right recording tool, give valid arguments and write a short reply in the candidate's language. Current Claude models follow a bound tool set and a strict reply format reliably, which matters more here than raw reasoning.
-- Spanish from Spain and Mexico with slang, typos and code-switching. The judge personas in `evals/` exercise this, and the live reply policy catches a language mismatch, but the base model still has to read "no tengo carnet" and "ps si" correctly.
-- Latency is in the chat loop. Haiku runs before every turn as the guardrail and after the last one as the summary. A fast small model keeps these extra calls cheap and without a visible pause.
+- The turn is tool use under constraint. One call must pick the right recording tool, give valid arguments and write a short reply in the candidate's language. Sonnet wrote no reply the policy had to replace across the bake-off and scored highest with the judge on tone and summary.
+- Spanish from Spain and Mexico with slang, typos and code-switching. The personas in `evals/` exercise this, and the reply policy catches a language mismatch, but the model still has to read "no tengo carnet" and "ps si" correctly.
+- Latency is in the chat loop. Haiku runs before every turn as the guardrail and after the last one as the summary. It classified every guardrail case correctly at a p95 under 2 s, so the extra calls add no visible pause.
 - One provider for all three roles keeps the key handling, the usage metadata and the error shapes the same.
 
-What the scripted bake-off showed. The run saved in `docs/bakeoff.json` on 27 Oct compared Sonnet, `openai:gpt-6.1-sol` and `mistralai:mistral-medium-3-5` on the persona set. Every Anthropic call answered 400 because the org-level key was sent without the workspace header, and every OpenAI call answered 400 as well. Only Mistral completed. That run does not support a model choice, and the report says so (`docs/bakeoff.html`). The workspace header is now sent from `PROJECT_ANTHROPIC_WORKSPACE_ID`. Re-running the bake-off is the first item under Potential improvements, and the defaults change to the winner when it runs.
+Bake-off results, `docs/bakeoff.json` and `docs/bakeoff.html`, 12 scripted personas per turn model, 26 guardrail cases per classifier, one fixed Haiku judge:
 
-What would change the choice: a policy fallback rate above a few percent on Sonnet (the model keeps writing two questions or an emoji), a guardrail accuracy below 0.9 or p95 latency above 2.5 s on Haiku, or a cost per screening that the per-screening budget cannot carry at 1000 applications a week.
+| Turn model | Personas passed | Policy fallback | p50 latency | Judge tone (1-5) | Judge summary (1-5) | Cost per screening |
+| --- | --- | --- | --- | --- | --- | --- |
+| `anthropic:claude-sonnet-5-5` | 9 of 12 | 0% | 2.4 s | 3.6 | 3.6 | $0.022 |
+| `openai:gpt-6.1-sol` | 12 of 12 | 0% | 2.8 s | 3.4 | 3.6 | $0.008 |
+| `mistralai:mistral-medium-3-5` | 10 of 12 | 2.7% | 1.5 s | 3.5 | 3.4 | $0.007 |
+
+| Guardrail model | Category accuracy | Tone accuracy | p95 latency |
+| --- | --- | --- | --- |
+| `anthropic:claude-haiku-5-5` | 100% | 88% | 1.8 s |
+| `openai:gpt-6-luna` | 100% | 88% | 1.7 s |
+| `mistralai:mistral-small-2603` | 100% | 81% | 0.6 s |
+
+All three classifiers pass the gates. The run as a whole fails because of persona failures. Sonnet's three: it read a bare "hello" as a request to stop; it accepted "Monterey" as Monterrey without the confirmation question the persona expects; and it asked for the surname in its own words instead of calling the recording tool, so the second one-word name was not counted as a rejected answer. Mistral shares the last two. GPT-6.1-sol passed every persona at under half of Sonnet's cost per screening, so the measured case for switching the turn model is a one-setting change, `SCREENING_LIVE_MODEL`. It is listed first under Potential improvements.
+
+What would change the choice: a policy fallback rate above a few percent on Sonnet, a guardrail accuracy below 0.9 or p95 latency above 2.5 s on Haiku, or a cost per screening that the per-screening budget cannot carry at 1000 applications a week.
 
 ## Configuration
 
@@ -543,7 +566,7 @@ Scaling to 10K candidates a week. 10K a week is about one candidate a minute on 
 2. The silence sweep is one process over every open conversation. At 10K a week with a 24 h abandon window that is tens of thousands of documents per tick, fine for Mongo with the existing indexes, but one sweep must not run beside another. The design in `docs/process-design.md` moves the sweep into the API process behind a lease, with a claim per nudge so a nudge is sent at most once across replicas and restarts.
 3. LLM rate limits. Two calls per message at peak is a few calls a second, inside provider limits, but a provider incident stalls every conversation at once. The model id is a setting, so the first mitigation is a second provider configured and tested in the bake-off, switched by redeploy.
 4. MongoDB. One document per candidate with the transcript embedded stays under the 16 MB limit by a wide margin for a 10-message screening. Reads on the recruiter list are paged and indexed on `status` and `updated_at`. The next index is on events `(kind, created_at)` when the analytics series land.
-5. Webhook latency. The model call runs inside the webhook request, so a slow turn can pass Twilio's 15 s limit. Not built, designed in `docs/process-design.md` ("Async worker"). The webhook verifies the signature, dedupes on `MessageSid`, stores the inbound message and returns empty TwiML. A worker claims the candidate through the lease from item 1, runs the turn and replies through the REST sender. The reply is stored with `outbound_status = pending` in the same write as the turn and a relay marks it sent, so a crash resends at most once.
+5. Webhook latency. The model call runs inside the webhook request, so a slow turn can pass Twilio's 15 s limit. The worker is out of scope and designed in `docs/process-design.md` ("Async worker"). The webhook verifies the signature, dedupes on `MessageSid`, stores the inbound message and returns empty TwiML. A worker claims the candidate through the lease from item 1, runs the turn and replies through the REST sender. The reply is stored with `outbound_status = pending` in the same write as the turn and a relay marks it sent, so a crash resends at most once.
 
 Queue choice for that worker. Celery with Redis is the mature option: its docs advise idempotent tasks, `task_acks_late = True` and `worker_prefetch_multiplier = 1` for long tasks, and state no per-key ordering, so the per-candidate lease supplies the order. Dramatiq is a simpler swap without chains or groups. Arq is async-native and Redis only. Temporal gives one workflow per candidate with ordered signals and timers that replace the sweep, at the highest operating cost. A Mongo inbox with the lease needs no new infrastructure but needs its own polling and backoff. The ordering claims for Dramatiq, Arq and Temporal are reasoning, not sourced.
 
@@ -553,11 +576,15 @@ Deployment shape at that scale: the API as a stateless replica set behind a load
 
 In order of value for the client:
 
-1. **Run the bake-off to completion** with the workspace header fixed, then set the model defaults from the result instead of from design.
-2. **Silence scheduler inside the API** with a sweep lease and per-nudge claims, replacing the compose `sweep` service. Designed in `docs/process-design.md` ("Silence scheduler inside the API"), not built.
+1. **Settle the turn model.** The bake-off shows GPT-6.1-sol passing every persona at under half of Sonnet's cost. Fix the three Sonnet persona failures in the prompt or the graders, re-run, and set `SCREENING_LIVE_MODEL` from the result.
+2. **Silence scheduler inside the API** with a sweep lease and per-nudge claims, replacing the compose `sweep` service. Designed in `docs/process-design.md` ("Silence scheduler inside the API").
 3. **Realistic personas and the real 45 locations.** The eval personas are clean scripted turns. Candidates write with typos, slang and one-word answers, and the service-area list is a 16-city sample.
 4. **Analytics series**: completion rate, drop-off stage and average duration, from timestamps the documents already carry. The funnel today counts by status and stage only.
 5. **Interview scheduling** as the step after `qualified`, as one more tool at the outcome stage.
 6. **ATS integration**: the JSON API already exposes `GET /candidates` and `GET /candidates/{id}` with the full profile, transcript and events, so the remaining design is an outbound webhook on the `outcome` event.
 7. **Voice channel** on the same engine through Pipecat, with speech-to-text and text-to-speech as adapters. The engine takes text and returns text, so no screening logic changes.
-8. **Roles for recruiters.** Every recruiter and API key has the same rights today.
+8. **Queue-backed worker** so the webhook answers Twilio at once and the turn runs outside the 15 s window. Designed under Deployment and scaling and in `docs/process-design.md` ("Async worker").
+9. **Public intake page** that collects name, phone and consent before the first message. Designed in `docs/process-design.md` ("Intake page").
+10. **Recruiter console restyle and ops panel**: start a screening from the browser, a how-it-works page generated from the code, scheduler and integration state. Designed in `docs/process-design.md` ("Recruiter console").
+11. **Candidate ids other than phone numbers**, so one person can be screened on more than one channel.
+12. **Roles for recruiters.** Every recruiter and API key has the same rights today.

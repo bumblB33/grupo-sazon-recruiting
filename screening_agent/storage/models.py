@@ -3,6 +3,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from screening_agent.domain.enums import MessageKind
 from screening_agent.flow.turn_record import TurnRecord
 
 
@@ -33,6 +34,19 @@ class TranscriptEntry(BaseModel):
     created_at: datetime = Field(default_factory=utcnow)
     # Set on inbound entries the engine answered; closed-conversation and opener entries have none.
     turn: TurnRecord | None = None
+    # Outbound entries only. Entries stored before this field existed have none and count as unanswered.
+    kind: MessageKind | None = None
+
+
+def unanswered_agent_messages(entries: list[TranscriptEntry]) -> int:
+    """Agent messages since the last inbound one. Silence nudges are excluded from the count."""
+    count = 0
+    for entry in reversed(entries):
+        if entry.direction == "in":
+            break
+        if entry.kind != MessageKind.NUDGE:
+            count += 1
+    return count
 
 
 class Event(BaseModel):

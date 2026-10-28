@@ -9,7 +9,7 @@ from pymongo.errors import DuplicateKeyError
 from pymongo.uri_parser import parse_uri
 
 from screening_agent.config import settings
-from screening_agent.domain.enums import Language, Status
+from screening_agent.domain.enums import Language, MessageKind, Status
 from screening_agent.flow.silence import SilenceCandidate
 from screening_agent.flow.state import ScreeningState, initial_state, stage_of
 from screening_agent.flow.turn_record import TurnRecord
@@ -20,6 +20,7 @@ from screening_agent.storage.models import (
     Event,
     Recruiter,
     TranscriptEntry,
+    unanswered_agent_messages,
     utcnow,
 )
 
@@ -31,6 +32,10 @@ class StaleStateError(RuntimeError):
 
 class DuplicateMessageError(RuntimeError):
     """The inbound external id is already in the transcript."""
+
+
+class UnansweredLimitError(RuntimeError):
+    """The write would leave more agent messages unanswered than the limit allows."""
 
 
 class Repository:
@@ -87,7 +92,7 @@ class Repository:
         a dedupe entry nor a decision record."""
         entries = [_entry(channel, "in", inbound, external_id).model_copy(update={"turn": turn})]
         if reply:
-            entries.append(_entry(channel, "out", reply))
+            entries.append(_entry(channel, "out", reply, kind=MessageKind.REPLY))
         self._commit(
             state,
             channel,
@@ -97,10 +102,11 @@ class Repository:
         )
 
     def save_opener(self, state: ScreeningState, channel: str, text: str) -> None:
-        self._commit(state, channel, [_entry(channel, "out", text)])
+        self._commit(state, channel, [_entry(channel, "out", text, kind=MessageKind.OPENER)])
 
     def save_nudge(self, state: ScreeningState, channel: str, text: str, nudge_count: int) -> None:
-        self._commit(state, channel, [_entry(channel, "out", text)], {"nudge_count": nudge_count})
+        entry = _entry(channel, "out", text, kind=MessageKind.NUDGE)
+        self._commit(state, channel, [entry], {"nudge_count": nudge_count})
 
     def save_state(self, state: ScreeningState, channel: str) -> None:
         self._commit(state, channel)
@@ -378,6 +384,7 @@ class Repository:
                 raise StaleStateError("conversation created by another writer")
             self.candidates.update_one({"_id": candidate_id}, update, upsert=True)
             return
+        self._enforce_unanswered_limit(candidate_id, entries or [])
         query: dict[str, Any] = {"_id": candidate_id, "version": expected}
         if external_id:
             query["transcript.external_id"] = {"$ne": external_id}
@@ -389,6 +396,17 @@ class Repository:
             if external_id and version_current:
                 raise DuplicateMessageError(external_id)
             raise StaleStateError(f"version {expected} no longer current")
+
+    def _enforce_unanswered_limit(self, candidate_id: str, entries: list[TranscriptEntry]) -> None:
+        """A write with an inbound entry answers the candidate, and a nudge is excluded by design.
+        The version key on the update rejects this read if another writer saved in between."""
+        added = [e for e in entries if e.direction == "out" and e.kind != MessageKind.NUDGE]
+        if not added or any(e.direction == "in" for e in entries):
+            return
+        document = self.candidates.find_one({"_id": candidate_id}, {"transcript": 1})
+        stored = [TranscriptEntry.model_validate(e) for e in (document or {}).get("transcript", [])]
+        if unanswered_agent_messages([*stored, *added]) > settings.max_unanswered_agent_messages:
+            raise UnansweredLimitError("agent message limit reached before the candidate replied")
 
 
 _CANDIDATE_FIELDS = {"state": 0, "transcript": 0}
@@ -413,9 +431,15 @@ def str_or_none(value: Any) -> str | None:
 
 
 def _entry(
-    channel: str, direction: str, body: str, external_id: str | None = None
+    channel: str,
+    direction: str,
+    body: str,
+    external_id: str | None = None,
+    kind: MessageKind | None = None,
 ) -> TranscriptEntry:
-    return TranscriptEntry(direction=direction, channel=channel, body=body, external_id=external_id)
+    return TranscriptEntry(
+        direction=direction, channel=channel, body=body, external_id=external_id, kind=kind
+    )
 
 
 def _candidate(document: dict[str, Any]) -> Candidate:

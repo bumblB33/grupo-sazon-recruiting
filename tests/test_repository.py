@@ -4,8 +4,15 @@ from typing import cast
 
 import pytest
 
+from screening_agent.domain.enums import MessageKind
 from screening_agent.flow.state import ScreeningState, initial_state
-from screening_agent.storage.repository import DuplicateMessageError, Repository, StaleStateError
+from screening_agent.storage.models import TranscriptEntry, unanswered_agent_messages
+from screening_agent.storage.repository import (
+    DuplicateMessageError,
+    Repository,
+    StaleStateError,
+    UnansweredLimitError,
+)
 
 
 def saved(repository: Repository, candidate_id: str, **state_overrides) -> None:
@@ -60,6 +67,50 @@ def test_duplicate_external_id_is_refused_and_leaves_no_entry(repository):
     assert repository.load_state("a")["version"] == 1
     assert repository.has_message("a-1")
     assert not repository.has_message("a-2")
+
+
+def entry(direction, kind=None):
+    return TranscriptEntry(direction=direction, channel="cli", body="x", kind=kind)
+
+
+def test_unanswered_count_skips_nudges_and_resets_on_inbound():
+    nudge = entry("out", MessageKind.NUDGE)
+    assert unanswered_agent_messages([entry("out", MessageKind.OPENER), nudge, nudge]) == 1
+    assert unanswered_agent_messages([entry("out"), entry("out"), entry("in"), nudge]) == 0
+    assert unanswered_agent_messages([entry("in"), entry("out"), entry("out")]) == 2
+
+
+def test_stored_entry_without_kind_counts_as_unanswered():
+    assert unanswered_agent_messages([entry("out")]) == 1
+
+
+def stack_openers(repository, candidate_id, count):
+    for _ in range(count):
+        repository.save_opener(repository.load_state(candidate_id), "cli", "hola")
+
+
+def test_third_unanswered_agent_message_is_refused_and_leaves_no_entry(repository):
+    phone = "+34600111222"
+    stack_openers(repository, phone, 2)
+    with pytest.raises(UnansweredLimitError) as refused:
+        stack_openers(repository, phone, 1)
+    assert len(repository.get_candidate_detail(phone).transcript) == 2
+    assert repository.load_state(phone)["version"] == 2
+    assert "34600111222" not in str(refused.value)
+
+
+def test_nudge_and_candidate_turn_are_accepted_at_the_limit(repository):
+    stack_openers(repository, "a", 2)
+    repository.save_nudge(repository.load_state("a"), "cli", "¿sigues ahí?", nudge_count=1)
+    repository.save_turn(repository.load_state("a"), "cli", "sí", "reply", external_id="a-1")
+    kinds = [e.kind for e in repository.get_candidate_detail("a").transcript]
+    assert kinds == [
+        MessageKind.OPENER,
+        MessageKind.OPENER,
+        MessageKind.NUDGE,
+        None,
+        MessageKind.REPLY,
+    ]
 
 
 COOLDOWN = timedelta(seconds=60)

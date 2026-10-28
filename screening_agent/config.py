@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     llm_timeout_seconds: float = 15.0
     llm_max_retries: int = 2
     reask_limit: int = 2
+    max_unanswered_agent_messages: int = 2
     database_url: str = "mongodb://localhost:27017/screening"
     # Separate from database_url so evals never write to, or drop databases on, the app's cluster.
     eval_database_url: str = "mongodb://localhost:27017/screening"

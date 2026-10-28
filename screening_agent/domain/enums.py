@@ -19,6 +19,12 @@ class Language(StrEnum):
     EN = "en"
 
 
+class MessageKind(StrEnum):
+    REPLY = "reply"
+    OPENER = "opener"
+    NUDGE = "nudge"
+
+
 class Status(StrEnum):
     IN_PROGRESS = "in_progress"
     QUALIFIED = "qualified"

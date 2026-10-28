@@ -120,7 +120,7 @@ pyright                              # standard mode, config in pyproject.toml
 
 ## Sample conversations
 
-Two live WhatsApp screenings from the 27 October preflight on the Twilio sandbox, as the recruiter page shows them. The names are the test names the candidates typed. The inspector column is the reply source from each turn record: in both runs the live model returned its tool call with no text, so every reply was the fixed next question and the closing message. The prompt has since been changed to state the question order and the output format, and live turns now carry model text.
+Two live WhatsApp screenings from the 27 October preflight on the Twilio sandbox, as the recruiter page shows them. The names are the test names the candidates typed. The inspector column is the reply source from each turn record: in both runs the live model returned its tool call with no text, so every reply was the fixed next question and the closing message. The prompt has since been changed to state the question order and the output format. In the 28 October run the model wrote its own text on the first turn, a question about how it knew the name, and returned tool-only calls on the next three, so the fixed questions still carry most turns. The design degrades to the fixed question by construction, and the inspector shows which one each reply was.
 
 Disqualified, outside the service area, four turns:
 

@@ -23,7 +23,7 @@ Decisions taken on 27 Oct, binding:
 
 ## Remaining work, in order
 
-1. One full screening after the prompt change (28 Oct). The two preflight screenings ran with tool-only model turns, so every reply was the fixed next question. The prompt now states the question order and the output format and live turns carry model text at the consent, name, licence and zone stages (four live checks, two samples each at the name stage). Both demo phones were reset and re-seeded with openers. Reply from each phone, read every reply in the inspector, log each prose or tone fault as a persona or policy case, fix blockers only.
+1. One full screening after the prompt change (28 Oct). The two preflight screenings ran with tool-only model turns, so every reply was the fixed next question. The prompt now states the question order and the output format. Offline checks against the live model returned text with the tool call in 7 of 10 samples, but the 28 Oct live run still produced tool-only turns after the first, so the fixed next question carries most replies. Known gap, not a blocker: the conversation completes and the inspector labels every reply. Both demo phones were reset and re-seeded with openers. Reply from each phone, read every reply in the inspector, log each prose or tone fault as a persona or policy case, fix blockers only.
 
 2. Record the video: phone screening beside the candidate page, the inspector on one turn with a rejected tool call or a policy fallback if the run produced one, the summary, one override, one demo reset.
 

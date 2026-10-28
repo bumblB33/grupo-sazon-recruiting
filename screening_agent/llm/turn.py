@@ -15,6 +15,8 @@ STAGE_GOAL: dict[Stage, str] = {
     Stage.OUTCOME: "Thank them. The outcome message is sent by the system.",
 }
 
+QUESTION_ORDER = "consent, full name, driving licence, city, availability, preferred shift, delivery experience, start date"
+
 TONE_GUIDANCE: dict[str, str] = {
     "confused": "The candidate seems confused. Use simpler words, explain in one short sentence why you ask, and ask the current question again.",
     "frustrated": "The candidate seems frustrated. Acknowledge it in a few calm words without apologising at length, then ask the current question.",
@@ -61,10 +63,14 @@ def build_prompt(state: ScreeningState, stage: Stage) -> str:
         f"Today is {today.isoformat()} where the candidate lives.\n"
         f"{applicant_line}"
         f"Current goal: {goal}\n"
-        "Whenever the candidate gives information that one of your tools records, call that tool in the same "
-        "message as your reply. If they answer several questions at once, call several tools. If the answer is "
+        "Whenever the candidate gives information that one of your tools records, call that tool. If they answer "
+        "several questions at once, call several tools. If the answer is "
         "ambiguous, still call the tool with your best reading; the system validates it and asks again if needed. "
-        "If they ask something you cannot answer, say a recruiter will follow up and return to the current question."
+        "If they ask something you cannot answer, say a recruiter will follow up and return to the current question.\n"
+        f"The questions, in order: {QUESTION_ORDER}. Once an answer is recorded, your text asks the next question "
+        "in that order.\n"
+        "Output format, every turn: a text block with your message to the candidate first, then the tool calls. "
+        "A tool call alone is an error, because the candidate would receive nothing."
     )
     return f"{prompt}\n{tone}" if tone else prompt
 

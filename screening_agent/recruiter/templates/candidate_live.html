@@ -1,0 +1,9 @@
+{% import "_live.html" as live with context %}
+<div data-poll-seconds="{{ poll_seconds }}" data-conversation="{{ conversation }}">
+{{ live.facts() }}
+{{ live.route() }}
+{{ live.transcript_list() }}
+{{ live.summary() }}
+{{ live.profile_card() }}
+{{ live.events_list() }}
+</div>

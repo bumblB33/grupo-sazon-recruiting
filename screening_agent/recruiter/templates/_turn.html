@@ -1,16 +1,16 @@
-<details class="inspector"{% if message.expanded %} open{% endif %}>
+<details class="inspector"{% if message.expanded %} open data-auto{% endif %}>
   <summary>Why this reply</summary>
   <dl>
-    <dt>Stage</dt><dd class="mono">{{ turn.stage_before }} &rarr; {{ turn.stage_after }} · {{ turn.status_after }}</dd>
-    <dt>Guardrail</dt><dd class="mono">{{ turn.guardrail_category or "not run" }}{% if turn.tone %} · tone {{ turn.tone }}{% endif %}</dd>
-    <dt>Tools exposed</dt><dd class="mono">{{ turn.tools_exposed | join(", ") or "none" }}</dd>
+    <dt>Stage</dt><dd class="mono">{{ turn.stage_before | label("stage") }} &rarr; {{ turn.stage_after | label("stage") }} · {{ turn.status_after | label("status") }}</dd>
+    <dt>Guardrail</dt><dd class="mono">{{ turn.guardrail_category | label("guardrail") if turn.guardrail_category else "not run" }}{% if turn.tone %} · tone {{ turn.tone | label("tone") | lower }}{% endif %}</dd>
+    <dt>Tools exposed</dt><dd class="mono">{{ turn.tools_exposed | map("label", "tool") | join(", ") or "none" }}</dd>
     <dt>Tool calls</dt>
     <dd>
       {% for call in turn.tool_calls %}
-        <span class="call {{ 'accepted' if call.accepted else 'rejected' }}"><span class="mono">{{ call.name }}</span> {{ "accepted" if call.accepted else "rejected" }}{% if call.message %}: {{ call.message }}{% endif %}</span>
+        <span class="call {{ 'accepted' if call.accepted else 'rejected' }}"><span class="mono">{{ call.name | label("tool") }}</span> {{ "accepted" if call.accepted else "rejected" }}{% if call.message %}: {{ call.message }}{% endif %}</span>
       {% else %}<span class="meta">none</span>{% endfor %}
     </dd>
-    <dt>Reply source</dt><dd><span class="mono">{{ turn.reply_source }}</span> · {{ turn.reply_source_label }}</dd>
+    <dt>Reply source</dt><dd>{{ turn.reply_source_label | capitalize }}</dd>
     {% if turn.violated_rules %}<dt>Rules broken</dt><dd class="mono">{{ turn.violated_rules | join(", ") }}</dd>{% endif %}
     {% if turn.replaced_model_text %}<dt>Model text replaced</dt><dd class="replaced">{{ turn.replaced_model_text }}</dd>{% endif %}
     <dt>Model calls</dt>

@@ -1,4 +1,3 @@
-import json
 import logging
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -41,7 +40,9 @@ from screening_agent.recruiter.i18n import (
     parse_locale,
     resolve_locale,
 )
-from screening_agent.recruiter.views import transcript_views
+from screening_agent.recruiter.labels import label
+from screening_agent.recruiter.views import event_views, profile_rows, transcript_views
+from screening_agent.storage.models import CandidateDetail
 from screening_agent.storage.repository import Repository
 
 logger = logging.getLogger(__name__)
@@ -54,6 +55,7 @@ STAGES = list(Stage)
 LOCALES = list(Locale)
 
 templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
+templates.env.filters["label"] = label
 
 
 def require_recruiter_page(
@@ -253,6 +255,34 @@ def candidate_list(
     )
 
 
+def keeps_polling(candidate: CandidateDetail) -> bool:
+    """A closed conversation keeps polling briefly: the summary is written after the outcome."""
+    if candidate.archived_at is not None:
+        return False
+    if candidate.status == Status.IN_PROGRESS:
+        return True
+    summary_settled = candidate.summary is not None or any(
+        event.kind == "summary_failed" for event in candidate.events
+    )
+    waited = datetime.now(UTC) - candidate.updated_at
+    return not summary_settled and waited < timedelta(
+        seconds=settings.candidate_page_summary_wait_seconds
+    )
+
+
+def live_context(candidate: CandidateDetail) -> dict[str, object]:
+    """What the live regions render; the page and the polled fragment must agree on it."""
+    return {
+        "candidate": candidate,
+        "transcript": transcript_views(candidate.transcript),
+        "profile": profile_rows(candidate.profile),
+        "events": event_views(candidate.events),
+        "stages": STAGES,
+        "poll_seconds": settings.candidate_page_refresh_seconds if keeps_polling(candidate) else 0,
+        "conversation": candidate.created_at.isoformat(),
+    }
+
+
 @authenticated_pages.get("/candidates/{candidate_id}")
 def candidate_page(
     request: Request,
@@ -268,21 +298,32 @@ def candidate_page(
         request,
         "candidate.html",
         {
-            "candidate": candidate,
-            "transcript": transcript_views(candidate.transcript),
-            "refresh_seconds": (
-                settings.candidate_page_refresh_seconds
-                if candidate.status == Status.IN_PROGRESS
-                else 0
-            ),
-            "profile_json": json.dumps(candidate.profile, indent=2, ensure_ascii=False),
+            **live_context(candidate),
             "statuses": STATUSES,
-            "stages": STAGES,
             "principal": principal,
             "csrf_field": CSRF_FIELD,
             "csrf_token": session_csrf_token(principal, recruiter_session),
             "resettable": candidate.id in settings.demo_phones,
         },
+    )
+
+
+@authenticated_pages.get("/candidates/{candidate_id}/live")
+def candidate_live_regions(
+    request: Request,
+    candidate_id: str,
+    repository: Repository = Depends(get_repository),
+    _: Principal = Depends(require_recruiter_page),
+) -> Response:
+    """The regions of the candidate page that change while a conversation is open, without the forms."""
+    candidate = repository.get_candidate_detail(candidate_id)
+    if candidate is None:
+        raise HTTPException(status_code=404, detail="candidate not found")
+    return templates.TemplateResponse(
+        request,
+        "candidate_live.html",
+        live_context(candidate),
+        headers={"Cache-Control": "no-store"},
     )
 
 

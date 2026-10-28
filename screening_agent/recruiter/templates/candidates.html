@@ -22,12 +22,12 @@
   </div>
   <form method="get" action="/recruiter/">
     <select name="status" aria-label="Status">
-      <option value="">any status</option>
-      {% for option in statuses %}<option value="{{ option.value }}" {% if option.value == status %}selected{% endif %}>{{ option.value }}</option>{% endfor %}
+      <option value="">Any status</option>
+      {% for option in statuses %}<option value="{{ option.value }}" {% if option.value == status %}selected{% endif %}>{{ option.value | label("status") }}</option>{% endfor %}
     </select>
     <select name="stage" aria-label="Stage">
-      <option value="">any stage</option>
-      {% for option in stages %}<option value="{{ option.value }}" {% if option.value == stage %}selected{% endif %}>{{ option.value }}</option>{% endfor %}
+      <option value="">Any stage</option>
+      {% for option in stages %}<option value="{{ option.value }}" {% if option.value == stage %}selected{% endif %}>{{ option.value | label("stage") }}</option>{% endfor %}
     </select>
     <button type="submit">Filter</button>
   </form>
@@ -37,7 +37,7 @@
 <ul class="funnel">
   {% for name, count in funnel.by_status.items() %}
   <li class="tally card reveal {{ name }}" style="--i: {{ loop.index0 }}; --share: {{ count / total }}">
-    <span class="tally-label">{{ name }}: {{ count }}</span>
+    <span class="tally-label">{{ name | label("status") }}: {{ count }}</span>
     <div class="tally-bar" aria-hidden="true"><span></span></div>
   </li>
   {% endfor %}
@@ -51,9 +51,10 @@
       <tr style="--i: {{ loop.index0 }}">
         <td><a href="/recruiter/candidates/{{ candidate.id | urlencode }}">{{ candidate.id }}</a></td>
         <td class="name">{{ candidate.profile.get("full_name") or candidate.applicant_name or "" }}</td>
-        <td><span class="badge {{ candidate.status }}">{{ candidate.status }}</span></td>
-        <td class="mono">{{ candidate.stage }}</td>
-        <td class="mono">{{ candidate.disqualify_reason or candidate.review_reason or "" }}</td>
+        <td><span class="badge {{ candidate.status }}">{{ candidate.status | label("status") }}</span></td>
+        <td>{{ candidate.stage | label("stage") }}</td>
+        {% set reason = candidate.disqualify_reason or candidate.review_reason %}
+        <td>{{ reason | label("reason") if reason else "" }}</td>
         <td>{{ candidate.profile.get("zone", "") }}</td>
         <td class="meta">{{ candidate.updated_at.strftime("%Y-%m-%d %H:%M") }}</td>
       </tr>

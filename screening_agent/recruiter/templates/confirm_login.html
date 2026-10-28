@@ -1,11 +1,5 @@
-{% extends "base.html" %}
+{% extends "login_base.html" %}
 {% block title %}{{ t.title_confirm }}{% endblock %}
-{% block header %}{% endblock %}
-{% block styles %}
-    .login { max-width: 380px; margin: 8vh auto 0; }
-    .login h1 { font-size: 40px; }
-    .login button { margin-top: 18px; width: 100%; }
-{% endblock %}
 {% block content %}
 <div class="login card ticket reveal">
   <p class="kicker">{{ t.kicker }}</p>

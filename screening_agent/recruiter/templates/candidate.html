@@ -1,6 +1,7 @@
 {% extends "base.html" %}
+{% import "_live.html" as live with context %}
 {% block title %}{{ candidate.id }}{% endblock %}
-{% block head %}{% if refresh_seconds %}<meta http-equiv="refresh" content="{{ refresh_seconds }}">{% endif %}{% endblock %}
+{% block head %}{% if poll_seconds %}<noscript><meta http-equiv="refresh" content="{{ poll_seconds }}"></noscript>{% endif %}{% endblock %}
 {% block styles %}
     .back { font: 600 11px var(--mono); letter-spacing: 0.14em; text-transform: uppercase; text-decoration: none; }
     .facts { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; margin: 10px 0 0; }
@@ -35,7 +36,10 @@
     .inspector .replaced { font-style: italic; color: var(--muted); }
     .summary pre { font: 15px/1.6 var(--body); }
     .profile { background: var(--ink); color: var(--marigold); border-color: var(--ink); }
-    .profile pre { color: var(--paper); }
+    .profile dl { display: grid; grid-template-columns: max-content 1fr; gap: 6px 18px; margin: 0; }
+    .profile dt { font: 600 10px/1.8 var(--mono); letter-spacing: 0.12em; text-transform: uppercase; color: var(--marigold); }
+    .profile dd { margin: 0; color: var(--paper); word-break: break-word; }
+    .profile .pending { opacity: 0.5; }
     .override button { margin-top: 14px; }
     .banner { margin: 12px 0 0; padding: 10px 14px; background: var(--marigold); color: var(--ink); border: 1.5px solid var(--ink); border-radius: 4px; }
     .reset button { margin-top: 10px; }
@@ -44,42 +48,29 @@
     .timeline li { position: relative; padding: 0 0 18px; animation: rise 450ms var(--ease) both; animation-delay: calc(min(var(--i), 20) * 40ms + 400ms); }
     .timeline li::before { content: ""; position: absolute; left: -30px; top: 4px; width: 13px; height: 13px; background: var(--chile); transform: rotate(45deg); }
     .timeline strong { font: 600 12px var(--mono); letter-spacing: 0.08em; text-transform: uppercase; margin-right: 10px; }
-    .timeline code { display: block; margin-top: 4px; color: var(--muted); word-break: break-word; }
+    .timeline .fields { display: flex; flex-wrap: wrap; gap: 2px 18px; margin: 4px 0 0; color: var(--muted); font-size: 13px; word-break: break-word; }
+    .timeline .fields b { font-weight: 600; color: var(--ink); }
+    .candidate.settled [data-live] * { animation: none; }
+    .candidate.settled [data-live] li.is-new { animation: rise 450ms var(--ease) both; }
+    .candidate.settled [data-live].refreshed { animation: soften 260ms var(--ease); }
+    @keyframes soften { from { opacity: 0.5; } }
     @media (max-width: 860px) { .detail { grid-template-columns: 1fr; } .route li { font-size: 0; } }
 {% endblock %}
 {% block content %}
+<div class="candidate" data-live-url="/recruiter/candidates/{{ candidate.id | urlencode }}/live" data-poll-seconds="{{ poll_seconds }}" data-conversation="{{ conversation }}">
 <a class="back" href="/recruiter/">&larr; Candidates</a>
 {% if candidate.archived_at %}<p class="banner">Archived copy. Reset by {{ candidate.archived_by }} on {{ candidate.archived_at.strftime("%Y-%m-%d %H:%M") }}. The phone is free for a new screening.</p>{% endif %}
-<h1 class="reveal">{{ candidate.profile.get("full_name") or candidate.applicant_name or candidate.id }}</h1>
-<p class="facts reveal" style="--i: 1">
-  <span class="badge {{ candidate.status }}">{{ candidate.status }}</span>
-  <span>stage <strong class="mono">{{ candidate.stage }}</strong></span>
-  {% set reason = candidate.disqualify_reason or candidate.review_reason %}
-  {% if reason %}<span>reason <strong class="mono">{{ reason }}</strong></span>{% endif %}
-  {% if candidate.applicant_name %}<span>application <strong>{{ candidate.applicant_name }}</strong></span>{% endif %}
-  <span class="meta">{{ candidate.id }} · updated {{ candidate.updated_at.strftime("%Y-%m-%d %H:%M") }}</span>
-</p>
-
-{% set route = namespace(reached=candidate.stage not in stages | map(attribute='value') | list) %}
-<ol class="route {{ candidate.status }}" aria-label="Screening stages">
-  {% for step in stages %}
-    {% set here = step.value == candidate.stage %}
-    <li class="{% if here %}here{% elif not route.reached %}done{% endif %}" style="--i: {{ loop.index0 }}"{% if here %} aria-current="step"{% endif %}>{{ step.value }}</li>
-    {% if here %}{% set route.reached = true %}{% endif %}
-  {% endfor %}
-</ol>
+{{ live.facts() }}
+{{ live.route() }}
 
 <div class="detail">
   <section>
     <h2>Transcript</h2>
-    {% include "_transcript.html" %}
+    {{ live.transcript_list() }}
   </section>
 
   <div>
-    <section class="summary card ticket reveal" style="--i: 2">
-      <h2>Summary</h2>
-      {% if candidate.summary %}<pre>{{ candidate.summary }}</pre>{% else %}<p class="meta">No summary yet.</p>{% endif %}
-    </section>
+    {{ live.summary() }}
 
     <section class="override card reveal" style="--i: 3">
       <h2>Override</h2>
@@ -87,8 +78,8 @@
         {% if csrf_token %}<input type="hidden" name="{{ csrf_field }}" value="{{ csrf_token }}">{% endif %}
         <label for="status">Status</label>
         <select id="status" name="status">
-          <option value="">keep {{ candidate.status }}</option>
-          {% for option in statuses %}<option value="{{ option.value }}">{{ option.value }}</option>{% endfor %}
+          <option value="">Keep current ({{ candidate.status | label("status") }})</option>
+          {% for option in statuses %}<option value="{{ option.value }}">{{ option.value | label("status") }}</option>{% endfor %}
         </select>
         <label for="notes">Recruiter notes</label>
         <textarea id="notes" name="notes" rows="3">{{ candidate.recruiter_notes or "" }}</textarea>
@@ -107,21 +98,92 @@
     </section>
     {% endif %}
 
-    <section class="profile card reveal" style="--i: 5">
-      <h2>Profile</h2>
-      <pre>{{ profile_json }}</pre>
-    </section>
+    {{ live.profile_card() }}
   </div>
 </div>
 
-<section>
-  <h2>Events</h2>
-  <ol class="timeline">
-  {% for event in candidate.events %}
-    <li style="--i: {{ loop.index0 }}"><strong>{{ event.kind }}</strong><span class="meta">{{ event.created_at.strftime("%Y-%m-%d %H:%M:%S") }}</span><code>{{ event.payload }}</code></li>
-  {% else %}
-    <li class="meta" style="--i: 0">No events.</li>
-  {% endfor %}
-  </ol>
-</section>
+{{ live.events_list() }}
+</div>
+{% if poll_seconds %}
+<script>
+(() => {
+  const root = document.querySelector("[data-live-url]");
+  let pollSeconds = Number(root.dataset.pollSeconds);
+  let timer;
+  let inFlight = false;
+
+  const patchTranscript = (current, incoming) => {
+    const list = current.querySelector("ul");
+    const known = list.querySelectorAll(":scope > li:not(.placeholder)").length;
+    const arrived = [...incoming.querySelectorAll(":scope > ul > li:not(.placeholder)")].slice(known);
+    if (!arrived.length) return false;
+    list.querySelector(":scope > .placeholder")?.remove();
+    for (const opened of list.querySelectorAll("details[data-auto]")) {
+      opened.open = false;
+      opened.removeAttribute("data-auto");
+    }
+    for (const item of arrived) {
+      item.classList.add("is-new");
+      list.append(item);
+    }
+    return true;
+  };
+
+  const soften = (region) => {
+    region.classList.remove("refreshed");
+    void region.offsetWidth;
+    region.classList.add("refreshed");
+  };
+
+  const apply = (fragment) => {
+    root.classList.add("settled");
+    for (const incoming of fragment.querySelectorAll("[data-live]")) {
+      const current = root.querySelector(`[data-live="${incoming.dataset.live}"]`);
+      if (!current) continue;
+      if (incoming.dataset.live === "transcript") {
+        if (patchTranscript(current, incoming)) soften(current);
+      } else if (current.innerHTML !== incoming.innerHTML) {
+        current.innerHTML = incoming.innerHTML;
+        soften(current);
+      }
+    }
+  };
+
+  const poll = async () => {
+    if (inFlight) return;
+    inFlight = true;
+    clearTimeout(timer);
+    try {
+      const response = await fetch(root.dataset.liveUrl, { cache: "no-store" });
+      if (response.redirected || response.status === 404) return location.reload();
+      if (response.ok) {
+        const fragment = new DOMParser().parseFromString(await response.text(), "text/html");
+        const status = fragment.querySelector("[data-poll-seconds]");
+        if (status.dataset.conversation !== root.dataset.conversation) return location.reload();
+        apply(fragment);
+        pollSeconds = Number(status.dataset.pollSeconds);
+      }
+    } catch {
+      // Keep the page as it is and try again on the next tick.
+    } finally {
+      inFlight = false;
+    }
+    schedule();
+  };
+
+  const schedule = () => {
+    clearTimeout(timer);
+    if (pollSeconds > 0) timer = setTimeout(tick, pollSeconds * 1000);
+  };
+
+  const tick = () => (document.hidden ? schedule() : poll());
+
+  root.addEventListener("click", (event) => {
+    event.target.closest("summary")?.parentElement.removeAttribute("data-auto");
+  });
+  document.addEventListener("visibilitychange", () => { if (!document.hidden && pollSeconds > 0) poll(); });
+  schedule();
+})();
+</script>
+{% endif %}
 {% endblock %}

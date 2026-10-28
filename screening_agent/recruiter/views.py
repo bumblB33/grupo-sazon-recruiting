@@ -1,22 +1,12 @@
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Any
 
+from screening_agent.domain.profile import CandidateProfile
 from screening_agent.flow.turn_record import ReplySource, ToolCallRecord, TurnRecord
 from screening_agent.llm.usage import ModelUsage
-from screening_agent.storage.models import TranscriptEntry
-
-REPLY_SOURCE_LABELS: dict[ReplySource, str] = {
-    ReplySource.TERMINAL: "fixed closing message",
-    ReplySource.REASK: "fixed re-ask, model text unusable",
-    ReplySource.ZONE_CONFIRM: "fixed zone confirmation, model text unusable",
-    ReplySource.NAME_CONFIRM: "fixed name confirmation, model text unusable",
-    ReplySource.CONSENT_DEFERRED: "fixed wait message, model text unusable",
-    ReplySource.MODEL_TEXT: "model text, passed the reply rules",
-    ReplySource.MODEL_COMPOSED: "model text, written after the tool results",
-    ReplySource.POLICY_FALLBACK: "fixed question, model text broke a reply rule",
-    ReplySource.NEXT_QUESTION: "fixed next question, model wrote nothing",
-    ReplySource.GUARDRAIL_REDIRECT: "fixed guardrail redirect",
-}
+from screening_agent.recruiter.labels import humanise, label
+from screening_agent.storage.models import Event, TranscriptEntry
 
 
 @dataclass(frozen=True)
@@ -45,7 +35,6 @@ class TurnView:
     tone: str | None
     tools_exposed: list[str]
     tool_calls: list[ToolCallRecord]
-    reply_source: str
     reply_source_label: str
     replaced_model_text: str | None
     violated_rules: list[str]
@@ -65,8 +54,7 @@ class TurnView:
             tone=record.tone,
             tools_exposed=list(record.tools_exposed),
             tool_calls=list(record.tool_calls),
-            reply_source=record.reply_source.value,
-            reply_source_label=REPLY_SOURCE_LABELS[record.reply_source],
+            reply_source_label=label(record.reply_source, "reply_source"),
             replaced_model_text=record.model_text if replaced and record.model_text else None,
             violated_rules=list(record.violated_rules),
             usage=[UsageRow.from_usage(usage) for usage in record.usage],
@@ -100,3 +88,73 @@ def transcript_views(entries: list[TranscriptEntry]) -> list[MessageView]:
         )
         for index, entry in enumerate(entries)
     ]
+
+
+@dataclass(frozen=True)
+class FactRow:
+    name: str
+    value: str | None
+
+
+@dataclass(frozen=True)
+class EventView:
+    kind: str
+    created_at: datetime
+    fields: list[FactRow]
+
+
+ENUM_PROFILE_FIELDS = frozenset({"availability", "schedule"})
+EVENT_VALUE_KINDS = {
+    ("outcome", "status"): "status",
+    ("outcome", "stage"): "stage",
+    ("outcome", "disqualify_reason"): "reason",
+    ("outcome", "review_reason"): "reason",
+    ("recruiter_override", "status"): "status",
+    ("nudge", "stage"): "stage",
+    ("guardrail_blocked", "reason"): "guardrail",
+}
+
+
+def profile_rows(profile: dict[str, Any]) -> list[FactRow]:
+    """Every profile field in screening order; a field the candidate has not answered has no value."""
+    return [
+        FactRow(label(key, "profile_field"), _profile_value(key, profile))
+        for key in CandidateProfile.model_fields
+    ]
+
+
+def _profile_value(key: str, profile: dict[str, Any]) -> str | None:
+    value = profile.get(key)
+    if value is None or value == "":
+        return None
+    if value == [] and profile.get("experience_years") is not None:
+        return "None"
+    if value == []:
+        return None
+    if isinstance(value, bool):
+        return "Yes" if value else "No"
+    if isinstance(value, list):
+        return ", ".join(
+            humanise(str(item)) if key in ENUM_PROFILE_FIELDS else str(item) for item in value
+        )
+    return humanise(str(value)) if key in ENUM_PROFILE_FIELDS else str(value)
+
+
+def event_views(events: list[Event]) -> list[EventView]:
+    return [
+        EventView(
+            kind=label(event.kind, "event"),
+            created_at=event.created_at,
+            fields=[
+                FactRow(humanise(key), _event_value(event.kind, key, value))
+                for key, value in event.payload.items()
+                if value is not None and value != ""
+            ],
+        )
+        for event in events
+    ]
+
+
+def _event_value(kind: str, key: str, value: Any) -> str:
+    value_kind = EVENT_VALUE_KINDS.get((kind, key))
+    return label(value, value_kind) if value_kind else str(value)

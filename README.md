@@ -114,7 +114,7 @@ pyright                              # standard mode, config in pyproject.toml
 | `PATCH /candidates/{id}` | recruiter | Outcome override. Writes a `recruiter_override` event with the actor. |
 | `GET /analytics` | recruiter | Funnel counts. |
 | `GET /csrf-token` | recruiter | The CSRF token for the caller's session cookie, or `null` for an API key. |
-| `/recruiter/...` | session cookie | Server-rendered pages: login, candidate table with filters and funnel, detail with the transcript, a per-turn inspector and the override form. The detail page reloads itself every `SCREENING_CANDIDATE_PAGE_REFRESH_SECONDS` while the conversation is open. |
+| `/recruiter/...` | session cookie | Server-rendered pages: login, candidate table with filters and funnel, detail with the transcript, a per-turn inspector and the override form. Pages show plain-English labels from `recruiter/labels.py`, not stored identifiers. While a conversation is open, the detail page polls `GET /recruiter/candidates/{id}/live` every `SCREENING_CANDIDATE_PAGE_REFRESH_SECONDS` and patches only the facts, route, transcript, summary, profile and events; the forms are never replaced. Without JavaScript it falls back to a full-page refresh. |
 
 "recruiter" means a session cookie or an `X-API-Key`. A cookie caller on `POST` or `PATCH` must also send the token from `GET /csrf-token` in `X-CSRF-Token`, because `SameSite=Lax` still sends the cookie from sibling subdomains. Routes answer 503 until their secrets are configured, unless `SCREENING_DEV_MODE` is on. Page routes answer 303 to login instead of 401.
 

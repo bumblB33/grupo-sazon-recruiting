@@ -1,14 +1,5 @@
-{% extends "base.html" %}
+{% extends "login_base.html" %}
 {% block title %}{{ t.title_login }}{% endblock %}
-{% block header %}{% endblock %}
-{% block styles %}
-    .login { max-width: 380px; margin: 8vh auto 0; }
-    .login h1 { font-size: 40px; }
-    .login input { width: 100%; }
-    .login button { margin-top: 18px; width: 100%; }
-    .locales { margin-top: 18px; font: 600 11px var(--mono); letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
-    .locales [aria-current] { color: var(--ink); }
-{% endblock %}
 {% block content %}
 <div class="login card ticket reveal">
   <p class="kicker">{{ t.kicker }}</p>

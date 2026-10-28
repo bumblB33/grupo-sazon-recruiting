@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block header %}{% endblock %}
+{% block styles %}
+    .login { max-width: 440px; margin: clamp(32px, 12vh, 120px) auto 0; padding: 40px 40px 52px; }
+    .login .kicker { margin-bottom: 10px; }
+    .login h1 { font-size: 40px; margin-bottom: 28px; }
+    .login p { margin: 0 0 20px; }
+    .login .error { margin-bottom: 20px; }
+    .login label { margin: 0 0 8px; }
+    .login input { width: 100%; }
+    .login button { margin-top: 28px; width: 100%; padding: 12px 16px; }
+    .login .locales { margin-top: 36px; padding-top: 20px; border-top: 1px dashed var(--rule); text-align: center; font: 600 11px var(--mono); letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
+    .login .locales [aria-current] { color: var(--ink); }
+    @media (max-width: 480px) { .login { padding: 28px 24px 40px; } }
+{% endblock %}

@@ -1,0 +1,81 @@
+{% macro facts() %}
+<div data-live="facts">
+  <h1 class="reveal">{{ candidate.profile.get("full_name") or candidate.applicant_name or candidate.id }}</h1>
+  <p class="facts reveal" style="--i: 1">
+    <span class="badge {{ candidate.status }}">{{ candidate.status | label("status") }}</span>
+    <span>stage <strong>{{ candidate.stage | label("stage") }}</strong></span>
+    {% set reason = candidate.disqualify_reason or candidate.review_reason %}
+    {% if reason %}<span>reason <strong>{{ reason | label("reason") }}</strong></span>{% endif %}
+    {% if candidate.applicant_name %}<span>application <strong>{{ candidate.applicant_name }}</strong></span>{% endif %}
+    <span class="meta">{{ candidate.id }} · updated {{ candidate.updated_at.strftime("%Y-%m-%d %H:%M") }}</span>
+  </p>
+</div>
+{% endmacro %}
+
+{% macro route() %}
+<div data-live="route">
+  {% set progress = namespace(reached=candidate.stage not in stages | map(attribute='value') | list) %}
+  <ol class="route {{ candidate.status }}" aria-label="Screening stages">
+    {% for step in stages %}
+      {% set here = step.value == candidate.stage %}
+      <li class="{% if here %}here{% elif not progress.reached %}done{% endif %}" style="--i: {{ loop.index0 }}"{% if here %} aria-current="step"{% endif %}>{{ step.value | label("stage") }}</li>
+      {% if here %}{% set progress.reached = true %}{% endif %}
+    {% endfor %}
+  </ol>
+</div>
+{% endmacro %}
+
+{% macro transcript_list() %}
+<div data-live="transcript">
+  <ul class="transcript card">
+  {% for message in transcript %}
+    <li class="{{ message.direction }}" style="--i: {{ loop.index0 }}">{{ message.body }}<div class="meta">{{ message.channel }} · {{ message.created_at.strftime("%Y-%m-%d %H:%M") }}</div>
+      {% if message.turn %}{% with turn = message.turn %}{% include "_turn.html" %}{% endwith %}{% endif %}
+    </li>
+  {% else %}
+    <li class="meta placeholder" style="--i: 0">No messages yet.</li>
+  {% endfor %}
+  </ul>
+</div>
+{% endmacro %}
+
+{% macro summary() %}
+<div data-live="summary">
+  <section class="summary card ticket reveal" style="--i: 2">
+    <h2>Summary</h2>
+    {% if candidate.summary %}<pre>{{ candidate.summary }}</pre>{% else %}<p class="meta">No summary yet.</p>{% endif %}
+  </section>
+</div>
+{% endmacro %}
+
+{% macro profile_card() %}
+<div data-live="profile">
+  <section class="profile card reveal" style="--i: 5">
+    <h2>Profile</h2>
+    <dl>
+      {% for row in profile %}
+        <dt>{{ row.name }}</dt>
+        <dd>{% if row.value %}{{ row.value }}{% else %}<span class="pending">Not provided yet</span>{% endif %}</dd>
+      {% endfor %}
+    </dl>
+  </section>
+</div>
+{% endmacro %}
+
+{% macro events_list() %}
+<div data-live="events">
+  <section>
+    <h2>Events</h2>
+    <ol class="timeline">
+    {% for event in events %}
+      <li style="--i: {{ loop.index0 }}">
+        <strong>{{ event.kind }}</strong><span class="meta">{{ event.created_at.strftime("%Y-%m-%d %H:%M:%S") }}</span>
+        {% if event.fields %}<p class="fields">{% for field in event.fields %}<span>{{ field.name }}: <b>{{ field.value }}</b></span>{% endfor %}</p>{% endif %}
+      </li>
+    {% else %}
+      <li class="meta" style="--i: 0">No events.</li>
+    {% endfor %}
+    </ol>
+  </section>
+</div>
+{% endmacro %}

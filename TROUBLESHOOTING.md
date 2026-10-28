@@ -107,15 +107,13 @@ Prints a link on the public domain, `https://<name>.ngrok-free.dev/recruiter/log
 docker compose logs -f api
 ```
 
-Open `http://localhost:8000/recruiter/candidates/<E.164 phone>` for the inspector. The page reloads itself every 3 s while the conversation is open (`SCREENING_CANDIDATE_PAGE_REFRESH_SECONDS` in the override).
+Open `http://localhost:8000/recruiter/candidates/<E.164 phone>` for the inspector. The conversation updates in place every 3 s while it is open (`SCREENING_CANDIDATE_PAGE_REFRESH_SECONDS` in the override); the page does not reload.
 
 Silence thresholds in the override, in minutes: nudge at 3 and 6, abandon at 12, opener retry at 3, opener abandon at 12. The sweep runs every 60 s. A paused take is abandoned by the sweep. Keep the take moving, or stop the `sweep` service for the recording with `docker compose stop sweep`.
 
 Thresholds are wall-clock. A laptop that sleeps between the dry run and the recording abandons every in-progress candidate on the first tick after it wakes. Run the dry run inside the window or restart the stack first.
 
 Open the recruiter pages on `http://localhost:8000` for the recording, the origin the login was confirmed on. The free ngrok domain shows a one-time interstitial page in a browser.
-
-The meta refresh on the candidate page discards an unsaved override note while the conversation is in progress. Write the note after the outcome.
 
 ## 8. Stop
 

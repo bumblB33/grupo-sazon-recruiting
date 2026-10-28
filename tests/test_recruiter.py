@@ -1,5 +1,6 @@
+import re
 from collections.abc import Iterator
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from string import Formatter
 
 import pytest
@@ -313,7 +314,7 @@ def test_list_filters_and_shows_funnel(client):
     client.post("/webhook/whatsapp", data=twilio_form("SM-other", "+34601", "sí"))
     page = client.get(LIST).text
     assert "+34600" in page and "+34601" in page
-    assert "disqualified: 1" in page and "in_progress: 1" in page
+    assert "Disqualified: 1" in page and "In progress: 1" in page
     filtered = client.get(LIST, params={"status": "disqualified"}).text
     assert "+34600" in filtered and "+34601" not in filtered
     assert "No candidates match" in client.get(LIST, params={"stage": "start_date"}).text
@@ -323,10 +324,11 @@ def test_detail_shows_transcript_summary_and_override_form(client):
     screen_no_licence(client, "+34600")
     page = client.get(f"{RECRUITER_PREFIX}/candidates/+34600").text
     assert "Ana García" in page
-    assert "no_licence" in page
+    assert "No driving licence" in page
+    assert "no_licence" not in page
     assert "no tengo carnet" in page
     assert "<pre>summary</pre>" in page
-    assert "outcome" in page
+    assert "Outcome reached" in page
     assert client.get(f"{RECRUITER_PREFIX}/candidates/nope").status_code == 404
 
 
@@ -371,14 +373,45 @@ def test_detail_shows_the_turn_inspector_and_refreshes_only_while_in_progress(cl
     screen_no_licence(client, "+34600")
     closed_page = client.get(f"{RECRUITER_PREFIX}/candidates/+34600").text
     assert 'http-equiv="refresh"' not in closed_page
+    assert "<script>" not in closed_page
     assert "Why this reply" in closed_page
-    assert "has_licence &rarr; zone · disqualified" in closed_page
-    assert "fixed closing message" in closed_page
+    assert "Driving licence &rarr; Zone · Disqualified" in closed_page
+    assert "Fixed closing message" in closed_page
     open_candidate("+34601")
     client.post("/webhook/whatsapp", data=twilio_form("SM-open", "+34601", "sí"))
     open_page = client.get(f"{RECRUITER_PREFIX}/candidates/+34601").text
-    assert '<meta http-equiv="refresh" content="5">' in open_page
-    assert "consent &rarr; full_name" in open_page
+    assert '<noscript><meta http-equiv="refresh" content="5"></noscript>' in open_page
+    assert 'data-poll-seconds="5"' in open_page
+    assert "Consent &rarr; Full name" in open_page
+
+
+def test_live_fragment_needs_a_session(client, signed):
+    route = f"{RECRUITER_PREFIX}/candidates/+34600/live"
+    response = client.get(route, follow_redirects=False)
+    assert response.status_code == 303
+    assert response.headers["location"] == LOGIN_PATH
+
+
+def test_live_fragment_carries_only_the_regions_and_the_poll_interval(client):
+    screen_no_licence(client, "+34600")
+    open_candidate("+34601")
+    client.post("/webhook/whatsapp", data=twilio_form("SM-live", "+34601", "sí"))
+    closed = client.get(f"{RECRUITER_PREFIX}/candidates/+34600/live")
+    assert closed.headers["cache-control"] == "no-store"
+    assert 'data-poll-seconds="0"' in closed.text
+    open_ = client.get(f"{RECRUITER_PREFIX}/candidates/+34601/live").text
+    assert 'data-poll-seconds="5"' in open_
+    for region in ("facts", "route", "transcript", "summary", "profile", "events"):
+        assert f'data-live="{region}"' in open_
+    assert "<form" not in open_ and "<html" not in open_
+    assert client.get(f"{RECRUITER_PREFIX}/candidates/nope/live").status_code == 404
+
+
+def test_archived_copy_does_not_poll(client, monkeypatch):
+    open_candidate("+34601")
+    monkeypatch.setattr(settings, "demo_phones", ["+34601"])
+    location = client.post(reset_path("+34601"), follow_redirects=False).headers["location"]
+    assert 'data-poll-seconds="0"' in client.get(location).text
 
 
 def placeholders(template: str) -> set[str]:
@@ -458,7 +491,7 @@ def test_reset_archives_the_candidate_and_frees_the_phone(client, monkeypatch):
     assert "Archived" in page
     assert "/reset" not in page
     assert "no tengo carnet" in page
-    assert "demo_reset" in page
+    assert "Demo reset" in page
     assert client.get("/candidates/+34600111222").status_code == 404
     assert "+34600111222" not in client.get(LIST).text
     api.app.dependency_overrides[api.get_whatsapp_outbound] = lambda: FakeOutbound()
@@ -478,3 +511,28 @@ def test_reset_form_needs_the_csrf_token_from_the_page(client, email, signed, mo
     assert (
         client.post(reset_path("+34600"), data=genuine, follow_redirects=False).status_code == 303
     )
+
+
+def test_page_and_fragment_render_the_same_live_regions(client):
+    open_candidate("+34601")
+    client.post("/webhook/whatsapp", data=twilio_form("SM-regions", "+34601", "sí"))
+    route = f"{RECRUITER_PREFIX}/candidates/+34601"
+    page = client.get(route).text
+    fragment = client.get(f"{route}/live").text
+    regions = ("facts", "route", "transcript", "summary", "profile", "events")
+    assert all(f'data-live="{region}"' in page for region in regions)
+    assert all(f'data-live="{region}"' in fragment for region in regions)
+    conversation = re.search(r'data-conversation="([^"]+)"', page)
+    assert conversation is not None
+    assert conversation.group(0) in fragment
+
+
+def test_a_closed_conversation_polls_until_its_summary_arrives_or_the_wait_ends(client):
+    screen_no_licence(client, "+34600")
+    route = f"{RECRUITER_PREFIX}/candidates/+34600/live"
+    repository = api.app.dependency_overrides[api.get_repository]()
+    repository.candidates.update_one({"_id": "+34600"}, {"$unset": {"summary": ""}})
+    assert 'data-poll-seconds="5"' in client.get(route).text
+    stale = datetime.now(UTC) - timedelta(seconds=settings.candidate_page_summary_wait_seconds + 60)
+    repository.candidates.update_one({"_id": "+34600"}, {"$set": {"updated_at": stale}})
+    assert 'data-poll-seconds="0"' in client.get(route).text

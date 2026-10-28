@@ -1,8 +1,60 @@
 import argparse
+import json
+from pathlib import Path
+
+from pydantic import BaseModel, Field, TypeAdapter, field_validator
 
 from screening_agent.api.auth import email_domain_allowed, hash_secret, is_valid_email, new_api_key
+from screening_agent.channels.whatsapp import TwilioWhatsAppSender
 from screening_agent.config import settings
+from screening_agent.domain.enums import Language
+from screening_agent.domain.names import clean_applicant_name
+from screening_agent.flow.engine import OutboundChannel, ScreeningEngine
 from screening_agent.storage.repository import Repository
+
+
+class Applicant(BaseModel):
+    """One row of the applicant file; the same contract as POST /candidates."""
+
+    name: str = Field(max_length=120)
+    phone: str = Field(pattern=r"^\+[1-9]\d{6,14}$")
+    language: Language = Language.ES
+
+    @field_validator("name")
+    @classmethod
+    def name_is_made_of_words(cls, value: str) -> str:
+        return clean_applicant_name(value)
+
+
+def load_applicants(path: Path) -> list[Applicant]:
+    """Validates the whole file before anything is sent, so a bad row cannot leave a half-seeded demo."""
+    rows = json.loads(path.read_text())
+    if not isinstance(rows, list):
+        raise ValueError("applicant file must be a JSON list")
+    applicants: list[Applicant] = []
+    for index, row in enumerate(rows, start=1):
+        try:
+            applicants.append(TypeAdapter(Applicant).validate_python(row))
+        except ValueError as exc:
+            raise ValueError(f"entry {index}: {exc}") from exc
+    return applicants
+
+
+def start_from_file(
+    path: Path, engine: ScreeningEngine, outbound: OutboundChannel, dry_run: bool = False
+) -> list[str]:
+    lines: list[str] = []
+    for applicant in load_applicants(path):
+        if dry_run:
+            outcome = "would open"
+        elif engine.start_conversation(
+            applicant.phone, "whatsapp", applicant.language, outbound, applicant.name
+        ):
+            outcome = "opened"
+        else:
+            outcome = "skipped, already exists"
+        lines.append(f"{applicant.phone}\t{applicant.name}\t{applicant.language.value}\t{outcome}")
+    return lines
 
 
 def main() -> None:
@@ -23,6 +75,11 @@ def main() -> None:
     create.add_argument("label", help="Who or what uses it, e.g. ats-sync")
     revoke = commands.add_parser("revoke-api-key", help="Disable a key by id")
     revoke.add_argument("key_id")
+    start = commands.add_parser(
+        "start-from-file", help="Open a WhatsApp screening for each applicant in a JSON file"
+    )
+    start.add_argument("path", type=Path, help="JSON list of {name, phone, language}")
+    start.add_argument("--dry-run", action="store_true", help="Validate and list, send nothing")
     args = parser.parse_args()
     repository = Repository(args.db)
 
@@ -58,6 +115,14 @@ def main() -> None:
     elif args.command == "revoke-api-key":
         found = repository.revoke_api_key(args.key_id)
         print(f"{args.key_id} revoked" if found else f"{args.key_id} not found")
+    elif args.command == "start-from-file":
+        engine = ScreeningEngine(repository)
+        outbound = TwilioWhatsAppSender.from_settings()
+        try:
+            lines = start_from_file(args.path, engine, outbound, dry_run=args.dry_run)
+        except ValueError as exc:
+            parser.error(str(exc))
+        print("\n".join(lines))
 
 
 if __name__ == "__main__":

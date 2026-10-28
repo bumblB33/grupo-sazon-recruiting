@@ -8,15 +8,15 @@ from screening_agent.flow.state import stage_of
 REASK: dict[Stage, dict[Language, str]] = {
     Stage.CONSENT: {
         Language.ES: "Soy un asistente de IA de Grupo Sazón y esta conversación queda registrada. ¿Te parece bien que sigamos? Sí o no.",
-        Language.EN: "I'm an AI assistant for Grupo Sazón and this conversation is recorded. Is it okay if we continue? Yes or no.",
+        Language.EN: "I'm an AI assistant for Grupo Sazón and this conversation is being recorded. Is it okay if we continue? Yes or no.",
     },
     Stage.FULL_NAME: {
         Language.ES: "No me quedó claro tu nombre. ¿Me lo dices completo? Por ejemplo: Ana García López.",
-        Language.EN: "I didn't catch your name. Could you give me your full name? For example: Ana García López.",
+        Language.EN: "Could you please confirm your full name? I want to make sure it matches the application we received.",
     },
     Stage.HAS_LICENCE: {
         Language.ES: "Solo para confirmar: ¿tienes carnet de conducir vigente? Sí o no.",
-        Language.EN: "Just to confirm: do you have a valid driving licence? Yes or no.",
+        Language.EN: "Just to confirm: do you have a valid driving licence?",
     },
     Stage.ZONE: {
         Language.ES: "¿En qué ciudad vives? Así veo si tenemos restaurante cerca.",
@@ -24,19 +24,19 @@ REASK: dict[Stage, dict[Language, str]] = {
     },
     Stage.AVAILABILITY: {
         Language.ES: "¿Qué disponibilidad tienes: jornada completa, media jornada o fines de semana?",
-        Language.EN: "What availability do you have: full-time, part-time, or weekends?",
+        Language.EN: "When would you prefer to work? Are you available full-time, part-time, or on weekends?",
     },
     Stage.SCHEDULE: {
         Language.ES: "¿Qué turno prefieres: mañana, tarde, noche o flexible?",
-        Language.EN: "Which shift do you prefer: morning, afternoon, evening, or flexible?",
+        Language.EN: "Which time of day do you prefer to work? Would you like morning, afternoon, evening, or flexible shifts?",
     },
     Stage.EXPERIENCE: {
         Language.ES: "¿Cuántos años llevas en reparto y con qué plataformas? Si es tu primera vez, dime 0.",
-        Language.EN: "How many years of delivery experience do you have, and on which platforms? Say 0 if none.",
+        Language.EN: "How many years of delivery experience do you have, and for which restaurants or platforms? Say 0 if none.",
     },
     Stage.START_DATE: {
-        Language.ES: "¿Cuándo podrías empezar? Dame una fecha, por ejemplo el 3 de noviembre.",
-        Language.EN: "When could you start? Give me a date, for example 3 November.",
+        Language.ES: "¿Cuándo podrías empezar?",
+        Language.EN: "What day could you start with us?",
     },
 }
 

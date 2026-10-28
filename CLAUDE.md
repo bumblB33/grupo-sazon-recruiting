@@ -37,7 +37,7 @@ pyright                             # standard mode, config in pyproject.toml
 screening-cli                       # chat loop against the graph, needs PROJECT_ANTHROPIC_API_KEY or the provider's key
 uvicorn screening_agent.api.app:app --reload    # needs a Mongo at SCREENING_DATABASE_URL
 screening-nudge                     # silence sweep, run from cron every few minutes
-screening-admin invite <email>           # also recruiters, deactivate, reactivate, create-api-key <label>, api-keys, revoke-api-key
+screening-admin invite <email>           # also recruiters, deactivate, reactivate, create-api-key <label>, api-keys, revoke-api-key, start-from-file <path> [--dry-run] (applicants/applicants.example.json; the real file applicants/applicants.local.json is gitignored)
 docker compose up --build           # api and sweep bind-mount screening_agent and api reloads on edits; --build only after pyproject.toml or Dockerfile changes; api + sweep + mongo; add --profile tunnel for the ngrok public URL (NGROK_AUTHTOKEN, NGROK_URL)
 python -m evals.run_evals           # persona evals; --models a,b --judge --guardrail-models c,d --out docs for the bake-off (json, html); eval databases go to SCREENING_EVAL_DATABASE_URL, never SCREENING_DATABASE_URL
 python -m evals.render_report docs/bakeoff.json   # re-render html from saved results, no LLM calls

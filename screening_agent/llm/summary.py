@@ -10,7 +10,7 @@ Summarizer = Callable[[dict, str, list[AnyMessage]], AIMessage]
 SUMMARY_SYSTEM = (
     "You write a four-line recruiter summary of a delivery-driver screening. Line 1: outcome and reason. "
     "Line 2: key profile facts. Line 3: anything a recruiter should double-check. Line 4: suggested next step. "
-    "Plain text, no markdown, same language as the transcript."
+    "Plain text, no markdown, same language as the transcript. Don't restate the same information across lines."
 )
 
 

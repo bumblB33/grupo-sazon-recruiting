@@ -79,6 +79,10 @@ screening-admin deactivate ana@gruposazon.com
 
 Every override event records who did it (`recruiter:<email>` or `api_key:<label>`).
 
+### Seeding a demo from an applicant file
+
+`screening-admin start-from-file applicants/applicants.example.json --dry-run` validates a JSON list of `{name, phone, language}` and prints what it would open. Without `--dry-run` it opens a WhatsApp screening per row through the same path as `POST /candidates`, with the applicant name, and reports a phone that already has a conversation as skipped. The whole file is validated before anything is sent. Put real test candidates in `applicants/applicants.local.json`, which is gitignored.
+
 ### Twilio webhook
 
 `SCREENING_TWILIO_WEBHOOK_URL` is the public URL you type into the Twilio console as the WhatsApp sender's "when a message comes in" webhook, for example `https://<your-tunnel-host>/webhook/whatsapp`. Twilio signs that exact string. Set it when the app sees a different URL than Twilio called, which is the case behind a tunnel or reverse proxy, including the Docker stack behind the `ngrok` compose service (`docker compose --profile tunnel up`, with `NGROK_AUTHTOKEN` and `NGROK_URL` set). Leave it empty when Twilio reaches the app directly at the URL it signed.

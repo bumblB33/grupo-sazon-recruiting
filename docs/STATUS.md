@@ -95,6 +95,13 @@ Against `docs/Orbio-Assignment.md`. Rubric weights: technical build 40%, process
 - Whether the console restyle is back in scope. The 27 Oct decision says fonts and shell restyle stay untouched, and the maintainer has since done side UI and UX work. If it is back in scope, which palette wins: the Orbio tokens under "Recruiter console" or the bake-off report restyle. The token set is in `docs/process-design.md` ("Recruiter console").
 - Fonts for the console restyle: self-host Geist, Inter and IBM Plex Mono, or load from a CDN. A CDN fails on a call with poor network and sends visitor IPs to a third party. Self-hosting needs each font licence checked first.
 
+## Deferred past the deadline
+
+Not built, by decision, with the rationale and tradeoffs in `docs/process-design.md` ("Designed, not built"):
+
+- Intake page: a public form for name, phone, language and consent that runs the same path as `POST /candidates`. It existed to pass an SMS campaign review and the brief does not need it. The applicant file (`screening-admin start-from-file`) seeds the demo instead.
+- Async worker for many concurrent conversations: acknowledge the webhook fast, run the turn in a worker with a Mongo lease, reply through the REST sender. Twilio drops a reply slower than 15 s. Measure `latency_ms` from stored turn records before building it.
+
 ## Planned designs
 
 Designs for work in `PLAN.md` that is not built yet. Settings, routes and collections named in this section do not exist in the code. Designs with no plan to build them are in `docs/process-design.md` ("Designed, not built").

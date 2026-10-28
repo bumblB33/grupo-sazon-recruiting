@@ -17,7 +17,14 @@ from screening_agent.channels.email import (
 from screening_agent.config import settings
 from screening_agent.recruiter.i18n import DEFAULT_LOCALE, LOCALE_COOKIE, STRINGS
 from screening_agent.recruiter.router import CSRF_FIELD, LOGIN_PATH, RECRUITER_PREFIX
-from tests.conftest import RECRUITER_EMAIL, invite, log_in, screen_no_licence, twilio_form
+from tests.conftest import (
+    RECRUITER_EMAIL,
+    FakeOutbound,
+    invite,
+    log_in,
+    screen_no_licence,
+    twilio_form,
+)
 
 LIST = f"{RECRUITER_PREFIX}/"
 
@@ -418,3 +425,52 @@ def test_accept_language_picks_the_locale_without_a_cookie(client, signed):
     assert "set-cookie" not in english.headers
     spanish = client.get(LOGIN_PATH, headers={"Accept-Language": "fr-FR, es-ES;q=0.5"})
     assert "Correo electrónico de trabajo" in spanish.text
+
+
+def reset_path(candidate_id: str) -> str:
+    return f"{RECRUITER_PREFIX}/candidates/{candidate_id}/reset"
+
+
+def test_reset_button_and_route_exist_only_for_allowlisted_phones(client, monkeypatch):
+    screen_no_licence(client, "+34600")
+    client.post("/webhook/whatsapp", data=twilio_form("SM-other", "+34601", "sí"))
+    monkeypatch.setattr(settings, "demo_phones", ["+34600"])
+    assert reset_path("%2B34600") in client.get(f"{RECRUITER_PREFIX}/candidates/+34600").text
+    assert "/reset" not in client.get(f"{RECRUITER_PREFIX}/candidates/+34601").text
+    assert client.post(reset_path("+34601"), follow_redirects=False).status_code == 403
+    assert client.post(reset_path("nope"), follow_redirects=False).status_code == 403
+    monkeypatch.setattr(settings, "demo_phones", ["nope"])
+    assert client.post(reset_path("nope"), follow_redirects=False).status_code == 404
+
+
+def test_reset_archives_the_candidate_and_frees_the_phone(client, monkeypatch):
+    screen_no_licence(client, "+34600111222")
+    monkeypatch.setattr(settings, "demo_phones", ["+34600111222"])
+    response = client.post(reset_path("+34600111222"), follow_redirects=False)
+    assert response.status_code == 303
+    location = response.headers["location"]
+    assert location.startswith(f"{RECRUITER_PREFIX}/candidates/%2B34600111222")
+    page = client.get(location).text
+    assert "Archived" in page
+    assert "/reset" not in page
+    assert "no tengo carnet" in page
+    assert "demo_reset" in page
+    assert client.get("/candidates/+34600111222").status_code == 404
+    assert "+34600111222" not in client.get(LIST).text
+    api.app.dependency_overrides[api.get_whatsapp_outbound] = lambda: FakeOutbound()
+    started = client.post("/candidates", json={"phone": "+34600111222", "language": "es"})
+    assert started.status_code == 201, started.text
+
+
+def test_reset_form_needs_the_csrf_token_from_the_page(client, email, signed, monkeypatch):
+    log_in(client, email)
+    screen_no_licence(client, "+34600")
+    monkeypatch.setattr(settings, "demo_phones", ["+34600"])
+    assert client.post(reset_path("+34600"), follow_redirects=False).status_code == 403
+    page = client.get(f"{RECRUITER_PREFIX}/candidates/+34600").text
+    marker = f'name="{CSRF_FIELD}" value="'
+    token = page.split(marker, 1)[1].split('"', 1)[0]
+    genuine = {CSRF_FIELD: token}
+    assert (
+        client.post(reset_path("+34600"), data=genuine, follow_redirects=False).status_code == 303
+    )

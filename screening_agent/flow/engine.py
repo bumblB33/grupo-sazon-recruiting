@@ -158,6 +158,11 @@ class ScreeningEngine:
                 return False
             return True
 
+    def archive_candidate(self, candidate_id: str, actor: str) -> str | None:
+        """Under the candidate lock, so no turn in this process is mid-write when the id is freed."""
+        with self._locks[candidate_id]:
+            return self.repository.archive_candidate(candidate_id, actor)
+
     def sweep_silence(self, now: datetime, channels: Mapping[str, OutboundChannel]) -> SweepReport:
         """A channel with no outbound sender (CLI, evals) is never nudged, only abandoned on time."""
         with TRACER.start_as_current_span("sweep") as span:

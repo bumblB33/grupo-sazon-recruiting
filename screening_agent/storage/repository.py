@@ -1,3 +1,4 @@
+import uuid
 from collections import Counter
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -36,6 +37,9 @@ class DuplicateMessageError(RuntimeError):
 
 class UnansweredLimitError(RuntimeError):
     """The write would leave more agent messages unanswered than the limit allows."""
+
+
+ARCHIVE_ATTEMPTS = 3
 
 
 class Repository:
@@ -167,6 +171,53 @@ class Repository:
         )
         return Candidate(**_candidate_fields(document))
 
+    def archive_candidate(self, candidate_id: str, actor: str) -> str | None:
+        """Moves the document and its events under a new id so the candidate id is free again.
+        Standalone Mongo has no transactions, so each step is idempotent and the delete is fenced."""
+        for _ in range(ARCHIVE_ATTEMPTS):
+            fenced = self.candidates.find_one_and_update(
+                {"_id": candidate_id},
+                [
+                    {
+                        "$set": {
+                            "archive_id": {"$ifNull": ["$archive_id", _archive_id(candidate_id)]},
+                            "version": {"$add": ["$version", 1]},
+                        }
+                    }
+                ],
+                return_document=ReturnDocument.AFTER,
+            )
+            if fenced is None:
+                return None
+            archive_id = fenced["archive_id"]
+            copy = {
+                **fenced,
+                "_id": archive_id,
+                "state": {**fenced["state"], "candidate_id": archive_id},
+                "archived_at": utcnow(),
+                "archived_by": actor,
+            }
+            self.candidates.replace_one({"_id": archive_id}, copy, upsert=True)
+            self.events.update_many(
+                {"candidate_id": candidate_id}, {"$set": {"candidate_id": archive_id}}
+            )
+            self.events.update_one(
+                {"candidate_id": archive_id, "kind": "demo_reset"},
+                {
+                    "$setOnInsert": {
+                        "payload": {"actor": actor, "reset_id": candidate_id},
+                        "created_at": utcnow(),
+                    }
+                },
+                upsert=True,
+            )
+            deleted = self.candidates.delete_one(
+                {"_id": candidate_id, "archive_id": archive_id, "version": fenced["version"]}
+            )
+            if deleted.deleted_count == 1:
+                return archive_id
+        raise StaleStateError("conversation kept changing under the archive")
+
     def get_recruiter(self, email: str) -> Recruiter | None:
         document = self.recruiters.find_one({"_id": email})
         return None if document is None else _recruiter(document)
@@ -290,7 +341,7 @@ class Repository:
         self, status: str | None = None, stage: str | None = None, limit: int = 0, offset: int = 0
     ) -> list[Candidate]:
         """A limit of 0 returns every match, which is MongoDB's own meaning of limit 0."""
-        query: dict[str, Any] = {}
+        query: dict[str, Any] = dict(_LIVE)
         if status:
             query["status"] = status
         if stage:
@@ -321,7 +372,8 @@ class Repository:
         return [Event.model_validate(document) for document in cursor]
 
     def open_conversations(self) -> list[SilenceCandidate]:
-        cursor = self.candidates.find({"status": Status.IN_PROGRESS.value}, _SILENCE_FIELDS)
+        query = {**_LIVE, "status": Status.IN_PROGRESS.value}
+        cursor = self.candidates.find(query, _SILENCE_FIELDS)
         return [_silence_candidate(document) for document in cursor]
 
     def silence_candidate(self, candidate_id: str) -> SilenceCandidate | None:
@@ -329,7 +381,7 @@ class Repository:
         return None if document is None else _silence_candidate(document)
 
     def funnel(self) -> dict[str, dict[str, int]]:
-        rows = list(self.candidates.find({}, {"status": 1, "stage": 1}))
+        rows = list(self.candidates.find(_LIVE, {"status": 1, "stage": 1}))
         return {
             "by_status": dict(Counter(row["status"] for row in rows)),
             "by_stage": dict(Counter(row["stage"] for row in rows)),
@@ -410,6 +462,7 @@ class Repository:
 
 
 _CANDIDATE_FIELDS = {"state": 0, "transcript": 0}
+_LIVE = {"archived_at": {"$exists": False}}
 _SILENCE_FIELDS = {
     "channel": 1,
     "state.language": 1,
@@ -428,6 +481,10 @@ def _upserted(document: dict[str, Any] | None) -> dict[str, Any]:
 
 def str_or_none(value: Any) -> str | None:
     return None if value is None else str(value)
+
+
+def _archive_id(candidate_id: str) -> str:
+    return f"{candidate_id}~{uuid.uuid4().hex[:8]}"
 
 
 def _entry(

@@ -74,6 +74,9 @@ class Settings(BaseSettings):
     candidate_page_refresh_seconds: int = 5
     # Only dev mode lets the API run without a recruiter key or webhook secret.
     dev_mode: bool = False
+    # Candidate ids a recruiter may archive and reopen from the console. Separate from dev_mode so
+    # no real candidate can be reset by a stray flag.
+    demo_phones: list[str] = []
 
 
 settings = Settings()

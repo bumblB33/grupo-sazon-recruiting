@@ -28,6 +28,7 @@ export SCREENING_TWILIO_AUTH_TOKEN=...     # verifies X-Twilio-Signature on the 
 export SCREENING_TWILIO_WEBHOOK_URL=...    # the exact URL set in the Twilio console, see below
 export SCREENING_TWILIO_ACCOUNT_SID=...    # outbound: opener and nudges, used in the Messages URL
 export SCREENING_TWILIO_API_KEY_SID=SK...  # outbound REST auth (API key, not the auth token)
+# export SCREENING_DEMO_PHONES='["+34600111222"]'   # demo only: candidate ids a recruiter may reset from the console
 export SCREENING_TWILIO_API_KEY_SECRET=...
 export SCREENING_TWILIO_WHATSAPP_FROM=+14155238886
 export SCREENING_TWILIO_OPENER_CONTENT_SID=HX...   # approved opener template; plain text fallback in sandbox
@@ -199,7 +200,7 @@ Recruiters open a web page. There is no password. They type their work email and
 
 ### What is not built yet
 
-The voice-call channel, the silence scheduler inside the API and the demo reset are not built. The list of restaurant cities is sample data, not the client's real list of 45 locations. The test that compares AI models has not produced a valid run yet (see LLM choice). Remaining work is tracked in `docs/STATUS.md`.
+The voice-call channel, the silence scheduler inside the API, the recruiter console, the public intake page and the queue-backed worker are not built. Each has its rationale and tradeoffs in `docs/process-design.md` ("Designed, not built"). SMS is dropped. The unknown-number reply, candidate ids that are not phone numbers and the applicant name with its mismatch review are planned in `PLAN.md` and not built. The list of restaurant cities is sample data, not the client's real list of 45 locations. The test that compares AI models has not produced a valid run yet (see LLM choice). Remaining work is tracked in `docs/STATUS.md`.
 
 ## Architecture
 
@@ -422,6 +423,7 @@ sequenceDiagram
 - **Provider is configuration.** `SCREENING_LIVE_MODEL`, `SCREENING_SUMMARY_MODEL` and `SCREENING_GUARDRAIL_MODEL` take any `provider:model` id supported by LangChain. `llm/models.py` is the single constructor. Provider keys come from settings, so `.env` works outside Docker too: `PROJECT_ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `MISTRAL_API_KEY`. A missing key fails closed, so a shell `ANTHROPIC_API_KEY` is never billed by accident. Anthropic and OpenAI ids get no sampling parameters, Mistral runs at temperature 0, Bedrock and Vertex use their cloud credentials.
 - **Evals grade outputs, the judge grades words.** Personas are scripted turns because the stage order is fixed. Code graders check the final JSON, outcome and turn count. Reply style uses the same rules as the live reply policy (`flow/reply_policy.py`), applied to the raw model text, not to the fixed question that replaced it. The report shows the policy fallback rate per model. A fixed Haiku judge scores tone and summary usefulness so the bake-off compares models on the same yardstick.
 - **The bake-off fails loudly.** The run exits 1 when any persona fails or any scored guardrail classifier is below `--guardrail-min-accuracy` (default 0.9) or above `--guardrail-max-latency-seconds` at p95 (default 2.5), or below `--tone-min-accuracy` on the candidate-tone cases (default 0.8). An unavailable classifier scores zero and fails. Every turn, summary, guardrail and judge model id is constructed before the first paid call, so a missing key or unknown provider is a usage error, not a lost run. Eval databases live on `SCREENING_EVAL_DATABASE_URL` (default local Mongo), never on the app's `SCREENING_DATABASE_URL`. `--out` writes `bakeoff.json` (the results contract, with a `schema_version`) and `bakeoff.html`. The HTML report is self-contained, no JavaScript: per-model bar charts, a persona pass matrix, guardrail gates with threshold markers, and side-by-side transcripts with style flags, judge scores and summaries. Rebuild the report from the JSON with `python -m evals.render_report`. Cost per screening averages only personas that finished without an error, and a model with no replies shows n/a. p95 is the inclusive percentile over answered classifier calls, so failed calls never flatter the latency gate.
+- **Demo reset archives, never deletes.** A recruiter can reset a candidate whose id is in `SCREENING_DEMO_PHONES`, an allowlist separate from dev mode so no real candidate can be reset. The document and its events move under a new id (`<phone>~<suffix>`) with `archived_at` and `archived_by`, a `demo_reset` event records the actor, and the phone is free for a new screening. Standalone Mongo has no transactions, so the move is a fenced, idempotent sequence: a pipeline update sets the archive id once and bumps `version`, the copy is an upsert, the events are re-keyed, and the delete is keyed on that version. A turn that lands between the fence and the delete makes the delete miss, and the sequence repeats from the fence, at most three times. Archived copies are hidden from the list, the funnel and the silence sweep, and stay readable at their own page.
 
 ## LLM choice
 
@@ -465,9 +467,8 @@ In order of value for the client:
 1. **Run the bake-off to completion** with the workspace header fixed, then set the model defaults from the result instead of from design. The harness, the gates and the report exist.
 2. **Silence scheduler inside the API** with a sweep lease and per-nudge claims, so the compose `sweep` service and its one-process limit go away. Designed under "Deferred past the deadline" in `docs/STATUS.md`, not built.
 3. **Realistic personas and the real 45 locations.** The eval personas are clean scripted turns. Candidates write with typos, slang and one-word answers, and the service-area list is a 16-city sample.
-4. **Demo reset** for a phone that has already been screened, so one number can run the flow again.
-5. **Analytics series**: completion rate, drop-off stage and average duration, from timestamps the documents already carry. The funnel today counts by status and stage only.
-6. **Interview scheduling** as the step after `qualified`, as one more tool at the outcome stage.
-7. **ATS integration**: the JSON API already exposes `GET /candidates` and `GET /candidates/{id}` with the full profile, transcript and events, so the remaining design is an outbound webhook on the `outcome` event.
+4. **Analytics series**: completion rate, drop-off stage and average duration, from timestamps the documents already carry. The funnel today counts by status and stage only.
+5. **Interview scheduling** as the step after `qualified`, as one more tool at the outcome stage.
+6. **ATS integration**: the JSON API already exposes `GET /candidates` and `GET /candidates/{id}` with the full profile, transcript and events, so the remaining design is an outbound webhook on the `outcome` event.
 8. **Voice channel** on the same engine through Pipecat, with speech-to-text and text-to-speech as adapters. The engine takes text and returns text, so no screening logic changes.
 9. **Roles for recruiters.** Every recruiter and API key has the same rights today.

@@ -138,7 +138,9 @@ Runs `docker compose down` without `-v`, so the conversations in `mongo-data` su
 | `ngrok` container exits at once | Authtoken missing or wrong, or the domain belongs to another account | `docker compose --profile tunnel logs ngrok`, then `ngrok config add-authtoken` and re-run `demo-up.sh` |
 | Webhook answers 401 to Twilio | `SCREENING_TWILIO_AUTH_TOKEN` in `.env` is not the account's auth token, or the URL mismatch above | Check the token in the Twilio console, then the URL |
 | Webhook answers 503 | Twilio auth token unset and dev mode off | Set the token in `.env`, or dev mode in the override |
-| `POST /candidates` answers 409 | The phone already has a conversation | Use another number, or the demo reset once built |
+| `POST /candidates` answers 409 | The phone already has a conversation. The phone is the candidate id, so a finished or abandoned candidate blocks it too | Add the phone to `SCREENING_DEMO_PHONES` and press "Reset and archive" on its recruiter page, or use another number |
+| `POST /candidates` answers 500, `api` log shows `401 Unauthorized` for `Messages.json` | The Twilio API key SID or secret does not belong to `SCREENING_TWILIO_ACCOUNT_SID`. The opener is sent before the candidate is saved, so nothing was written | Run the key check below, fix `.env`, then `docker compose up -d --force-recreate api sweep` |
+| `POST /candidates` answers 500, Twilio error 63015 | The phone has not joined the sandbox, or its join expired | Send the join phrase from that phone |
 | Reply never arrives but the inspector shows the turn | Outbound is TwiML on the webhook response, so the turn did reply; Twilio could not deliver | Re-send the join phrase from the phone. A sandbox join expires after three days |
 | First reply takes long or 500s | Provider key missing or the org key lacks `PROJECT_ANTHROPIC_WORKSPACE_ID` | `docker compose logs api` for `ProviderKeyMissingError` or a 400 from the provider |
 | Login link not printed by `demo-login.sh` | Address not invited or domain not allowed | `docker compose exec api screening-admin invite <email>`; domain in the override |

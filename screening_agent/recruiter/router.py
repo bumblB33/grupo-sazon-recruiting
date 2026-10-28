@@ -3,6 +3,7 @@ import logging
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Literal
+from urllib.parse import quote
 
 from fastapi import APIRouter, Cookie, Depends, Form, HTTPException, Request, Response
 from fastapi.responses import RedirectResponse
@@ -19,6 +20,7 @@ from screening_agent.api.auth import (
 from screening_agent.api.deps import (
     RECRUITER_COOKIE,
     get_email_sender,
+    get_engine,
     get_repository,
     login_base_url,
     recruiter_from_cookie,
@@ -30,6 +32,12 @@ from screening_agent.api.deps import (
 from screening_agent.channels.email import EmailSender, EmailSendError
 from screening_agent.config import settings
 from screening_agent.domain.enums import Stage, Status
+from screening_agent.flow.engine import ScreeningEngine
+from screening_agent.recruiter.demo_reset import (
+    NotResettableError,
+    reset_demo_candidate,
+    resettable,
+)
 from screening_agent.recruiter.i18n import (
     LOCALE_COOKIE,
     LOCALE_COOKIE_MAX_AGE,
@@ -278,6 +286,7 @@ def candidate_page(
             "principal": principal,
             "csrf_field": CSRF_FIELD,
             "csrf_token": session_csrf_token(principal, recruiter_session),
+            "resettable": resettable(candidate.id, candidate.archived_at is not None),
         },
     )
 
@@ -301,6 +310,27 @@ def override_form(
     if repository.override(candidate_id, new_status, notes, principal.label) is None:
         raise HTTPException(status_code=404, detail="candidate not found")
     return RedirectResponse(f"{RECRUITER_PREFIX}/candidates/{candidate_id}", status_code=303)
+
+
+@authenticated_pages.post("/candidates/{candidate_id}/reset")
+def reset_form(
+    candidate_id: str,
+    csrf_token: str = Form(default="", alias=CSRF_FIELD),
+    engine: ScreeningEngine = Depends(get_engine),
+    principal: Principal = Depends(require_recruiter_page),
+    recruiter_session: str | None = Cookie(default=None, alias=RECRUITER_COOKIE),
+) -> Response:
+    """Demo only: archives the conversation under a new id so the same phone can start again."""
+    verify_csrf(principal, csrf_token, recruiter_session)
+    try:
+        archive_id = reset_demo_candidate(engine, candidate_id, principal.label)
+    except NotResettableError as exc:
+        raise HTTPException(status_code=403, detail="candidate is not a demo phone") from exc
+    if archive_id is None:
+        raise HTTPException(status_code=404, detail="candidate not found")
+    return RedirectResponse(
+        f"{RECRUITER_PREFIX}/candidates/{quote(archive_id, safe='')}", status_code=303
+    )
 
 
 recruiter_router.include_router(authenticated_pages)

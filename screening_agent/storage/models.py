@@ -24,6 +24,9 @@ class Candidate(BaseModel):
     recruiter_notes: str | None = None
     created_at: datetime
     updated_at: datetime
+    # Set on the copy a demo reset leaves behind; the live id is free again.
+    archived_at: datetime | None = None
+    archived_by: str | None = None
 
 
 class TranscriptEntry(BaseModel):

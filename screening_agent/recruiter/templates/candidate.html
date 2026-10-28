@@ -37,6 +37,8 @@
     .profile { background: var(--ink); color: var(--marigold); border-color: var(--ink); }
     .profile pre { color: var(--paper); }
     .override button { margin-top: 14px; }
+    .banner { margin: 12px 0 0; padding: 10px 14px; background: var(--marigold); color: var(--ink); border: 1.5px solid var(--ink); border-radius: 4px; }
+    .reset button { margin-top: 10px; }
     .override select { width: 100%; }
     .timeline { list-style: none; margin: 0; padding: 0 0 0 22px; border-left: 3px solid var(--ink); }
     .timeline li { position: relative; padding: 0 0 18px; animation: rise 450ms var(--ease) both; animation-delay: calc(min(var(--i), 20) * 40ms + 400ms); }
@@ -47,6 +49,7 @@
 {% endblock %}
 {% block content %}
 <a class="back" href="/recruiter/">&larr; Candidates</a>
+{% if candidate.archived_at %}<p class="banner">Archived copy. Reset by {{ candidate.archived_by }} on {{ candidate.archived_at.strftime("%Y-%m-%d %H:%M") }}. The phone is free for a new screening.</p>{% endif %}
 <h1 class="reveal">{{ candidate.profile.get("full_name") or candidate.id }}</h1>
 <p class="facts reveal" style="--i: 1">
   <span class="badge {{ candidate.status }}">{{ candidate.status }}</span>
@@ -92,7 +95,18 @@
       </form>
     </section>
 
-    <section class="profile card reveal" style="--i: 4">
+    {% if resettable %}
+    <section class="reset card reveal" style="--i: 4">
+      <h2>Demo reset</h2>
+      <p class="meta">Archives this conversation under a new id so the phone can start again.</p>
+      <form method="post" action="/recruiter/candidates/{{ candidate.id | urlencode }}/reset">
+        {% if csrf_token %}<input type="hidden" name="{{ csrf_field }}" value="{{ csrf_token }}">{% endif %}
+        <button type="submit">Reset and archive</button>
+      </form>
+    </section>
+    {% endif %}
+
+    <section class="profile card reveal" style="--i: 5">
       <h2>Profile</h2>
       <pre>{{ profile_json }}</pre>
     </section>

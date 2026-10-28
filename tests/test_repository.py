@@ -161,3 +161,58 @@ def test_deactivate_blocks_an_address_before_its_first_login(repository):
     assert not repository.get_recruiter("mallory@gruposazon.com").active
     # An invite after a block does not lift the block.
     assert not repository.invite_recruiter("mallory@gruposazon.com").active
+
+
+def test_archive_frees_the_id_and_keeps_transcript_and_events_under_the_archive_id(repository):
+    phone = "+34600111222"
+    saved(repository, phone)
+    repository.record_event(phone, "outcome", {"status": "qualified"})
+
+    archive_id = repository.archive_candidate(phone, actor="ana@gruposazon.com")
+
+    assert archive_id is not None and archive_id != phone
+    assert repository.get_candidate(phone) is None
+    assert repository.load_state(phone)["version"] == 0
+    archived = repository.get_candidate_detail(archive_id)
+    assert archived is not None
+    assert archived.archived_at is not None
+    assert archived.archived_by == "ana@gruposazon.com"
+    assert [e.body for e in archived.transcript] == ["hola", "reply"]
+    assert [(e.kind, e.candidate_id) for e in archived.events] == [
+        ("outcome", archive_id),
+        ("demo_reset", archive_id),
+    ]
+    assert archived.events[-1].payload == {"actor": "ana@gruposazon.com", "reset_id": phone}
+    assert repository.list_events(phone) == []
+    assert repository.archive_candidate(phone, actor="ana@gruposazon.com") is None
+
+
+def test_archived_copies_are_hidden_from_the_list_funnel_and_sweep(repository):
+    saved(repository, "+34600111222")
+    saved(repository, "+34600111223")
+    repository.archive_candidate("+34600111222", actor="dev-mode")
+    assert [c.id for c in repository.list_candidates()] == ["+34600111223"]
+    assert repository.funnel()["by_status"] == {"in_progress": 1}
+    assert [c.candidate_id for c in repository.open_conversations()] == ["+34600111223"]
+
+
+def test_archive_retries_when_a_writer_commits_after_the_fence(repository, monkeypatch):
+    phone = "+34600111222"
+    saved(repository, phone)
+    real_delete = repository.candidates.delete_one
+    interleaved: list[int] = []
+
+    def delete_after_a_turn(query):
+        if not interleaved:
+            interleaved.append(1)
+            state = repository.load_state(phone)
+            repository.save_turn(state, "cli", "late", "reply", external_id="late-1")
+        return real_delete(query)
+
+    monkeypatch.setattr(repository.candidates, "delete_one", delete_after_a_turn)
+    archive_id = repository.archive_candidate(phone, actor="dev-mode")
+    assert archive_id is not None
+    assert repository.get_candidate(phone) is None
+    archived = repository.get_candidate_detail(archive_id)
+    assert archived is not None
+    assert [e.body for e in archived.transcript] == ["hola", "reply", "late", "reply"]

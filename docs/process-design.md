@@ -64,7 +64,7 @@ Structured output is the JSON dump of `CandidateProfile`.
 | `needs_recruiter_review` | Code, on anything ambiguous | A recruiter will follow up | Reason code, transcript |
 | `abandoned` | Code, on silence | Nothing further | Drop-off stage |
 
-Only the two objective criteria disqualify automatically. Everything judgement-shaped goes to a human. Every outcome and override is written to an append-only event log with its reason.
+Only the two objective criteria disqualify automatically. A human decides everything that needs judgement. Every outcome and override goes to an append-only event log with its reason. The one exception is the demo reset, which re-keys a candidate's events to the archive id and adds a `demo_reset` event with the actor.
 
 ## Tone and length
 

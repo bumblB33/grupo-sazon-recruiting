@@ -1,5 +1,6 @@
 from screening_agent.config import settings
 from screening_agent.domain.enums import DisqualifyReason, Language, ReviewReason, Stage
+from screening_agent.domain.names import first_name
 
 REASK: dict[Stage, dict[Language, str]] = {
     Stage.CONSENT: {
@@ -41,6 +42,11 @@ ZONE_CONFIRM: dict[Language, str] = {
     Language.EN: "Do you mean {area}? Yes or no.",
 }
 
+NAME_CONFIRM: dict[Language, str] = {
+    Language.ES: "Solo para confirmar: ¿eres {name}? Sí o no.",
+    Language.EN: "Just to confirm: are you {name}? Yes or no.",
+}
+
 DISQUALIFIED: dict[DisqualifyReason, dict[Language, str]] = {
     DisqualifyReason.NO_LICENCE: {
         Language.ES: "Gracias por tu tiempo. Para repartir necesitamos carnet de conducir vigente, así que por ahora no podemos avanzar. Guardamos tu solicitud por si cambia tu situación.",
@@ -69,6 +75,10 @@ REVIEW: dict[ReviewReason, dict[Language, str]] = {
         Language.ES: "Lo dejamos por hoy. Si quieres seguir con la solicitud, un reclutador te contactará.",
         Language.EN: "Let's leave it for today. If you want to continue your application, a recruiter will contact you.",
     },
+    ReviewReason.NAME_MISMATCH: {
+        Language.ES: "Gracias. Un reclutador revisará los datos de tu solicitud y te escribe.",
+        Language.EN: "Thanks. A recruiter will check your application details and get back to you.",
+    },
 }
 
 OFF_TOPIC_REDIRECT: dict[Language, str] = {
@@ -82,8 +92,13 @@ QUALIFIED: dict[Language, str] = {
 }
 
 OPENER: dict[Language, str] = {
-    Language.ES: "¡Hola! Soy {assistant}, el asistente de IA de Grupo Sazón. Recibimos tu solicitud para repartidor y esta conversación queda registrada. ¿Es buen momento para unas preguntas rápidas?",
-    Language.EN: "Hi! I'm {assistant}, the AI assistant for Grupo Sazón. We received your delivery-driver application and this conversation is recorded. Is now a good moment for a few quick questions?",
+    Language.ES: "{greeting} Soy {assistant}, el asistente de IA de Grupo Sazón. Recibimos tu solicitud para repartidor y esta conversación queda registrada. ¿Es buen momento para unas preguntas rápidas?",
+    Language.EN: "{greeting} I'm {assistant}, the AI assistant for Grupo Sazón. We received your delivery-driver application and this conversation is recorded. Is now a good moment for a few quick questions?",
+}
+
+GREETING: dict[Language, tuple[str, str]] = {
+    Language.ES: ("¡Hola!", "¡Hola, {first_name}!"),
+    Language.EN: ("Hi!", "Hi, {first_name}!"),
 }
 
 NUDGE: dict[Language, str] = {
@@ -99,8 +114,11 @@ UNKNOWN_NUMBER = (
 )
 
 
-def opener(language: Language) -> str:
-    return OPENER[language].format(assistant=settings.assistant_name)
+def opener(language: Language, applicant_name: str | None = None) -> str:
+    plain, named = GREETING[language]
+    name = first_name(applicant_name or "")
+    greeting = named.format(first_name=name) if name else plain
+    return OPENER[language].format(greeting=greeting, assistant=settings.assistant_name)
 
 
 def unknown_number() -> str:

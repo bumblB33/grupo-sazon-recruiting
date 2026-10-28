@@ -9,6 +9,7 @@ class ReplySource(StrEnum):
     TERMINAL = "terminal"
     REASK = "reask"
     ZONE_CONFIRM = "zone_confirm"
+    NAME_CONFIRM = "name_confirm"
     MODEL_TEXT = "model_text"
     POLICY_FALLBACK = "policy_fallback"
     NEXT_QUESTION = "next_question"

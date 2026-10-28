@@ -28,7 +28,12 @@ class UnexpectedModelOutputError(RuntimeError):
 
 def exposed_tools(state: Mapping[str, Any]):
     profile = CandidateProfile.model_validate(state.get("profile", {}))
-    return tools_for(stage_of(state), profile.missing_fields(), bool(state.get("pending_zone")))
+    return tools_for(
+        stage_of(state),
+        profile.missing_fields(),
+        bool(state.get("pending_zone")),
+        bool(state.get("pending_name")),
+    )
 
 
 def build_graph(llm: BaseChatModel, build_prompt: PromptBuilder, model_id: str = ""):
@@ -65,6 +70,7 @@ def build_graph(llm: BaseChatModel, build_prompt: PromptBuilder, model_id: str =
         reask_stages: list[Stage] = []
         strike_stages: list[Stage] = []
         confirm_area: str | None = None
+        confirm_name: str | None = None
 
         for call in last.tool_calls:
             if turn_state.closed:
@@ -92,12 +98,15 @@ def build_graph(llm: BaseChatModel, build_prompt: PromptBuilder, model_id: str =
             call_records.append(ToolCallRecord(name=call["name"], accepted=True))
             turn_state.apply(transition.updates)
             confirm_area = transition.confirm_area or confirm_area
+            confirm_name = transition.confirm_name or confirm_name
 
         for stage in strike_stages:
             turn_state.apply(_count_rejection(turn_state.working, stage))
         turn_state.apply(qualify_if_complete(turn_state.working))
 
-        choice = _choose_reply(turn_state.working, language, reask_stages, confirm_area, last.text)
+        choice = _choose_reply(
+            turn_state.working, language, reask_stages, confirm_area, confirm_name, last.text
+        )
         replaced = choice.text != last.text
         if replaced:
             tool_messages.append(AIMessage(content=choice.text))
@@ -170,6 +179,7 @@ def _choose_reply(
     language: Language,
     reask_stages: list[Stage],
     confirm_area: str | None,
+    confirm_name: str | None,
     model_text: str,
 ) -> "ReplyChoice":
     terminal = _terminal_reply(state, language)
@@ -181,6 +191,9 @@ def _choose_reply(
     if confirm_area:
         text = replies.ZONE_CONFIRM[language].format(area=confirm_area)
         return ReplyChoice(text, ReplySource.ZONE_CONFIRM)
+    if confirm_name:
+        text = replies.NAME_CONFIRM[language].format(name=confirm_name)
+        return ReplyChoice(text, ReplySource.NAME_CONFIRM)
     next_question = replies.REASK[stage_of(state)][language]
     if not model_text:
         return ReplyChoice(next_question, ReplySource.NEXT_QUESTION)

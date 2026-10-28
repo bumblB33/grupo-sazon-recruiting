@@ -21,6 +21,10 @@ class ScreeningState(TypedDict, total=False):
     profile: dict[str, Any]
     consent: bool | None
     pending_zone: str | None
+    # The name on the application, when the client sent one. Never set by the candidate.
+    applicant_name: str | None
+    # A validated name the candidate gave that does not match the application, awaiting confirm_name.
+    pending_name: str | None
     status: Required[Status]
     disqualify_reason: DisqualifyReason | None
     review_reason: ReviewReason | None
@@ -42,6 +46,8 @@ def initial_state(candidate_id: str) -> ScreeningState:
         profile={},
         consent=None,
         pending_zone=None,
+        applicant_name=None,
+        pending_name=None,
         status=Status.IN_PROGRESS,
         disqualify_reason=None,
         review_reason=None,

@@ -27,6 +27,7 @@ from tests.conftest import (
 )
 
 PHONE = "+34600111222"
+APPLICANT = "Zacarías Quintanilla"
 
 
 def test_candidate_hash_is_keyed_and_absent_without_secret(monkeypatch):
@@ -93,7 +94,7 @@ def test_no_contact_details_or_message_text_leave_the_service(client, email, mon
     outbound = FakeOutbound()
     api.app.dependency_overrides[api.get_whatsapp_outbound] = lambda: outbound
 
-    client.post("/candidates", json={"phone": PHONE, "language": "es"})
+    client.post("/candidates", json={"phone": PHONE, "language": "es", "name": APPLICANT})
     screen_no_licence(client, PHONE)
     log_in(client, email)
     login_link = email.last_link()
@@ -122,6 +123,7 @@ def test_no_contact_details_or_message_text_leave_the_service(client, email, mon
         value
         for value in (PHONE, PHONE.removeprefix("+"), RECRUITER_EMAIL, login_link.rsplit("/", 1)[1])
         + tuple(NO_LICENCE_TURNS[1:])
+        + (APPLICANT, APPLICANT.split()[0])
         if value in exported
     ]
     assert leaked == []

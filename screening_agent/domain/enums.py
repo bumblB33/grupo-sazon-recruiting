@@ -46,6 +46,7 @@ class ReviewReason(StrEnum):
     LOW_CONFIDENCE_ZONE = "low_confidence_zone"
     REPEATED_INVALID_ANSWER = "repeated_invalid_answer"
     OFF_TOPIC_CLOSE = "off_topic_close"
+    NAME_MISMATCH = "name_mismatch"
 
 
 class Stage(StrEnum):

@@ -50,7 +50,7 @@
     {% for candidate in candidates %}
       <tr style="--i: {{ loop.index0 }}">
         <td><a href="/recruiter/candidates/{{ candidate.id | urlencode }}">{{ candidate.id }}</a></td>
-        <td class="name">{{ candidate.profile.get("full_name", "") }}</td>
+        <td class="name">{{ candidate.profile.get("full_name") or candidate.applicant_name or "" }}</td>
         <td><span class="badge {{ candidate.status }}">{{ candidate.status }}</span></td>
         <td class="mono">{{ candidate.stage }}</td>
         <td class="mono">{{ candidate.disqualify_reason or candidate.review_reason or "" }}</td>

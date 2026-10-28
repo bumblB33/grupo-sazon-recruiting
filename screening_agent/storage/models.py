@@ -20,6 +20,8 @@ class Candidate(BaseModel):
     disqualify_reason: str | None = None
     review_reason: str | None = None
     profile: dict[str, Any] = Field(default_factory=dict)
+    # The name on the application, from the client that opened the conversation; not what the candidate said.
+    applicant_name: str | None = None
     summary: str | None = None
     recruiter_notes: str | None = None
     created_at: datetime

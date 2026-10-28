@@ -1,8 +1,9 @@
 from datetime import date, timedelta
 
-from screening_agent.domain.enums import DisqualifyReason, ReviewReason, Status
-from screening_agent.flow.engine import Outcome
-from tests.conftest import ai, ai_multi
+from screening_agent.domain.enums import DisqualifyReason, Language, ReviewReason, Status
+from screening_agent.flow.engine import Outcome, _nudge_text
+from screening_agent.flow.turn_record import ReplySource
+from tests.conftest import FakeOutbound, ai, ai_multi
 
 CONSENT = ai("Hola", "record_consent", {"accepted": True})
 NAME = ai("¿Nombre?", "record_full_name", {"full_name": "Ana García"})
@@ -443,3 +444,63 @@ def test_prompt_adds_a_calmer_instruction_for_confused_or_frustrated_candidates(
     frustrated = build_prompt({**state, "tone": "frustrated"}, Stage.CONSENT)
     assert confused.startswith(neutral) and frustrated.startswith(neutral)
     assert confused != neutral and frustrated != neutral and confused != frustrated
+
+
+def start_with_name(engine, applicant_name: str) -> FakeOutbound:
+    outbound = FakeOutbound()
+    assert engine.start_conversation(
+        "cand", "cli", Language.ES, outbound, applicant_name=applicant_name
+    )
+    return outbound
+
+
+def test_matching_name_is_recorded_without_a_confirmation_turn(make_engine):
+    engine, repository, model = make_engine([CONSENT, NAME, LICENCE])
+    outbound = start_with_name(engine, "Ana María García López")
+    assert outbound.openers[0][1].startswith("¡Hola, Ana!")
+    assert outbound.openers[0][2] == "Ana"
+    drive(engine, ["sí", "Ana García", "sí"])
+    candidate = repository.get_candidate("cand")
+    assert candidate.applicant_name == "Ana María García López"
+    assert candidate.profile["full_name"] == "Ana García"
+    assert candidate.stage == "zone"
+    assert all("confirm_name" not in bound for bound in model.bound_tool_names)
+
+
+def test_mismatched_name_asks_a_fixed_confirmation_then_accepts(make_engine):
+    engine, repository, model = make_engine(
+        [CONSENT, NAME, ai("ok", "confirm_name", {"confirmed": True}), LICENCE]
+    )
+    start_with_name(engine, "Pedro Martínez")
+    replies = drive(engine, ["sí", "Ana García", "sí", "sí"])
+    assert replies[1] == "Solo para confirmar: ¿eres Pedro Martínez? Sí o no."
+    assert model.bound_tool_names[2][0] == "confirm_name"
+    assert "record_full_name" not in model.bound_tool_names[2]
+    candidate = repository.get_candidate("cand")
+    assert candidate.profile["full_name"] == "Ana García"
+    assert candidate.stage == "zone"
+    assert candidate.status == Status.IN_PROGRESS
+    detail = repository.get_candidate_detail("cand")
+    assert detail.transcript[3].turn.reply_source == ReplySource.NAME_CONFIRM
+
+
+def test_denied_name_confirmation_goes_to_recruiter_review(make_engine):
+    engine, repository, _ = make_engine(
+        [CONSENT, NAME, ai("ok", "confirm_name", {"confirmed": False})]
+    )
+    start_with_name(engine, "Pedro Martínez")
+    replies = drive(engine, ["sí", "Ana García", "no"])
+    candidate = repository.get_candidate("cand")
+    assert candidate.status == Status.NEEDS_RECRUITER_REVIEW
+    assert candidate.review_reason == ReviewReason.NAME_MISMATCH
+    assert "reclutador" in replies[-1]
+    assert candidate.profile.get("full_name") is None
+
+
+def test_nudge_repeats_the_name_confirmation_while_it_is_pending(make_engine):
+    engine, repository, _ = make_engine([CONSENT, NAME])
+    start_with_name(engine, "Pedro Martínez")
+    drive(engine, ["sí", "Ana García"])
+    state = repository.load_state("cand")
+    assert state["pending_name"] == "Ana García"
+    assert "Pedro Martínez" in _nudge_text(state, Language.ES)

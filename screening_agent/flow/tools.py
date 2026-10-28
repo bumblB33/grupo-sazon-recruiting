@@ -19,6 +19,12 @@ def record_full_name(full_name: str) -> dict:
 
 
 @tool
+def confirm_name(confirmed: bool) -> dict:
+    """Record the candidate's yes/no answer to whether they are the person on the application."""
+    return {"name_confirmed": confirmed}
+
+
+@tool
 def record_licence(has_licence: bool) -> dict:
     """Record whether the candidate holds a valid driving licence."""
     return {"has_licence": has_licence}
@@ -75,29 +81,36 @@ ALL_TOOLS: dict[str, BaseTool] = {
     stage_tool.name: stage_tool
     for stage_tools in TOOLS_BY_STAGE.values()
     for stage_tool in stage_tools
-} | {confirm_zone.name: confirm_zone}
+} | {confirm_zone.name: confirm_zone, confirm_name.name: confirm_name}
 
 TOOL_STAGE: dict[str, Stage] = {
     stage_tool.name: stage
     for stage, stage_tools in TOOLS_BY_STAGE.items()
     for stage_tool in stage_tools
-} | {confirm_zone.name: Stage.ZONE}
+} | {confirm_zone.name: Stage.ZONE, confirm_name.name: Stage.FULL_NAME}
 
 
-def tools_for(stage: Stage, missing_fields: list[str], pending_zone: bool) -> list[BaseTool]:
+def tools_for(
+    stage: Stage, missing_fields: list[str], pending_zone: bool, pending_name: bool = False
+) -> list[BaseTool]:
     """Exposes every tool for a still-missing field from the current stage on, so one message can fill several."""
     if stage == Stage.CONSENT:
         return [record_consent]
     if stage == Stage.OUTCOME:
         return []
-    exposed: list[BaseTool] = [confirm_zone] if pending_zone else []
+    exposed: list[BaseTool] = []
+    if pending_name:
+        exposed.append(confirm_name)
+    if pending_zone:
+        exposed.append(confirm_zone)
+    awaiting_confirmation = {Stage.ZONE: pending_zone, Stage.FULL_NAME: pending_name}
     reached = False
     for field_name, field_stage in REQUIRED_FIELD_ORDER:
         reached = reached or field_stage == stage
         if (
             reached
             and field_name in missing_fields
-            and not (pending_zone and field_stage == Stage.ZONE)
+            and not awaiting_confirmation.get(field_stage, False)
         ):
             exposed.extend(TOOLS_BY_STAGE[field_stage])
     return exposed

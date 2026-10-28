@@ -406,6 +406,7 @@ class Repository:
             "disqualify_reason": str_or_none(state.get("disqualify_reason")),
             "review_reason": str_or_none(state.get("review_reason")),
             "profile": state.get("profile", {}),
+            "applicant_name": state.get("applicant_name"),
             "channel": channel,
             "version": expected + 1,
             "state": {

@@ -96,6 +96,12 @@ class StartRequest(BaseModel):
 
     phone: str = Field(pattern=r"^\+[1-9]\d{6,14}$", description="E.164, the candidate id")
     language: Language = Language.ES
+    name: str | None = Field(
+        default=None,
+        max_length=120,
+        description="Applicant name from the application; personalises the opener and is checked "
+        "against the name the candidate gives",
+    )
 
 
 class StartResponse(BaseModel):
@@ -136,7 +142,9 @@ def start_candidate(
     engine: ScreeningEngine = Depends(get_engine),
     outbound: OutboundChannel = Depends(get_whatsapp_outbound),
 ) -> StartResponse:
-    started = engine.start_conversation(body.phone, "whatsapp", body.language, outbound)
+    started = engine.start_conversation(
+        body.phone, "whatsapp", body.language, outbound, applicant_name=body.name
+    )
     if not started:
         raise HTTPException(status_code=409, detail="candidate already exists")
     return StartResponse(candidate_id=body.phone)

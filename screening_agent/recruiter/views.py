@@ -9,6 +9,7 @@ REPLY_SOURCE_LABELS: dict[ReplySource, str] = {
     ReplySource.TERMINAL: "fixed closing message",
     ReplySource.REASK: "fixed re-ask",
     ReplySource.ZONE_CONFIRM: "fixed zone confirmation",
+    ReplySource.NAME_CONFIRM: "fixed name confirmation",
     ReplySource.MODEL_TEXT: "model text, passed the reply rules",
     ReplySource.POLICY_FALLBACK: "fixed question, model text broke a reply rule",
     ReplySource.NEXT_QUESTION: "fixed next question",

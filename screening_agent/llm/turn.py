@@ -29,10 +29,16 @@ CONSENT_AFTER_OPENER = (
 
 def build_prompt(state: ScreeningState, stage: Stage) -> str:
     pending = state.get("pending_zone")
+    applicant = state.get("applicant_name")
     if pending:
         goal = (
             f"The candidate's city was not an exact match; the closest service area is {pending}. "
             f"Ask if they mean {pending} and call confirm_zone with their answer."
+        )
+    elif state.get("pending_name"):
+        goal = (
+            f"The name they gave does not match the application, which is under {applicant}. "
+            f"Ask if they are {applicant} and call confirm_name with their answer."
         )
     elif stage == Stage.CONSENT and _opened_by_agent(state):
         goal = CONSENT_AFTER_OPENER
@@ -40,6 +46,11 @@ def build_prompt(state: ScreeningState, stage: Stage) -> str:
         goal = STAGE_GOAL[stage]
     today = candidate_today(state.get("profile", {}).get("zone"))
     tone = TONE_GUIDANCE.get(state.get("tone", ""))
+    applicant_line = (
+        f"The application is under the name {applicant}; use the first name sparingly.\n"
+        if applicant
+        else ""
+    )
     prompt = (
         f"You are {settings.assistant_name}, the hiring assistant for Grupo Sazón, a restaurant chain hiring "
         "delivery drivers in Spain and Mexico. You are an AI and never pretend to be human.\n"
@@ -48,6 +59,7 @@ def build_prompt(state: ScreeningState, stage: Stage) -> str:
         "message (Spanish or English). This is messaging, not email: no greetings beyond the first message, "
         "no bullet lists.\n"
         f"Today is {today.isoformat()} where the candidate lives.\n"
+        f"{applicant_line}"
         f"Current goal: {goal}\n"
         "Whenever the candidate gives information that one of your tools records, call that tool in the same "
         "message as your reply. If they answer several questions at once, call several tools. If the answer is "

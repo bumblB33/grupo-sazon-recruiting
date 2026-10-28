@@ -206,13 +206,20 @@ def test_webhook_rejects_form_without_message_sid(client):
 def test_start_candidate_sends_opener_once(client):
     outbound = FakeOutbound()
     api.app.dependency_overrides[api.get_whatsapp_outbound] = lambda: outbound
-    created = client.post("/candidates", json={"phone": "+34600111222", "language": "en"})
+    created = client.post(
+        "/candidates", json={"phone": "+34600111222", "language": "en", "name": "Ana García"}
+    )
     assert created.status_code == 201
     assert created.json() == {"candidate_id": "+34600111222", "status": "in_progress"}
     assert client.post("/candidates", json={"phone": "+34600111222"}).status_code == 409
-    assert [phone for phone, _ in outbound.openers] == ["+34600111222"]
+    assert [phone for phone, _, _ in outbound.openers] == ["+34600111222"]
+    assert outbound.openers[0][1].startswith("Hi, Ana! I'm")
     assert "AI assistant" in outbound.openers[0][1]
-    assert client.get("/candidates/+34600111222").json()["stage"] == "consent"
+    detail = client.get("/candidates/+34600111222").json()
+    assert detail["stage"] == "consent"
+    assert detail["applicant_name"] == "Ana García"
+    assert "Ana García" in client.get("/recruiter/candidates/+34600111222").text
+    assert "Ana García" in client.get("/recruiter/").text
     assert client.post("/candidates", json={"phone": "whatsapp:+34"}).status_code == 422
 
 

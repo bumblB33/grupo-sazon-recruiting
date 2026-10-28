@@ -50,12 +50,13 @@
 {% block content %}
 <a class="back" href="/recruiter/">&larr; Candidates</a>
 {% if candidate.archived_at %}<p class="banner">Archived copy. Reset by {{ candidate.archived_by }} on {{ candidate.archived_at.strftime("%Y-%m-%d %H:%M") }}. The phone is free for a new screening.</p>{% endif %}
-<h1 class="reveal">{{ candidate.profile.get("full_name") or candidate.id }}</h1>
+<h1 class="reveal">{{ candidate.profile.get("full_name") or candidate.applicant_name or candidate.id }}</h1>
 <p class="facts reveal" style="--i: 1">
   <span class="badge {{ candidate.status }}">{{ candidate.status }}</span>
   <span>stage <strong class="mono">{{ candidate.stage }}</strong></span>
   {% set reason = candidate.disqualify_reason or candidate.review_reason %}
   {% if reason %}<span>reason <strong class="mono">{{ reason }}</strong></span>{% endif %}
+  {% if candidate.applicant_name %}<span>application <strong>{{ candidate.applicant_name }}</strong></span>{% endif %}
   <span class="meta">{{ candidate.id }} · updated {{ candidate.updated_at.strftime("%Y-%m-%d %H:%M") }}</span>
 </p>
 

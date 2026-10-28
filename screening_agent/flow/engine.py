@@ -13,6 +13,7 @@ from opentelemetry.trace import Span
 
 from screening_agent.config import settings
 from screening_agent.domain.enums import Language, ReviewReason, Status
+from screening_agent.domain.names import first_name
 from screening_agent.flow import replies
 from screening_agent.flow.graph import build_graph
 from screening_agent.flow.silence import (
@@ -48,8 +49,9 @@ class OutboundChannel(Protocol):
 
     def send_text(self, candidate_id: str, text: str) -> None: ...
 
-    def send_opener(self, candidate_id: str, text: str) -> None:
-        """Delivers the first contact; a channel may substitute an approved template for the text."""
+    def send_opener(self, candidate_id: str, text: str, first_name: str | None = None) -> None:
+        """Delivers the first contact; a channel may substitute an approved template for the text,
+        with the first name as its variable."""
         ...
 
 
@@ -143,16 +145,22 @@ class ScreeningEngine:
             raise StaleStateError("state kept changing under the turn")
 
     def start_conversation(
-        self, candidate_id: str, channel: str, language: Language, outbound: OutboundChannel
+        self,
+        candidate_id: str,
+        channel: str,
+        language: Language,
+        outbound: OutboundChannel,
+        applicant_name: str | None = None,
     ) -> bool:
         """False when the candidate already exists."""
         with self._locks[candidate_id]:
             if self.repository.conversation_exists(candidate_id):
                 return False
-            text = replies.opener(language)
-            outbound.send_opener(candidate_id, text)
+            text = replies.opener(language, applicant_name)
+            outbound.send_opener(candidate_id, text, first_name(applicant_name or "") or None)
             state = initial_state(candidate_id)
             state["language"] = language
+            state["applicant_name"] = applicant_name
             state["messages"] = [AIMessage(content=text)]
             try:
                 self.repository.save_opener(state, channel, text)
@@ -365,6 +373,8 @@ def _nudge_text(state: ScreeningState, language: Language) -> str:
     pending = state.get("pending_zone")
     if pending:
         question = replies.ZONE_CONFIRM[language].format(area=pending)
+    elif state.get("pending_name"):
+        question = replies.NAME_CONFIRM[language].format(name=state.get("applicant_name"))
     else:
         question = replies.REASK[stage_of(state)][language]
     return replies.NUDGE[language].format(question=question)

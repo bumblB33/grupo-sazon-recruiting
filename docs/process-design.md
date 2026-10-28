@@ -23,7 +23,7 @@ Consent and the full name come first. Both hard stops (licence and zone) come be
 | # | Stage | Tool exposed to the LLM | Branch |
 | --- | --- | --- | --- |
 | 1 | Consent | `record_consent` | No: close politely, `needs_recruiter_review` |
-| 2 | Full name | `record_full_name` | Invalid: re-ask once |
+| 2 | Full name | `record_full_name`, `confirm_name` | Invalid: re-ask once. Differs from the application name: confirm once, then `needs_recruiter_review` if denied |
 | 3 | Driving licence | `record_licence` | No: `disqualified`, reason `no_licence` |
 | 4 | City or zone | `record_zone`, `confirm_zone` | No match: `disqualified`, reason `outside_service_area`. Fuzzy match: confirm, then `needs_recruiter_review` if denied |
 | 5 | Availability | `record_availability` | Invalid: re-ask once |
@@ -51,7 +51,7 @@ Rules live in code, not in prompts. Each rule is a Pydantic validator on one mod
 
 | Field | Validation | On failure |
 | --- | --- | --- |
-| Full name | Two or more alphabetic words | Re-ask with an example |
+| Full name | Two or more alphabetic words. When the application carries a name, similarity of 0.8 or more (token set, case and accent insensitive): accept. Below: confirm | Re-ask with an example. Confirm denied: recruiter review, reason `name_mismatch` |
 | Driving licence | Yes or no | No: disqualify |
 | City or zone | Exact match on a service area name or alias (case and accent insensitive): accept. Fuzzy score of 70 or more: confirm. Score below 70: out | Out: disqualify. Confirm denied: recruiter review |
 | Availability | One or more of full-time, part-time, weekends | Re-ask with options |

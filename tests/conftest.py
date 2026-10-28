@@ -115,13 +115,13 @@ class FakeOutbound:
 
     def __init__(self) -> None:
         self.texts: list[tuple[str, str]] = []
-        self.openers: list[tuple[str, str]] = []
+        self.openers: list[tuple[str, str, str | None]] = []
 
     def send_text(self, candidate_id: str, text: str) -> None:
         self.texts.append((candidate_id, text))
 
-    def send_opener(self, candidate_id: str, text: str) -> None:
-        self.openers.append((candidate_id, text))
+    def send_opener(self, candidate_id: str, text: str, first_name: str | None = None) -> None:
+        self.openers.append((candidate_id, text, first_name))
 
 
 def classifier(category: GuardrailCategory, raw: AIMessage | None = None) -> RunnableLambda:

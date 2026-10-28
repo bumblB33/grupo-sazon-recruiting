@@ -33,11 +33,6 @@ from screening_agent.channels.email import EmailSender, EmailSendError
 from screening_agent.config import settings
 from screening_agent.domain.enums import Stage, Status
 from screening_agent.flow.engine import ScreeningEngine
-from screening_agent.recruiter.demo_reset import (
-    NotResettableError,
-    reset_demo_candidate,
-    resettable,
-)
 from screening_agent.recruiter.i18n import (
     LOCALE_COOKIE,
     LOCALE_COOKIE_MAX_AGE,
@@ -286,7 +281,7 @@ def candidate_page(
             "principal": principal,
             "csrf_field": CSRF_FIELD,
             "csrf_token": session_csrf_token(principal, recruiter_session),
-            "resettable": resettable(candidate.id, candidate.archived_at is not None),
+            "resettable": candidate.id in settings.demo_phones,
         },
     )
 
@@ -322,10 +317,9 @@ def reset_form(
 ) -> Response:
     """Demo only: archives the conversation under a new id so the same phone can start again."""
     verify_csrf(principal, csrf_token, recruiter_session)
-    try:
-        archive_id = reset_demo_candidate(engine, candidate_id, principal.label)
-    except NotResettableError as exc:
-        raise HTTPException(status_code=403, detail="candidate is not a demo phone") from exc
+    if candidate_id not in settings.demo_phones:
+        raise HTTPException(status_code=403, detail="candidate is not a demo phone")
+    archive_id = engine.archive_candidate(candidate_id, principal.label)
     if archive_id is None:
         raise HTTPException(status_code=404, detail="candidate not found")
     return RedirectResponse(

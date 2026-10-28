@@ -100,8 +100,15 @@ class ScreeningEngine:
         self._locks: defaultdict[str, threading.Lock] = defaultdict(threading.Lock)
 
     def handle(
-        self, candidate_id: str, text: str, channel: str, external_id: str | None = None
+        self,
+        candidate_id: str,
+        text: str,
+        channel: str,
+        external_id: str | None = None,
+        create_if_missing: bool = True,
     ) -> HandleResult:
+        """With create_if_missing False an id with no conversation gets Outcome.UNKNOWN under the
+        lock, so a reset between a caller's check and this call cannot open an opener-less one."""
         hashed = candidate_hash(candidate_id)
         with self._locks[candidate_id], TRACER.start_as_current_span("handle") as span:
             span.set_attribute("channel", channel)
@@ -112,6 +119,8 @@ class ScreeningEngine:
             for _ in range(STALE_RETRIES + 1):
                 started = time.perf_counter()
                 state = self.repository.load_state(candidate_id)
+                if not create_if_missing and state.get("version", 0) == 0:
+                    return _traced(span, HandleResult(Outcome.UNKNOWN))
                 if is_closed(state):
                     self.repository.record_message(candidate_id, "in", channel, text, external_id)
                     return _traced(span, HandleResult(Outcome.CLOSED))
@@ -156,8 +165,9 @@ class ScreeningEngine:
         with self._locks[candidate_id]:
             if self.repository.conversation_exists(candidate_id):
                 return False
-            text = replies.opener(language, applicant_name)
-            outbound.send_opener(candidate_id, text, first_name(applicant_name or "") or None)
+            name = _first_name(applicant_name)
+            text = replies.opener(language, name)
+            outbound.send_opener(candidate_id, text, name)
             state = initial_state(candidate_id)
             state["language"] = language
             state["applicant_name"] = applicant_name
@@ -216,7 +226,7 @@ class ScreeningEngine:
                 return
             latency_ms = elapsed_ms(started, time.perf_counter())
             _set_usage(span, usage_of(message, "summary", settings.summary_model, latency_ms))
-            self.repository.set_summary(candidate_id, message.text)
+            self.repository.set_summary(candidate_id, message.text, state.get("version", 0))
 
     def _abandon(self, now: datetime, candidate_id: str) -> int:
         with self._locks[candidate_id]:
@@ -241,8 +251,9 @@ class ScreeningEngine:
             state = self.repository.load_state(candidate_id)
             language = state.get("language", fresh.language)
             if fresh.awaiting_first_reply:
-                text = replies.opener(language)
-                outbound.send_opener(candidate_id, text)
+                name = _first_name(state.get("applicant_name"))
+                text = replies.opener(language, name)
+                outbound.send_opener(candidate_id, text, name)
             else:
                 text = _nudge_text(state, language)
                 outbound.send_text(candidate_id, text)
@@ -370,14 +381,11 @@ def _set_usage(span: Span, usage: ModelUsage | None) -> None:
 
 
 def _nudge_text(state: ScreeningState, language: Language) -> str:
-    pending = state.get("pending_zone")
-    if pending:
-        question = replies.ZONE_CONFIRM[language].format(area=pending)
-    elif state.get("pending_name"):
-        question = replies.NAME_CONFIRM[language].format(name=state.get("applicant_name"))
-    else:
-        question = replies.REASK[stage_of(state)][language]
-    return replies.NUDGE[language].format(question=question)
+    return replies.NUDGE[language].format(question=replies.next_question(state, language))
+
+
+def _first_name(applicant_name: str | None) -> str | None:
+    return first_name(applicant_name or "") or None
 
 
 def _off_topic(state: ScreeningState, text: str) -> tuple[ScreeningState, str]:

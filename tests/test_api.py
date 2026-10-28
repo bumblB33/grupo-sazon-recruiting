@@ -1,5 +1,6 @@
 from datetime import UTC, datetime, timedelta
 
+import pytest
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
 
@@ -239,3 +240,18 @@ def test_unknown_number_gets_the_fixed_reply_and_nothing_is_stored(client):
     assert not repository.has_message("SM-stranger")
     screen_no_licence(client, "+34600")
     assert client.get("/candidates/+34600").json()["status"] == "disqualified"
+
+
+@pytest.mark.parametrize("name", ["   ", "12345", "Ana; drop", "<b>Ana</b>"])
+def test_start_rejects_applicant_names_that_are_not_names(client, name):
+    api.app.dependency_overrides[api.get_whatsapp_outbound] = lambda: FakeOutbound()
+    body = {"phone": "+34600111222", "language": "es", "name": name}
+    assert client.post("/candidates", json=body).status_code == 422
+
+
+def test_start_trims_and_collapses_the_applicant_name(client):
+    outbound = FakeOutbound()
+    api.app.dependency_overrides[api.get_whatsapp_outbound] = lambda: outbound
+    body = {"phone": "+34600111222", "language": "es", "name": "  Ana   García-López  "}
+    assert client.post("/candidates", json=body).status_code == 201
+    assert client.get("/candidates/+34600111222").json()["applicant_name"] == "Ana García-López"

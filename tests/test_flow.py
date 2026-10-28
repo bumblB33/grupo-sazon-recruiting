@@ -522,3 +522,39 @@ def test_no_licence_still_disqualifies_when_the_name_needs_confirmation(make_eng
     candidate = repository.get_candidate("cand")
     assert candidate.status == Status.DISQUALIFIED
     assert candidate.disqualify_reason == DisqualifyReason.NO_LICENCE
+
+
+def test_fallback_question_repeats_the_name_confirmation_while_pending(make_engine):
+    engine, repository, model = make_engine(
+        [CONSENT, NAME, ai("", "record_full_name", {"full_name": "Ana García"})]
+    )
+    start_with_name(engine, "Pedro Martínez")
+    replies = drive(engine, ["sí", "Ana García", "Ana García"])
+    assert replies[-1] == "Solo para confirmar: ¿eres Pedro Martínez? Sí o no."
+    assert repository.load_state("cand")["pending_name"] == "Ana García"
+    assert "confirm_name" in model.bound_tool_names[-1]
+
+
+def test_webhook_style_handle_does_not_create_a_conversation(make_engine):
+    engine, repository, model = make_engine([CONSENT])
+    result = engine.handle("ghost", "hola", "whatsapp", external_id="g-1", create_if_missing=False)
+    assert result.outcome == Outcome.UNKNOWN
+    assert not repository.conversation_exists("ghost")
+    assert model.seen_inputs == []
+
+
+def test_qualified_reply_uses_the_shared_first_name_rule(make_engine):
+    engine, _, _ = make_engine(
+        [
+            CONSENT,
+            ai("", "record_full_name", {"full_name": "Ana  García"}),
+            LICENCE,
+            ai("", "record_zone", {"city": "Madrid"}),
+            ai("", "record_availability", {"availability": ["full_time"]}),
+            ai("", "record_schedule", {"schedule": "morning"}),
+            ai("", "record_experience", {"years": 0, "platforms": []}),
+            ai("", "record_start_date", {"start_date": START}),
+        ]
+    )
+    replies = drive(engine, ["sí", "Ana  García", "sí", "Madrid", "completa", "mañana", "0", START])
+    assert replies[-1].startswith("¡Listo, Ana!")

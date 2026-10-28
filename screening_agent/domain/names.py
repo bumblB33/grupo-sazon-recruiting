@@ -23,3 +23,20 @@ def name_similarity(stated: str, applicant: str) -> float:
 def first_name(name: str) -> str:
     tokens = name.split()
     return tokens[0] if tokens else ""
+
+
+NAME_PUNCTUATION = "-'.·"
+
+
+def clean_applicant_name(value: str) -> str:
+    """Whitespace collapsed; every token alphabetic apart from hyphens, apostrophes and periods.
+    The name reaches the system prompt and the candidate's phone, so nothing else is allowed in."""
+    tokens = value.split()
+    if not tokens or not all(_is_name_token(token) for token in tokens):
+        raise ValueError("name must be one or more words made of letters")
+    return " ".join(tokens)
+
+
+def _is_name_token(token: str) -> bool:
+    letters = "".join(char for char in token if char not in NAME_PUNCTUATION)
+    return bool(letters) and letters.isalpha()

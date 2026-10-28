@@ -171,3 +171,16 @@ def test_reply_landing_during_sweep_wins(make_engine):
     assert report.nudged == 0
     assert repository.silence_candidate("+34620").nudge_count == 0
     assert events(repository, "nudge_unrecorded")
+
+
+def test_resent_opener_keeps_the_applicant_first_name(make_engine):
+    engine, _, _ = make_engine([])
+    outbound = FakeOutbound()
+    engine.start_conversation(
+        "+34600", "whatsapp", Language.ES, outbound, applicant_name="Ana López"
+    )
+    engine.sweep_silence(datetime.now(UTC) + timedelta(hours=24), {"whatsapp": outbound})
+    assert [(text[:11], name) for _, text, name in outbound.openers] == [
+        ("¡Hola, Ana!", "Ana"),
+        ("¡Hola, Ana!", "Ana"),
+    ]

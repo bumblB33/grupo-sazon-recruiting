@@ -133,8 +133,13 @@ class Repository:
             Event(candidate_id=candidate_id, kind=kind, payload=payload).model_dump()
         )
 
-    def set_summary(self, candidate_id: str, summary: str) -> None:
-        self.candidates.update_one({"_id": candidate_id}, {"$set": {"summary": summary}})
+    def set_summary(self, candidate_id: str, summary: str, version: int) -> bool:
+        """Keyed on the version the summary was built from, so a slow summary cannot land on a
+        conversation that moved on or on a new one opened for the same id after a reset."""
+        result = self.candidates.update_one(
+            {"_id": candidate_id, "version": version}, {"$set": {"summary": summary}}
+        )
+        return result.matched_count == 1
 
     def override(
         self, candidate_id: str, status: Status | None, notes: str | None, actor: str
@@ -173,7 +178,7 @@ class Repository:
 
     def archive_candidate(self, candidate_id: str, actor: str) -> str | None:
         """Moves the document and its events under a new id so the candidate id is free again.
-        Standalone Mongo has no transactions, so each step is idempotent and the delete is fenced."""
+        No transactions: the fenced delete is the commit point, and the events move only after it."""
         for _ in range(ARCHIVE_ATTEMPTS):
             fenced = self.candidates.find_one_and_update(
                 {"_id": candidate_id},
@@ -198,25 +203,28 @@ class Repository:
                 "archived_by": actor,
             }
             self.candidates.replace_one({"_id": archive_id}, copy, upsert=True)
-            self.events.update_many(
-                {"candidate_id": candidate_id}, {"$set": {"candidate_id": archive_id}}
-            )
-            self.events.update_one(
-                {"candidate_id": archive_id, "kind": "demo_reset"},
-                {
-                    "$setOnInsert": {
-                        "payload": {"actor": actor, "reset_id": candidate_id},
-                        "created_at": utcnow(),
-                    }
-                },
-                upsert=True,
-            )
             deleted = self.candidates.delete_one(
                 {"_id": candidate_id, "archive_id": archive_id, "version": fenced["version"]}
             )
             if deleted.deleted_count == 1:
+                self._move_events(candidate_id, archive_id, actor)
                 return archive_id
         raise StaleStateError("conversation kept changing under the archive")
+
+    def _move_events(self, candidate_id: str, archive_id: str, actor: str) -> None:
+        self.events.update_many(
+            {"candidate_id": candidate_id}, {"$set": {"candidate_id": archive_id}}
+        )
+        self.events.update_one(
+            {"candidate_id": archive_id, "kind": "demo_reset"},
+            {
+                "$setOnInsert": {
+                    "payload": {"actor": actor, "reset_id": candidate_id},
+                    "created_at": utcnow(),
+                }
+            },
+            upsert=True,
+        )
 
     def get_recruiter(self, email: str) -> Recruiter | None:
         document = self.recruiters.find_one({"_id": email})

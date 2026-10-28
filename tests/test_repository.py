@@ -216,3 +216,34 @@ def test_archive_retries_when_a_writer_commits_after_the_fence(repository, monke
     archived = repository.get_candidate_detail(archive_id)
     assert archived is not None
     assert [e.body for e in archived.transcript] == ["hola", "reply", "late", "reply"]
+
+
+def test_archive_exhaustion_leaves_the_live_candidate_and_its_events_intact(
+    repository, monkeypatch
+):
+    phone = "+34600111222"
+    saved(repository, phone)
+    repository.record_event(phone, "outcome", {"status": "qualified"})
+
+    real_delete = repository.candidates.delete_one
+
+    def never_deletes(query):
+        repository.save_turn(repository.load_state(phone), "cli", "late", "r", external_id=None)
+        return real_delete({"_id": "nobody"})
+
+    monkeypatch.setattr(repository.candidates, "delete_one", never_deletes)
+    with pytest.raises(StaleStateError):
+        repository.archive_candidate(phone, actor="dev-mode")
+    assert repository.get_candidate(phone) is not None
+    assert [e.kind for e in repository.list_events(phone)] == ["outcome"]
+    assert repository.events.count_documents({"kind": "demo_reset"}) == 0
+
+
+def test_summary_is_refused_when_the_conversation_moved_on(repository):
+    saved(repository, "a")
+    stale_version = repository.load_state("a")["version"]
+    repository.save_turn(repository.load_state("a"), "cli", "más", "r", external_id="a-2")
+    assert not repository.set_summary("a", "old summary", stale_version)
+    assert repository.get_candidate("a").summary is None
+    assert repository.set_summary("a", "new summary", stale_version + 1)
+    assert repository.get_candidate("a").summary == "new summary"

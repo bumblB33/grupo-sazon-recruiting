@@ -10,6 +10,7 @@ from langgraph.graph import END, START, StateGraph
 from screening_agent.config import settings
 from screening_agent.domain.enums import Language, ReviewReason, Stage, Status
 from screening_agent.domain.language import detect_language
+from screening_agent.domain.names import first_name
 from screening_agent.domain.profile import CandidateProfile
 from screening_agent.flow import replies
 from screening_agent.flow.reply_policy import style_failures
@@ -187,6 +188,9 @@ def _choose_reply(
         return ReplyChoice(terminal, ReplySource.TERMINAL)
     if reask_stages:
         stage = min(reask_stages, key=_stage_index)
+        # A rejection at the current stage re-asks what is pending there, which may be a confirmation.
+        if stage == stage_of(state):
+            return ReplyChoice(replies.next_question(state, language), ReplySource.REASK)
         return ReplyChoice(replies.REASK[stage][language], ReplySource.REASK)
     if confirm_area:
         text = replies.ZONE_CONFIRM[language].format(area=confirm_area)
@@ -194,7 +198,7 @@ def _choose_reply(
     if confirm_name:
         text = replies.NAME_CONFIRM[language].format(name=confirm_name)
         return ReplyChoice(text, ReplySource.NAME_CONFIRM)
-    next_question = replies.REASK[stage_of(state)][language]
+    next_question = replies.next_question(state, language)
     if not model_text:
         return ReplyChoice(next_question, ReplySource.NEXT_QUESTION)
     violated = style_failures(model_text, language)
@@ -228,6 +232,6 @@ def _terminal_reply(state: dict[str, Any], language: Language) -> str | None:
     if status == Status.NEEDS_RECRUITER_REVIEW:
         return replies.REVIEW[state["review_reason"]][language]
     if status == Status.QUALIFIED:
-        first_name = (state.get("profile", {}).get("full_name") or "").split(" ")[0]
-        return replies.QUALIFIED[language].format(first_name=first_name)
+        name = first_name(state.get("profile", {}).get("full_name") or "")
+        return replies.QUALIFIED[language].format(first_name=name)
     return None

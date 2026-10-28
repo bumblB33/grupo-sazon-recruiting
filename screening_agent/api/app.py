@@ -12,7 +12,7 @@ from fastapi import (
     Request,
     Response,
 )
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from screening_agent.api.auth import Principal
 from screening_agent.api.deps import (
@@ -31,6 +31,7 @@ from screening_agent.channels.whatsapp import (
 )
 from screening_agent.config import settings
 from screening_agent.domain.enums import Language, Stage, Status
+from screening_agent.domain.names import clean_applicant_name
 from screening_agent.flow import replies
 from screening_agent.flow.engine import OutboundChannel, Outcome, ScreeningEngine
 from screening_agent.observability import configure_observability
@@ -103,6 +104,11 @@ class StartRequest(BaseModel):
         "against the name the candidate gives",
     )
 
+    @field_validator("name")
+    @classmethod
+    def name_is_made_of_words(cls, value: str | None) -> str | None:
+        return None if value is None else clean_applicant_name(value)
+
 
 class StartResponse(BaseModel):
     candidate_id: str
@@ -114,15 +120,18 @@ def whatsapp_webhook(
     background_tasks: BackgroundTasks,
     message: InboundWhatsAppMessage = Depends(verified_webhook_message),
     engine: ScreeningEngine = Depends(get_engine),
-    repository: Repository = Depends(get_repository),
 ) -> Response:
     """A number with no application gets a fixed reply and no model call, so the first message a
     candidate ever receives is the opener with its AI disclosure."""
-    if not repository.conversation_exists(message.from_phone):
-        return _twiml(replies.unknown_number(), Outcome.UNKNOWN)
     result = engine.handle(
-        message.from_phone, message.text, channel="whatsapp", external_id=message.message_id
+        message.from_phone,
+        message.text,
+        channel="whatsapp",
+        external_id=message.message_id,
+        create_if_missing=False,
     )
+    if result.outcome == Outcome.UNKNOWN:
+        return _twiml(replies.unknown_number(), Outcome.UNKNOWN)
     if result.terminal:
         background_tasks.add_task(engine.summarize_outcome, message.from_phone)
     return _twiml(result.reply, result.outcome)

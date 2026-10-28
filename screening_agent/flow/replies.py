@@ -1,6 +1,9 @@
+from collections.abc import Mapping
+from typing import Any
+
 from screening_agent.config import settings
 from screening_agent.domain.enums import DisqualifyReason, Language, ReviewReason, Stage
-from screening_agent.domain.names import first_name
+from screening_agent.flow.state import stage_of
 
 REASK: dict[Stage, dict[Language, str]] = {
     Stage.CONSENT: {
@@ -114,11 +117,19 @@ UNKNOWN_NUMBER = (
 )
 
 
-def opener(language: Language, applicant_name: str | None = None) -> str:
+def opener(language: Language, first_name: str | None = None) -> str:
     plain, named = GREETING[language]
-    name = first_name(applicant_name or "")
-    greeting = named.format(first_name=name) if name else plain
+    greeting = named.format(first_name=first_name) if first_name else plain
     return OPENER[language].format(greeting=greeting, assistant=settings.assistant_name)
+
+
+def next_question(state: Mapping[str, Any], language: Language) -> str:
+    """The question the candidate still owes: a pending confirmation first, else the stage's re-ask."""
+    if state.get("pending_zone"):
+        return ZONE_CONFIRM[language].format(area=state["pending_zone"])
+    if state.get("pending_name"):
+        return NAME_CONFIRM[language].format(name=state.get("applicant_name"))
+    return REASK[stage_of(state)][language]
 
 
 def unknown_number() -> str:

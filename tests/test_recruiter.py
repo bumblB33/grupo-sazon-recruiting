@@ -22,6 +22,7 @@ from tests.conftest import (
     FakeOutbound,
     invite,
     log_in,
+    open_candidate,
     screen_no_licence,
     twilio_form,
 )
@@ -308,6 +309,7 @@ def test_mail_provider_failure_still_answers_check_your_inbox(client, signed):
 
 def test_list_filters_and_shows_funnel(client):
     screen_no_licence(client, "+34600")
+    open_candidate("+34601")
     client.post("/webhook/whatsapp", data=twilio_form("SM-other", "+34601", "sí"))
     page = client.get(LIST).text
     assert "+34600" in page and "+34601" in page
@@ -372,6 +374,7 @@ def test_detail_shows_the_turn_inspector_and_refreshes_only_while_in_progress(cl
     assert "Why this reply" in closed_page
     assert "has_licence &rarr; zone · disqualified" in closed_page
     assert "fixed closing message" in closed_page
+    open_candidate("+34601")
     client.post("/webhook/whatsapp", data=twilio_form("SM-open", "+34601", "sí"))
     open_page = client.get(f"{RECRUITER_PREFIX}/candidates/+34601").text
     assert '<meta http-equiv="refresh" content="5">' in open_page
@@ -433,6 +436,7 @@ def reset_path(candidate_id: str) -> str:
 
 def test_reset_button_and_route_exist_only_for_allowlisted_phones(client, monkeypatch):
     screen_no_licence(client, "+34600")
+    open_candidate("+34601")
     client.post("/webhook/whatsapp", data=twilio_form("SM-other", "+34601", "sí"))
     monkeypatch.setattr(settings, "demo_phones", ["+34600"])
     assert reset_path("%2B34600") in client.get(f"{RECRUITER_PREFIX}/candidates/+34600").text

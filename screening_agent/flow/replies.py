@@ -92,5 +92,17 @@ NUDGE: dict[Language, str] = {
 }
 
 
+UNKNOWN_NUMBER = (
+    "Hola, soy {assistant}, el asistente de IA de Grupo Sazón. No encuentro ninguna solicitud con "
+    "este número, así que no puedo continuar por aquí. / Hi, I'm {assistant}, Grupo Sazón's AI "
+    "assistant. I can't find an application for this number, so I can't continue here."
+)
+
+
 def opener(language: Language) -> str:
     return OPENER[language].format(assistant=settings.assistant_name)
+
+
+def unknown_number() -> str:
+    """One bilingual message: the sender's language is unknown before any application exists."""
+    return UNKNOWN_NUMBER.format(assistant=settings.assistant_name)

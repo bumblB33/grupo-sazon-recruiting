@@ -31,7 +31,8 @@ from screening_agent.channels.whatsapp import (
 )
 from screening_agent.config import settings
 from screening_agent.domain.enums import Language, Stage, Status
-from screening_agent.flow.engine import OutboundChannel, ScreeningEngine
+from screening_agent.flow import replies
+from screening_agent.flow.engine import OutboundChannel, Outcome, ScreeningEngine
 from screening_agent.observability import configure_observability
 from screening_agent.recruiter.router import recruiter_router
 from screening_agent.storage.models import Candidate, CandidateDetail
@@ -107,16 +108,25 @@ def whatsapp_webhook(
     background_tasks: BackgroundTasks,
     message: InboundWhatsAppMessage = Depends(verified_webhook_message),
     engine: ScreeningEngine = Depends(get_engine),
+    repository: Repository = Depends(get_repository),
 ) -> Response:
+    """A number with no application gets a fixed reply and no model call, so the first message a
+    candidate ever receives is the opener with its AI disclosure."""
+    if not repository.conversation_exists(message.from_phone):
+        return _twiml(replies.unknown_number(), Outcome.UNKNOWN)
     result = engine.handle(
         message.from_phone, message.text, channel="whatsapp", external_id=message.message_id
     )
     if result.terminal:
         background_tasks.add_task(engine.summarize_outcome, message.from_phone)
+    return _twiml(result.reply, result.outcome)
+
+
+def _twiml(reply: str, outcome: Outcome) -> Response:
     return Response(
-        content=twiml_reply(result.reply),
+        content=twiml_reply(reply),
         media_type="application/xml",
-        headers={"X-Screening-Outcome": result.outcome},
+        headers={"X-Screening-Outcome": outcome},
     )
 
 

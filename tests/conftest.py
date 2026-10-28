@@ -11,6 +11,7 @@ from langchain_core.runnables import RunnableLambda
 from screening_agent.api import app as api
 from screening_agent.api.deps import get_email_sender
 from screening_agent.config import settings
+from screening_agent.domain.enums import Language
 from screening_agent.flow.engine import ScreeningEngine
 from screening_agent.flow.graph import build_graph
 from screening_agent.llm.guardrail import (
@@ -207,7 +208,14 @@ def twilio_form(sid: str, phone: str, body: str) -> dict[str, str]:
     return {"MessageSid": sid, "From": f"whatsapp:{phone}", "To": "whatsapp:+1555", "Body": body}
 
 
+def open_candidate(phone: str, language: Language = Language.ES) -> None:
+    """The webhook only answers known numbers, so API tests open the candidate like POST /candidates."""
+    engine = api.app.dependency_overrides[api.get_engine]()
+    engine.start_conversation(phone, "whatsapp", language, FakeOutbound())
+
+
 def screen_no_licence(client: TestClient, phone: str) -> None:
+    open_candidate(phone)
     for index, text in enumerate(NO_LICENCE_TURNS):
         client.post("/webhook/whatsapp", data=twilio_form(f"{phone}-{index}", phone, text))
 

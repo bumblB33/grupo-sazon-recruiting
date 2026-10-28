@@ -8,7 +8,14 @@ from screening_agent.api.auth import hash_secret, issue_session, new_api_key
 from screening_agent.api.deps import CSRF_HEADER, RECRUITER_COOKIE, email_sender, get_email_sender
 from screening_agent.channels.whatsapp import _twilio_signature
 from screening_agent.config import settings
-from tests.conftest import RECRUITER_EMAIL, FakeOutbound, log_in, screen_no_licence, twilio_form
+from tests.conftest import (
+    RECRUITER_EMAIL,
+    FakeOutbound,
+    log_in,
+    open_candidate,
+    screen_no_licence,
+    twilio_form,
+)
 
 WEBHOOK = "/webhook/whatsapp"
 
@@ -19,6 +26,7 @@ def signed_headers(client: TestClient, form: dict[str, str], token: str) -> dict
 
 
 def test_webhook_then_override_and_analytics(client):
+    open_candidate("+34600")
     form = twilio_form("SM1", "+34600", "sí")
     first = client.post(WEBHOOK, data=form)
     assert first.headers["X-Screening-Outcome"] == "replied"
@@ -35,10 +43,12 @@ def test_webhook_then_override_and_analytics(client):
 
 
 def test_candidate_detail_has_transcript_and_events(client):
+    open_candidate("+34600")
     client.post(WEBHOOK, data=twilio_form("SM1", "+34600", "sí"))
     client.patch("/candidates/+34600", json={"status": "qualified", "notes": "ok"})
     detail = client.get("/candidates/+34600").json()
-    assert [(m["direction"], m["body"]) for m in detail["transcript"]] == [
+    assert [(m["direction"], m["body"][:5]) for m in detail["transcript"]] == [
+        ("out", "¡Hola"),
         ("in", "sí"),
         ("out", "Hola"),
     ]
@@ -64,6 +74,7 @@ def test_api_key_header_identifies_the_client_and_revocation_sticks(client, monk
     assert client.get("/candidates", headers={"x-api-key": "nonsense"}).status_code == 401
     assert client.get("/candidates", headers={"x-api-key": f"{key_id}.wrong"}).status_code == 401
     assert client.get("/candidates", headers={"x-api-key": presented}).status_code == 200
+    open_candidate("+34600")
     client.post("/webhook/whatsapp", data=twilio_form("SM1", "+34600", "sí"))
     patched = client.patch(
         "/candidates/+34600", json={"notes": "seen"}, headers={"x-api-key": presented}
@@ -80,6 +91,7 @@ def test_session_cookie_from_login_link_works_on_json_routes(client, email, monk
     monkeypatch.setattr(settings, "recruiter_email_domains", ["gruposazon.com"])
     log_in(client, email)
     assert client.get("/candidates").status_code == 200
+    open_candidate("+34600")
     client.post("/webhook/whatsapp", data=twilio_form("SM1", "+34600", "sí"))
     token = client.get("/csrf-token").json()["csrf_token"]
     patched = client.patch(
@@ -94,6 +106,7 @@ def test_cookie_writes_on_json_routes_need_the_csrf_header(client, email, monkey
     monkeypatch.setattr(settings, "session_secret", SecretStr("sign"))
     monkeypatch.setattr(settings, "recruiter_email_domains", ["gruposazon.com"])
     log_in(client, email)
+    open_candidate("+34600")
     client.post("/webhook/whatsapp", data=twilio_form("SM1", "+34600", "sí"))
     override = {"status": "qualified"}
     assert client.patch("/candidates/+34600", json=override).status_code == 403
@@ -110,6 +123,7 @@ def test_api_key_writes_work_without_a_session_secret(client, monkeypatch):
     key_id, secret, presented = new_api_key()
     repository.save_api_key(key_id, hash_secret(secret), "ats-sync")
     monkeypatch.setattr(settings, "dev_mode", True)
+    open_candidate("+34600")
     client.post(WEBHOOK, data=twilio_form("SM1", "+34600", "sí"))
     monkeypatch.setattr(settings, "dev_mode", False)
     headers = {"x-api-key": presented}
@@ -131,6 +145,7 @@ def test_json_routes_reject_tampered_and_expired_cookies(client, monkeypatch):
 
 def test_candidate_list_pages_and_rejects_unknown_filters(client):
     for index in range(3):
+        open_candidate(f"+3460{index}")
         client.post(WEBHOOK, data=twilio_form(f"SM{index}", f"+3460{index}", "sí"))
     first = [c["id"] for c in client.get("/candidates", params={"limit": 2}).json()]
     rest = client.get("/candidates", params={"limit": 2, "offset": 2}).json()
@@ -203,3 +218,17 @@ def test_start_candidate_sends_opener_once(client):
 
 def test_start_candidate_without_twilio_config_is_503(client):
     assert client.post("/candidates", json={"phone": "+34600111333"}).status_code == 503
+
+
+def test_unknown_number_gets_the_fixed_reply_and_nothing_is_stored(client):
+    repository = api.app.dependency_overrides[api.get_repository]()
+    response = client.post(WEBHOOK, data=twilio_form("SM-stranger", "+34699000000", "hola"))
+    assert response.status_code == 200
+    assert response.headers["X-Screening-Outcome"] == "unknown"
+    assert "No encuentro ninguna solicitud" in response.text
+    assert "I can&#x27;t find an application" in response.text or "can't find" in response.text
+    assert not repository.conversation_exists("+34699000000")
+    assert repository.list_candidates() == []
+    assert not repository.has_message("SM-stranger")
+    screen_no_licence(client, "+34600")
+    assert client.get("/candidates/+34600").json()["status"] == "disqualified"

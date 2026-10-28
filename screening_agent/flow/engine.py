@@ -57,6 +57,8 @@ class Outcome(StrEnum):
     REPLIED = "replied"
     DUPLICATE = "duplicate"
     CLOSED = "closed"
+    # The sender has no application; the webhook answers with a fixed reply and stores nothing.
+    UNKNOWN = "unknown"
 
 
 @dataclass(frozen=True)

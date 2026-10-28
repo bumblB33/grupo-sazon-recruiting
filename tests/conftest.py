@@ -39,8 +39,9 @@ class ScriptedToolModel(GenericFakeChatModel):
         try:
             return super().invoke(input, config=config, **kwargs)
         except StopIteration:
-            # An exhausted script reads as a model that wrote nothing, so the fixed fallback goes out.
-            return AIMessage(content="")
+            raise AssertionError(
+                "scripted model called more times than the test scripted"
+            ) from None
 
 
 def ai(

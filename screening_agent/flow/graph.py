@@ -116,7 +116,8 @@ def build_graph(llm: BaseChatModel, build_prompt: PromptBuilder, model_id: str =
             confirm_name = transition.confirm_name or confirm_name
             consent_deferred = consent_deferred or transition.consent_deferred
 
-        for stage in strike_stages:
+        # A strike is one rejected candidate message per stage, not one per tool call in it.
+        for stage in dict.fromkeys(strike_stages):
             turn_state.apply(_count_rejection(turn_state.working, stage))
         turn_state.apply(qualify_if_complete(turn_state.working))
 

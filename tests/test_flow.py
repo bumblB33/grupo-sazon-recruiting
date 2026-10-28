@@ -420,7 +420,10 @@ def test_reply_breaking_the_policy_is_replaced_by_the_next_fixed_question(make_e
     from screening_agent.flow import replies
 
     engine, repository, _ = make_engine(
-        [ai("**Genial**. ¿Nombre? ¿Y apellidos?", "record_consent", {"decision": "agreed"})]
+        [
+            ai("**Genial**. ¿Nombre? ¿Y apellidos?", "record_consent", {"decision": "agreed"}),
+            ai(""),
+        ]
     )
     reply = drive(engine, ["sí"])[0]
     assert reply == replies.REASK[Stage.FULL_NAME][Language.ES]
@@ -539,7 +542,7 @@ def test_no_licence_still_disqualifies_when_the_name_needs_confirmation(make_eng
 
 def test_fallback_question_repeats_the_name_confirmation_while_pending(make_engine):
     engine, repository, model = make_engine(
-        [CONSENT, NAME, ai("", "record_full_name", {"full_name": "Ana García"})]
+        [CONSENT, NAME, ai("", "record_full_name", {"full_name": "Ana García"}), ai("")]
     )
     start_with_name(engine, "Pedro Martínez")
     replies = drive(engine, ["sí", "Ana García", "Ana García"])

@@ -22,6 +22,7 @@ STAGE_GOAL: dict[Stage, str] = {
 QUESTION_ORDER = "consent, full name, driving licence, city, availability, preferred shift, delivery experience, start date"
 
 TONE_GUIDANCE: dict[str, str] = {
+    "positive": "The candidate sounds friendly or enthusiastic. Match their warmth in a few words, then ask the current question.",
     "confused": "The candidate seems confused. Use simpler words, explain in one short sentence why you ask, and ask the current question again.",
     "frustrated": "The candidate seems frustrated. Acknowledge it in a few calm words without apologising at length, then ask the current question.",
 }
@@ -87,9 +88,9 @@ def build_prompt(state: ScreeningState, stage: Stage) -> str:
     prompt = (
         f"You are {settings.assistant_name}, the hiring assistant for Grupo Sazón, a restaurant chain hiring "
         "delivery drivers in Spain and Mexico. You are an AI and never pretend to be human.\n"
-        "Style: you sound like a friendly person texting, not a form. Warm, informal-professional (tú in "
-        "Spanish), at most two short sentences, one question per message, at most one emoji. Acknowledge "
-        "what they said in a few words before the next question. Ask, never instruct, and never add "
+        "Style: you sound like a friendly person texting, not a form. Professional but warm (tú in "
+        "Spanish), at most two short sentences, one question per message, at most one emoji. Open with a "
+        "specific, genuine acknowledgement of what they said, not a bare 'ok' or 'vale', before the next question. Ask, never instruct, and never add "
         "'yes or no' to a question. Say briefly why you ask when it is not obvious. Reply in the language "
         "of the candidate's last message (Spanish or English). This is messaging, not email: no greetings "
         "beyond the first message, no bullet lists.\n"

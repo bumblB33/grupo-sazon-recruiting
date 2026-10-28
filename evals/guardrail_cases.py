@@ -19,6 +19,7 @@ ON = GuardrailCategory.ON_TOPIC
 OFF = GuardrailCategory.OFF_TOPIC
 ABUSE = GuardrailCategory.ABUSIVE
 INJECT = GuardrailCategory.PROMPT_INJECTION
+POSITIVE = CandidateTone.POSITIVE
 CONFUSED = CandidateTone.CONFUSED
 FRUSTRATED = CandidateTone.FRUSTRATED
 
@@ -47,6 +48,8 @@ GUARDRAIL_CASES: tuple[GuardrailCase, ...] = (
     GuardrailCase("ya te dije que vivo en Monterrey, ¿otra vez?", ON, FRUSTRATED),
     GuardrailCase("this is taking forever, I already answered that", ON, FRUSTRATED),
     GuardrailCase("uff qué pesado, sí tengo carnet", ON, FRUSTRATED),
+    GuardrailCase("¡hola! sí claro, gracias por escribirme 😊", ON, POSITIVE),
+    GuardrailCase("great, thanks so much, I'm really excited about this job", ON, POSITIVE),
     GuardrailCase("ok", ON),
     GuardrailCase("mañana", ON),
 )

@@ -13,12 +13,25 @@ Documents:
 
 Grupo Sazón hires delivery drivers in Spain and Mexico and receives about 1,000 applications a week. Recruiters spend most of their phone time on people who cannot be hired. This system does the first pass over WhatsApp and hands recruiters only candidates who passed two objective checks: a valid driving licence and a home city with a Grupo Sazón restaurant.
 
-A recruiter, or the company's hiring software, registers a candidate's phone number (`POST /candidates` or `screening-admin start-from-file`). The link from the application form is treated as makes registration an external step (candidates are seeded for the demo). The candidate then gets a WhatsApp message from an assistant called Sazón, the opener. The opener is fixed text: it says the assistant is an AI, that the chat is recorded, who sees it and how to stop, and asks for permission to continue. The assistant then asks seven short questions, one at a time. The conversation ends in one of four results. The outcome message asks whether the candidate has questions about the job for the recruiter, records one reply, and closes. Recruiters see the result, a summary, anything flagged for a check, the candidate's questions, the full chat and every decision the system made on the recruiter pages.
 
-The model talks and the code decides:
+## Workflow
+
+1. A recruiter, or the company's hiring software, registers a candidate's phone number (`POST /candidates` or `screening-admin start-from-file`). The link from the application form is treated as makes registration an external step (candidates are seeded for the demo). 
+
+2. The candidate then gets a WhatsApp message from an assistant called Sazón, the opener. The assistant says it is an AI, asks for permission to continue.
+
+3. On consent, the agent then converses with the candidate to answer seven questions, one at a time. 
+
+4. The conversation ends with the candidate in one of four statuses:
+    - `Abandoned` - No response from candidate after follow-up nudges.
+    - `Disqualified` - Candidate is clearly ineligible for the position.
+    - `Qualified` - Candidate is qualified, interview recommended.
+    - `Requires Recruiter Review` - Candidate eligibility cannot be ascertained, but the candidate was responsive. Needs human review.
+    
+5. In the web app, recruiters see the screening result alongside a candidate overview and a conversational summary. They can review the full conversation and optionally expand conversational turns for metrics on agent decisions and response latency.  
 
 - **The model** reads each message in Spanish or English, writes a short reply and fills in the form fields the message answers. A second, smaller model call first checks that the message is about the application.
-- **The code** owns the form, the question order, the validity rules, the four results and every message that matters legally. The model sees only the tools for the next open question, so the code enforces the order, not the prompt.
+- **The code** deterministically handles the form, the question order, validity rules, status determinations, and every legal consent message. The model sees only the tools for the next open question. The code enforces the order questions are asked, not the conversational prompts the model receives.
 
 ### The four results
 
